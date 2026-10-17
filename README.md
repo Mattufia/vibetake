@@ -17,6 +17,12 @@ Private repo: the machine needs GitHub credentials that `git` can use without
 prompting (`gh auth login` then `gh auth setup-git`). Without an SSH key, set
 `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1`.
 
+**Keep it updated automatically**: `/plugin` → **Marketplaces** → `vibetake` →
+**Enable auto-update** (off by default for third-party marketplaces). New versions
+arrive within the first minutes of a session and apply on the next one, or right
+away with `/reload-plugins`. To update by hand: `/plugin` → **Marketplaces** →
+`vibetake` → **Update marketplace**.
+
 ## Set up a machine
 
 Run `/vibetake:setup` once per machine: it checks tools, GPU and models, installs
@@ -24,9 +30,99 @@ what's missing (winget / Homebrew / apt, after your OK) and downloads the heavy 
 up front, with a real transcription test on the GPU. The machine profile goes to
 `~/.vibetake/machine.json`, never into the plugin.
 
-## Use
+## Use: editing a video, step by step
 
-Ask Claude to edit a video, or run `/vibetake:edit`.
+### 1. Make a project folder
+
+One folder per video, with the footage inside `00-raw/`:
+
+```text
+my-video/
+  00-raw/        ← your clips, external audio, photos (never modified)
+  brand/         ← optional: logo (PNG with transparency), fonts, colors, a LUT
+```
+
+Several clips are fine: they're ordered by recording time and treated as one
+sequence (a retake in the second clip of something said in the first is found too).
+Separate audio (a lavalier, a recorder) goes in `00-raw/` as well: it's synced
+automatically.
+
+### 2. Open Claude Code in that folder and ask
+
+```text
+cd my-video
+claude
+```
+
+Ask in your own words. The more it knows, the fewer questions it asks:
+
+```text
+Edit this video for Instagram Reels and TikTok.
+```
+```text
+Edit this video for YouTube. It's in Spanish; the brand is Acme, the logo is in brand/.
+Names to spell right: Mattu, Vibetake, DaVinci.
+```
+```text
+Cut a 30-second ad from this, vertical, with a strong hook and a call to action.
+```
+
+What helps: **where it's going** (TikTok, Reels, Shorts, YouTube…), **the language**,
+names and brands that appear, and the brand assets if there are any. What you don't
+need to say: subtitles, pacing, margins, music — it decides them from the platform
+and the kind of video, and tells you what it chose.
+
+### 3. What happens
+
+1. **It looks at the material** before touching anything: transcribes it, detects
+   the camera, HDR or log footage, faces, retakes and filler words.
+2. **It asks only what it can't deduce**, all at once — usually where the video goes
+   and how much color correction (with before/after previews to compare).
+3. **It edits**: cuts on the transcript (retakes and fillers out, natural pauses),
+   reframes for vertical when needed, corrects color, cleans and mixes the audio,
+   adds subtitles, graphics and sound effects according to the type of video.
+4. **It checks the result** before handing it over: format, loudness, sync,
+   subtitles inside the safe zone — and it transcribes the final file again to catch
+   a cut in the middle of a word or a lost phrase.
+
+### 4. What you get, in `03-delivery/`
+
+| File | What |
+|---|---|
+| `my-video_v1.mp4` | the video (each round of changes is a new version: `_v2`, `_v3`…) |
+| `my-video.srt` | subtitles as a file, for the platforms' accessibility and search |
+| `cover_<platform>_<n>.jpg` | 2–3 covers per platform (YouTube thumbnail, Reels/TikTok cover) |
+| `copy.txt` | the text to publish with, per platform: caption, hashtags, title, chapters |
+| `qa/qa.md` | the final check, plus reminders for the upload (e.g. Instagram's "highest quality") |
+
+`project.md` keeps what was decided and why, so work can resume later without
+starting over.
+
+### 5. Ask for changes
+
+Just say it; the edit is kept as a list of cuts, so changes don't redo everything:
+
+```text
+Take out the part where I talk about the price.
+Start with the line about the deadline.
+Subtitles bigger and without capitals.
+Less music. Warmer color. No zoom on the cuts.
+Another cover, with the frame where I'm pointing.
+```
+
+Each round produces a new video version; covers, subtitles and copy are updated in
+place.
+
+### Other commands
+
+- `/vibetake:setup` — check or set up the machine (once per machine, or after a
+  driver/ffmpeg update).
+- `/vibetake:setup check` — only see what's installed and ready.
+
+### If something looks wrong
+
+Say what and at what second ("at 0:42 a word is cut", "the subtitles cover my face at
+1:10"). `03-delivery/qa/qa.md` and `project.md` show what was checked and decided.
 
 ## Requirements
 
