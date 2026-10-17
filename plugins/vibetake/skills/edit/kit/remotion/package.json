@@ -1,0 +1,22 @@
+{
+  "name": "vibetake-graphics",
+  "private": true,
+  "description": "Graphics layer for one video: Vibetake's animation kit + this video's design (src/data/design.json) and scene plan (src/data/graphics.json).",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Graphics ../graphics.mov --codec=prores --prores-profile=4444 --pixel-format=yuva444p10le --image-format=png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.531",
+    "@remotion/fonts": "4.0.531",
+    "@remotion/layout-utils": "4.0.531",
+    "@remotion/paths": "4.0.531",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.531"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  }
+}

@@ -190,3 +190,32 @@ def latest_video(folder: Path = DELIVERY) -> Path | None:
         if m and (best is None or (int(m.group(1)), p.stat().st_mtime) > best[0]):
             best = ((int(m.group(1)), p.stat().st_mtime), p)
     return best[1] if best else None
+
+
+# ---------- the project's typefaces ----------
+
+def project_font(role: str = "display") -> dict | None:
+    """The font this video uses for a role — display (headlines, covers), text, captions —
+    as {"file", "name", "family", "weight"}: from 02-work/design.json when the design names
+    one, otherwise from the fonts downloaded for the project (fonts.py): the heaviest
+    upright weight for display/captions, the lightest from 400 up for text. None if the
+    project has no fonts yet (system fonts are never a fallback)."""
+    design = Path("02-work/design.json")
+    if design.exists():
+        try:
+            d = json.loads(design.read_text(encoding="utf-8")).get("fonts", {})
+            f = d.get(role) or (d.get("display") if role == "captions" else None)
+            if f and Path(f.get("file", "")).exists():
+                return f
+        except ValueError:
+            pass
+    idx = Path("02-work/fonts.json")
+    if not idx.exists():
+        return None
+    fonts = [f for f in json.loads(idx.read_text(encoding="utf-8")) if Path(f["file"]).exists() and not f["italic"]]
+    if not fonts:
+        return None
+    if role == "text":
+        cands = [f for f in fonts if f["weight"] >= 400] or fonts
+        return min(cands, key=lambda f: f["weight"])
+    return max(fonts, key=lambda f: f["weight"])

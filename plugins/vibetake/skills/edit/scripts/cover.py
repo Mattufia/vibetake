@@ -53,27 +53,18 @@ PLATFORMS = {
     "tiktok": ((1080, 1920), (0.06, 0.125, 0.94, 0.875), []),
     "shorts": ((1080, 1920), (0.06, 0.125, 0.94, 0.875), []),
 }
-FONTS = ["Anton-Regular.ttf", "BebasNeue-Regular.ttf", "Montserrat-Black.ttf", "ariblk.ttf", "Arial Black.ttf",
-         "impact.ttf", "Impact.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"]
-FONT_DIRS = [Path("C:/Windows/Fonts"), Path.home() / "AppData/Local/Microsoft/Windows/Fonts",
-             Path("/Library/Fonts"), Path("/System/Library/Fonts/Supplemental"), Path.home() / "Library/Fonts",
-             Path("/usr/share/fonts"), Path.home() / ".local/share/fonts"]
-
-
 def find_font(name: str | None) -> str:
+    """The headline font: a .ttf path given, else the project's display font (fonts.py /
+    design.json). System fonts are never a fallback."""
     if name and Path(name).exists():
         return name
-    wanted = [name] if name else FONTS
-    for w in wanted:
-        for d in FONT_DIRS:
-            if not d.exists():
-                continue
-            hit = next(iter(d.rglob(w if w.lower().endswith((".ttf", ".otf")) else f"{w}*.tt*")), None)
-            if hit:
-                return str(hit)
     if name:
-        die(f"font {name} not found: pass a .ttf path")
-    die("no heavy sans font found: pass --font <file.ttf> (an OFL font such as Anton or Montserrat Black)")
+        die(f"font {name} not found: pass a .ttf path (fonts.py get downloads the project's fonts)")
+    from _common import project_font
+    pf = project_font("display")
+    if not pf:
+        die("no project font: choose this video's typefaces first (fonts.py get …)")
+    return pf["file"]
 
 
 def hexcolor(c: str) -> tuple[int, int, int]:
@@ -444,6 +435,12 @@ def cmd_candidates(args) -> None:
 
 def cmd_make(args) -> None:
     font_path = find_font(args.font)
+    if not args.colors:
+        dj = Path("02-work/design.json")
+        c = json.loads(dj.read_text(encoding="utf-8")).get("colors", {}) if dj.exists() else {}
+        if not all(k in c for k in ("paper", "accent", "ink")):
+            die("no colors: pass --colors bg,accent,text or write the video's design (design.json)")
+        args.colors = f"{c['paper']},{c['accent']},{c['ink']}"
     work = Path("02-work/covers")
     work.mkdir(parents=True, exist_ok=True)
     if args.image:
@@ -495,8 +492,8 @@ def main() -> None:
     m.add_argument("--big", help="giant half-transparent element behind the head: a number, a word, an emoji")
     m.add_argument("--brand", help="brand name above the headline")
     m.add_argument("--logo", help="brand logo (PNG with alpha)")
-    m.add_argument("--colors", default="#101828,#FFD400,#FFFFFF", help="background,accent,text")
-    m.add_argument("--font", help="headline font (.ttf path or file name); default: a heavy sans found here")
+    m.add_argument("--colors", help="background,accent,text (default: the video's design: paper, accent, ink)")
+    m.add_argument("--font", help="headline font (.ttf path); default: the project's display font")
     m.add_argument("--no-pattern", action="store_true")
     m.add_argument("--platform", action="append", choices=tuple(PLATFORMS))
     m.add_argument("--variant", type=int, default=1)

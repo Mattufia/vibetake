@@ -45,5 +45,6 @@ mouth mid-syllable. The frame comes out with the file's color grade.
 - **Check the cutout**: hair, hands and edges against clothes are where it fails. If
   it fails, try another frame, or `--no-cutout` (the frame goes where the text
   isn't, fading into the background).
-- No brand assets: the default palette is a neutral dark background with a yellow
-  accent; say so in the delivery so changing it is a concrete request.
+- **The video's design rules the cover too**: its typefaces (`fonts.py`, never system
+  fonts), its colors (`--colors` defaults to the design's paper, accent and ink) and
+  real icons (`icons.py png` for a mark or icon on the cover).

@@ -9,6 +9,8 @@
 The master goes to 03-delivery/<name>_v<N>.mp4 — a new version on every render, so
 each round of changes stays (<name>: edl.json's "name" or the project folder).
 --overwrite replaces the latest version instead (a fix before it was delivered).
+--variant hookB renders another edit (its own edl) as <name>_v<N>_hookB.mp4, next to
+the main video of the same version (an alternative hook, a 4:5 cut…).
 
 Per segment: seek into the original, color (HDR pre-filter + the file's LUT from
 02-work/color/grade.json), frame to the output size, constant frame rate, and a
@@ -277,6 +279,8 @@ def main() -> None:
     ap.add_argument("edl", nargs="?", default="02-work/edl.json")
     ap.add_argument("--out", help="output file (default: the next version in 03-delivery/)")
     ap.add_argument("--overwrite", action="store_true", help="replace the latest version instead of adding one")
+    ap.add_argument("--variant", help="a variant of the current version (hookB, 4x5…): <name>_v<N>_<variant>.mp4, "
+                                      "same N as the main video, replaced on each render")
     ap.add_argument("--grade", default="02-work/color/grade.json")
     ap.add_argument("--no-grade", action="store_true")
     ap.add_argument("--preview", action="store_true", help="small, fast render to check the edit")
@@ -285,7 +289,7 @@ def main() -> None:
     ap.add_argument("--raw-audio", action="store_true", help="use the original audio even if cleaned exists")
     ap.add_argument("--subs", default="02-work/subs.ass", help="burned-in subtitles (subtitles.py)")
     ap.add_argument("--no-subs", action="store_true")
-    ap.add_argument("--fontsdir", help="folder with the subtitle font, if it isn't installed")
+    ap.add_argument("--fontsdir", help="folder with the subtitle fonts (default: 02-work/fonts, from fonts.py)")
     ap.add_argument("--graphics", help="graphics layer with alpha, as long as the edit "
                                        "(default: 02-work/graphics.mov or .webm if present)")
     ap.add_argument("--no-graphics", action="store_true")
@@ -336,8 +340,13 @@ def main() -> None:
     else:
         name = deliverable_name(edl)
         have = versions(name)
-        n = (have[-1][0] if args.overwrite else have[-1][0] + 1) if have else 1
-        dst = DELIVERY / f"{name}_v{n}.mp4"
+        if args.variant:
+            # A variant belongs to the latest main version: it doesn't open a new one.
+            n = have[-1][0] if have else 1
+            dst = DELIVERY / f"{name}_v{n}_{args.variant}.mp4"
+        else:
+            n = (have[-1][0] if args.overwrite else have[-1][0] + 1) if have else 1
+            dst = DELIVERY / f"{name}_v{n}.mp4"
     dst.parent.mkdir(parents=True, exist_ok=True)
     log = Log(Path("02-work") / "render.log")
     enc_name, enc = pick(PREVIEW if args.preview else MASTER)
@@ -358,6 +367,8 @@ def main() -> None:
     if not args.raw_audio and Path(args.clean).exists():
         clean = json.loads(Path(args.clean).read_text(encoding="utf-8"))
     subs = None if args.no_subs else Path(args.subs)
+    if not args.fontsdir and Path("02-work/fonts").is_dir():
+        args.fontsdir = "02-work/fonts"
     graphics = None
     if not args.no_graphics:
         graphics = Path(args.graphics) if args.graphics else next(

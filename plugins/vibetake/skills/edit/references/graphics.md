@@ -69,21 +69,44 @@ the top third, whichever the face leaves free. **Check stills after the zooms**:
 the face moves with punch-ins and the impact zoom. A small brand mark in a safe
 corner from the moment the brand is introduced is optional, per brand.
 
-## Rendering the layer
+## Building and rendering the layer
 
-**Remotion**: a composition at the output size and fps, `durationInFrames` =
-`cues.frames`, transparent background, `cues.json` as input props. Render with
-alpha to `02-work/graphics.mov`:
+1. **Design** (`references/design.md`): `02-work/design.json`, made for this video —
+   typefaces (`fonts.py get`), colors, surface, highlight, motion. Icons with
+   `icons.py brand|ui` or drawn as SVG into `02-work/icons/custom-*.svg`.
+2. **Scene plan**: `02-work/graphics.json`, one entry per element:
 
+```json
+{"elements": [
+  {"type": "headline", "from": {"t": 0}, "until": {"t": 2.9}, "x": 0.46, "y": 0.4, "width": 0.7, "size": 0.05,
+   "lines": ["POV:", "tu compañero", "no te responde"], "highlight": ["responde"], "surface": true},
+  {"type": "label",   "from": {"word": "sistema"}, "until": {"t": 13.6}, "title": "…", "subtitle": "…", "surface": true},
+  {"type": "counter", "from": {"t": 3}, "to": 37, "fromValue": 1, "suffix": " sin leer", "color": "accent"},
+  {"type": "list",    "from": {"line": 4}, "items": [{"icon": "ui-check", "text": "…", "at": {"word": "…"}}]},
+  {"type": "cta",     "from": {"word": "escribinos"}, "icon": "brand-whatsapp", "lines": ["Escribinos", "por WhatsApp"]},
+  {"type": "icon",    "from": {"word": "mensajes"}, "name": "ui-chat-circle-dots-duotone", "anim": "draw"},
+  {"type": "custom",  "from": {"t": 5}, "component": "MyChart", "props": {}}
+]}
 ```
-npx remotion render <Comp> ../02-work/graphics.mov --codec=prores --prores-profile=4444 --pixel-format=yuva444p10le --image-format=png
-```
 
-(or WebM VP9 with alpha → `02-work/graphics.webm`). `render.py` picks it up and
-lays it over b-roll, under subtitles. **Without Remotion**: a canvas page with a
-deterministic `frame(t)` (SKILL.md section 8) exported as PNG with alpha, encoded
-to ProRes 4444. Re-run `graphics.py cues` and re-render the layer whenever the edit
-changes.
+   Timing: `{"t": seconds}`, `{"word": "x", "after": seconds}` (when it's said),
+   `{"line": n, "word": i}`; `"sync": true` on a headline makes each word enter as
+   the voice says it. Position: `x`, `y` (center, 0–1 of the frame), `width`, `size`
+   (font size, share of the height), `align`, `rotate`, `wipe`. Per element, `enter`,
+   `unit` (word/char/line), `color`, `surface` (true, or overrides) change the design
+   locally. Anything the kit doesn't cover (a chart, an illustrated scene, a mock
+   phone screen) is a React component of its own in `02-work/remotion/src/custom/`,
+   built on the kit's pieces and the design tokens — SVG is written inline exactly as
+   in HTML, and its paths can be animated.
+3. **Look before rendering it all**: `graphics.py init` once, then `graphics.py still
+   <t> …` — the layer over the real frame, with warnings for the safe zone and the
+   face. Fix and look again.
+4. `graphics.py render` → `02-work/graphics.mov` (ProRes 4444 with alpha);
+   `render.py` lays it over b-roll and under subtitles. Re-run `graphics.py cues` and
+   the render whenever the edit changes.
+
+**Without Node** (Remotion can't run): say so; graphics are then drawn as a canvas page
+with a deterministic `frame(t)` (`references/from-scratch.md`), with the same design.
 
 ## Sound design
 

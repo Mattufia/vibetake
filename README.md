@@ -135,6 +135,11 @@ Say what and at what second ("at 0:42 a word is cut", "the subtitles cover my fa
 - [uv](https://docs.astral.sh/uv/) (runs the scripts and installs their Python dependencies on first use)
 - ffmpeg / ffprobe (a full build: libplacebo or zscale for HDR, NVENC/VideoToolbox/QSV/AMF optional)
 - exiftool (optional, better camera detection)
+- Node.js 18+ for the animated graphics layer, built with [Remotion](https://www.remotion.dev/)
+  in each project. **Remotion's license**: free for individuals and companies of up to
+  3 people; larger companies need a [Remotion company license](https://www.remotion.dev/license).
+- Typefaces (Google Fonts, open licenses) and icons (Simple Icons CC0, Lucide ISC,
+  Phosphor MIT) are downloaded per project, while editing — nothing preinstalled
 - Optional, installed on first use or by hand: rembg (`birefnet-portrait`, cut-out
   people for covers, ~1 GB model), realesrgan-ncnn-vulkan (AI upscaling of stretched
   crops; on the PATH or in `~/.vibetake/tools/realesrgan/`)
@@ -157,6 +162,7 @@ uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audi
 uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
 uv run tests/test_organize.py     # loose files → 00-raw/ and brand/, nothing overwritten, undo
 uv run tests/test_cut_rules.py    # reactions vs fillers, silent stretches, natural pace, protected ranges
+uv run tests/test_design.py       # project fonts and icons, palette, Remotion layer with design + safe-zone check (network, Node)
 uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
 ```
 

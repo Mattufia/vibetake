@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import DELIVERY, deliverable_name, die  # noqa: E402
+from _common import DELIVERY, deliverable_name, die, project_font  # noqa: E402
 from _timeline import starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
@@ -170,7 +170,7 @@ def main() -> None:
     ap.add_argument("--ingest", default="01-ingest")
     ap.add_argument("--style", choices=("highlight", "sentence"), default="highlight")
     ap.add_argument("--upper", action="store_true")
-    ap.add_argument("--font", default="Arial Black")
+    ap.add_argument("--font", help="font name (default: the project's caption font, fonts.py / design.json)")
     ap.add_argument("--size", type=float, help="font size as a share of the frame height (default by format)")
     ap.add_argument("--srt", help="default: 03-delivery/<name>.srt (one per project, not versioned)")
     ap.add_argument("--ass", default="02-work/subs.ass")
@@ -190,6 +190,12 @@ def main() -> None:
     words = timeline_words(edl, tr)
     if not words:
         die("no words inside the edit")
+    if not args.font and not args.no_burn:
+        pf = project_font("captions")
+        if not pf:
+            die("no project font for the captions: choose this video's typefaces first (fonts.py get …) — "
+                "system fonts aren't used")
+        args.font = pf["name"]
 
     cues = srt_cues(words)
     srt = Path(args.srt) if args.srt else DELIVERY / f"{deliverable_name(edl)}.srt"
@@ -226,6 +232,17 @@ def main() -> None:
         else:
             a, _, b = part.partition("-")
             off.append((float(a), float(b)))
+    # The highlight takes this video's accent when its design has one (design.json).
+    hl_color = YELLOW
+    dj = Path("02-work/design.json")
+    if dj.exists():
+        try:
+            acc = json.loads(dj.read_text(encoding="utf-8")).get("colors", {}).get("accent", "")
+            if re.fullmatch(r"#?[0-9A-Fa-f]{6}", acc or ""):
+                h = acc.lstrip("#")
+                hl_color = f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+        except ValueError:
+            pass
     events, clashes, skipped = [], 0, 0
     for gi, g in enumerate(blocks):
         start = g[0]["t"]
@@ -247,7 +264,7 @@ def main() -> None:
             for i, w in enumerate(g):
                 ws = start if i == 0 else w["t"]
                 we = g[i + 1]["t"] if i + 1 < len(g) else end
-                body = " ".join((f"{{\\c{YELLOW}&}}{ass_escape(tx)}{{\\c{WHITE}&}}" if j == i else ass_escape(tx))
+                body = " ".join((f"{{\\c{hl_color}&}}{ass_escape(tx)}{{\\c{WHITE}&}}" if j == i else ass_escape(tx))
                                 for j, tx in enumerate(texts))
                 events.append(f"Dialogue: 0,{ass_time(ws)},{ass_time(we)},Main,,0,0,0,,{pos}{body}")
         else:

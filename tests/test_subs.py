@@ -73,7 +73,7 @@ def main() -> None:
     run(tmp, "uv", "run", str(SCRIPTS / "cutlist.py"), "--format", "vertical")
 
     # 1–2 without faces.
-    run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"))
+    run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"), "--font", "Arial Black")
     cues = srt_cues(next((tmp / "03-delivery").glob("*.srt")).read_text(encoding="utf-8"))
     all_text = " ".join(" ".join(c["lines"]) for c in cues).lower()
     checks["srt: ≤2 lines of ≤42 characters"] = all(len(c["lines"]) <= 2 and all(len(x) <= 42 for x in c["lines"])
@@ -94,7 +94,7 @@ def main() -> None:
     def with_face(y: float) -> list[int]:
         samples = [{"t": t / 2, "faces": [[0.45, y, 0.10, 0.18, 0.99]]} for t in range(62)]
         (ing / "faces.json").write_text(json.dumps({"fps": 2, "files": {"talk.mp4": samples}}))
-        run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"))
+        run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"), "--font", "Arial Black")
         return ass_positions((tmp / "02-work" / "subs.ass").read_text(encoding="utf-8"))
     low, high = with_face(0.62), with_face(0.15)
     face_top_px = (0.62 - 0.3 * 0.18) * 1920
@@ -104,7 +104,7 @@ def main() -> None:
 
     # 4. Burn-in renders text where it's placed.
     (ing / "faces.json").unlink()
-    run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"))
+    run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"), "--font", "Arial Black")
     run(tmp, "uv", "run", str(SCRIPTS / "render.py"), "--preview", "--out", "p.mp4", "--no-grade")
     t = cues[0]["start"] + 0.3
     raw = subprocess.run([FF, "-v", "error", "-ss", str(t), "-i", str(tmp / "p.mp4"), "-frames:v", "1",

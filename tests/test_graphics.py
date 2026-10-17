@@ -145,7 +145,7 @@ def main() -> None:
 
     # 5. subtitles --off.
     a0, a1 = cues["lines"][0]["start"], cues["lines"][0]["end"]
-    run(tmp, str(SCRIPTS / "subtitles.py"), "--off", f"{a0}-{a1}")
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--off", f"{a0}-{a1}", "--font", "Arial Black")
     ass = (tmp / "02-work" / "subs.ass").read_text(encoding="utf-8")
 
     def secs(s: str) -> float:

@@ -159,7 +159,8 @@ Applied:
   footage doesn't determine it — people shoot horizontal and publish vertical all
   the time — and getting it wrong redoes reframing, margins, pacing and duration.
   **Ask, unless the request says it.** Ask it as one question: the platform
-  implies the orientation (TikTok/Reels/Shorts 9:16, YouTube 16:9).
+  implies the orientation (TikTok/Reels/Shorts 9:16, YouTube 16:9). Paid ads: offer
+  in the same question two openings to A/B test (`profiles/ad.md`).
 - **Type**: ask only with low confidence; otherwise state it.
 - **Subtitles**: don't ask. They follow from the destination and the material
   (section 6); state the choice in the delivery.
@@ -348,7 +349,7 @@ state it in the delivery. Options: none · keywords as a graphic · burned-in ·
 chosen viewing with clean audio → `.srt` only. The type profile can override.
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--font "Arial Black"] [--off hook]
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--off hook]
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 ```
 
@@ -357,8 +358,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
   characters per second, 1–7 s — platforms use it even when captions are burned in.
 - **Burned-in (`highlight`)**: groups of 2–3 words, white with a black outline, the
-  word being said in yellow; `sentence` for sober types. The brand's font if there
-  is one (`--fontsdir` in render.py if it isn't installed).
+  word being said in the design's accent; `sentence` for sober types. In the
+  project's caption font (design.json / fonts.py) — never a system font.
 - **Never over the face, always inside the safe zone**: low by default, below or
   above the face when it's there, just under the mouth if the face fills the frame
   (the chin can be covered, mouth and eyes never). It warns when it can't.
@@ -372,31 +373,29 @@ videos (every idea gets its visual and its sound), measured for long or
 informative ones, minimal for testimonials, interviews and formal pieces. The
 profile names the level; the request overrides it.
 
+**Every video gets its own design, decided on your own** (never a house style, never
+system fonts): typefaces picked for it and downloaded, colors from the footage and
+the brand, real icons. One line on it in the delivery; changes come from there.
+
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py cues        # words, cuts, face, safe zone → 02-work/cues.json
+uv run ${CLAUDE_SKILL_DIR}/scripts/design.py palette            # the footage's colors
+uv run ${CLAUDE_SKILL_DIR}/scripts/fonts.py get "<Family>" --weights 500,800 --lang es
+uv run ${CLAUDE_SKILL_DIR}/scripts/icons.py brand whatsapp      # or: icons.py ui check --set phosphor
+uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py cues             # → design.json + graphics.json, then:
+uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py init | still 1.2 4.5 | render
 uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word ventas
-uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --off hook  # the hook is already a graphic
 ```
 
-- **Elements enter on the frame of the word that names them**, one at a time;
-  keywords, not sentences; a graphic per kind of idea (numbers → counter,
-  steps → flow, yes/no → ✓/✕, close → call to action).
-- **Face, graphics and captions each keep their own band**, inside the safe zone.
-- **Each visual event can have its sound** (whoosh on a scene change, pop on an
-  entry, hit on a punchline, riser into a reveal), anchored to the same word.
-- **Remotion renders only the graphics layer, with alpha**, from `cues.json`, to
-  `02-work/graphics.mov`; `render.py` lays it over b-roll and under subtitles. Never
-  the footage through Remotion.
-- The full method (levels, idea → graphic table, hook, animation, layout, render
-  command, sound levels): **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
-
-New Remotion project:
-`npx remotion add @remotion/transitions @remotion/google-fonts @remotion/lottie @remotion/three`
-
-If there are brand assets (vector logo, typefaces, colors, LUT), use them. If
-not, propose a graphic identity, apply it, and show it in the delivery on a
-sample card so changing it is a concrete request. Don't hold up the work waiting
-for approval.
+- **Design** (`02-work/design.json`): how, and what separates professional from
+  amateur — **`${CLAUDE_SKILL_DIR}/references/design.md`**. Subtitles and covers use
+  its fonts and accent too.
+- **Elements enter on the frame of the word that names them**; keywords, not
+  sentences; a graphic per kind of idea. Face, graphics and captions keep their own
+  bands; each visual event can have its sound, anchored to the same word.
+- **Remotion renders only the graphics layer, with alpha**, built from the kit's
+  motion pieces and this video's design, plus components written for the video;
+  `still` checks frames over the real image (safe zone, face) before the full render.
+  Scene plan, levels, idea → graphic table, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
 
 ## 8. Generating video from scratch (no filmed material)
 
@@ -442,8 +441,9 @@ copy to publish with**.
 - **Video: versioned, never overwritten.** Each master is `<name>_v<N>.mp4`; every
   round of changes is a new version. `render.py --overwrite` only to fix the
   latest before it was delivered (a QA FAIL). The `.srt`, covers and copy are one
-  per project and are overwritten. Several formats (9:16, 1:1, 16:9) come from the
-  same edit, each with its own framing and margins checked.
+  per project and are overwritten. Other formats and alternative hooks are
+  variants of the same version (`--variant 4x5|hookB`), each with its own framing
+  and margins checked, and a line in the delivery saying what differs.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
   past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.

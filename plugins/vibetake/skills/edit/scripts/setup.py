@@ -63,7 +63,7 @@ NEED = {  # tool: (level, what it's for)
     "ffmpeg": ("required", "everything: probe, cut, color, render"),
     "uv": ("required", "runs the scripts and their Python dependencies"),
     "exiftool": ("recommended", "camera and log-profile detection"),
-    "node": ("optional", "Remotion graphics layer (Node 18+)"),
+    "node": ("recommended", "the animated graphics layer (Remotion, Node 18+)"),
     "realesrgan": ("optional", "AI upscaling of stretched vertical crops"),
     "yt-dlp": ("optional", "download material from a link (YouTube, etc.)"),
 }

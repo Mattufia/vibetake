@@ -60,7 +60,10 @@ def skin_rows(img: Image.Image) -> np.ndarray:
 
 def main() -> None:
     checks = {}
-    font = cover.find_font(None)
+    # Tests only: any heavy TTF on the machine (the plugin itself never uses system fonts).
+    cands = [Path("C:/Windows/Fonts/ariblk.ttf"), Path("C:/Windows/Fonts/arialbd.ttf"),
+             Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"), Path("/Library/Fonts/Arial Bold.ttf")]
+    font = cover.find_font(str(next(c for c in cands if c.exists())))
 
     # 1. Head width.
     p = person(400)
@@ -105,7 +108,8 @@ def main() -> None:
     frame.save(tmp / "f.png")
     p.save(tmp / "cut.png")
     cmd = ["uv", "run", str(SCRIPTS / "cover.py"), "make", "--image", "f.png", "--cutout", "cut.png",
-           "--title", "Hola mundo", "--platform", "tiktok", "--platform", "youtube", "--variant", "2"]
+           "--title", "Hola mundo", "--platform", "tiktok", "--platform", "youtube", "--variant", "2",
+           "--font", font, "--colors", "#101828,#FFD400,#FFFFFF"]
     subprocess.run(cmd, cwd=tmp, check=True, capture_output=True)
     first = (tmp / "03-delivery" / "cover_tiktok_2.jpg").stat().st_mtime_ns
     subprocess.run(cmd, cwd=tmp, check=True, capture_output=True)
@@ -122,3 +126,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
