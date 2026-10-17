@@ -9,8 +9,9 @@
 
 --keep auto keeps every line that isn't marked as a retake. The script turns the kept
 lines into cut points: word-accurate, without the dropped fillers, long pauses
-shortened, a natural margin around each phrase, and every cut moved to the quietest
-moment within ±80 ms (never into a word that was dropped). Then:
+shortened (--pace tight|normal|relaxed), a pause at every join that sounds like speech
+(longer after a sentence than after a comma), and every cut moved to the quietest
+moment nearby (never into a word that was dropped). Then:
 
     uv run render.py            # renders 02-work/edl.json
 
@@ -32,8 +33,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import die, tc, tool  # noqa: E402
 
 FORMATS = {"vertical": (1080, 1920), "horizontal": (1920, 1080), "square": (1080, 1080)}
-SNAP_S = 0.08
+SNAP_S = 0.04
 MIN_SEGMENT_S = 0.25
+# Pause at a join, by what ends the phrase before it (seconds, at normal pace).
+GAPS = {"sentence": 0.40, "comma": 0.25, "word": 0.15}
+PACE = {"tight": (0.75, 0.30), "normal": (1.0, 0.45), "relaxed": (1.35, 0.80)}  # (gap scale, max pause)
+TAIL_S = 0.05          # a word's sound lingers past its timestamp; never start inside it
+START_LEAD_S = 0.10    # before the very first word
+END_TAIL_S = 0.35      # after the very last word
+
+
+def join_kind(last_word: str, follows: bool) -> str:
+    """What kind of pause a join needs. A jump to another file or back in time reads as a
+    new sentence; otherwise the punctuation of the last kept word decides."""
+    w = last_word.strip()
+    if not follows or w.endswith((".", "?", "!", "…")):
+        return "sentence"
+    return "comma" if w.endswith((",", ";", ":")) else "word"
 
 
 def parse_keep(spec: str, sentences: list[dict]) -> list[int]:
@@ -75,10 +91,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--keep", default="auto", help='"auto" or lines like "L9,L2-L7"')
     ap.add_argument("--fillers", choices=("drop", "keep"), default="drop")
-    ap.add_argument("--max-pause", type=float, default=0.45,
-                    help="longer pauses inside a phrase are cut (tight: 0.3; let it breathe: 0.8)")
-    ap.add_argument("--pad-in", type=float, default=0.06)
-    ap.add_argument("--pad-out", type=float, default=0.14)
+    ap.add_argument("--pace", choices=tuple(PACE), default="normal",
+                    help="scales the pauses at the joins and the longest pause kept inside a phrase")
+    ap.add_argument("--max-pause", type=float, help="override: longer pauses inside a phrase are cut")
     ap.add_argument("--format", choices=(*FORMATS, "source"), default="source")
     ap.add_argument("--size", help="explicit WxH, overrides --format")
     ap.add_argument("--ingest", default="01-ingest")
@@ -92,6 +107,8 @@ def main() -> None:
         material = {m["name"]: m for m in json.loads((ingest / "material.json").read_text(encoding="utf-8"))["files"]}
     sents = {s["line"]: s for s in tr["sentences"]}
     keep = parse_keep(args.keep, tr["sentences"])
+    scale, default_pause = PACE[args.pace]
+    max_pause = args.max_pause if args.max_pause is not None else default_pause
 
     # Every word of every file, in source order, so neighbors (kept or not) are known.
     words: dict[str, list[dict]] = {}
@@ -123,24 +140,45 @@ def main() -> None:
         if runs:
             pn, pw = runs[-1][-1]
             same = file_of[id(pw)] == file_of[id(item[1])]
-            if same and item[1]["_i"] == pw["_i"] + 1 and item[1]["start"] - pw["end"] <= args.max_pause:
+            if same and item[1]["_i"] == pw["_i"] + 1 and item[1]["start"] - pw["end"] <= max_pause:
                 runs[-1].append(item)
                 continue
         runs.append([item])
 
-    dbs: dict[str, np.ndarray] = {}
-    segments = []
+    # Clean silence available around each run: before its first word (after the previous
+    # word's tail, kept or dropped) and after its last word.
+    info = []
     for run in runs:
         name = file_of[id(run[0][1])]
+        ws, first, last = words[name], run[0][1], run[-1][1]
+        before = ws[first["_i"] - 1]["end"] + TAIL_S if first["_i"] > 0 else 0.0
+        after = ws[last["_i"] + 1]["start"] - 0.02 if last["_i"] + 1 < len(ws) else tr["files"][name]["duration"]
+        info.append({"name": name, "first": first, "last": last,
+                     "lead_avail": max(first["start"] - before, 0.0), "tail_avail": max(after - last["end"], 0.0)})
+
+    # The pause at each join sounds like speech: longer after a sentence than after a comma,
+    # short where a filler was taken out mid-phrase. It's taken from wherever there's clean
+    # silence — mostly after the previous phrase, only a little before the next word.
+    lead = [min(i["lead_avail"], START_LEAD_S) for i in info]
+    tail = [min(i["tail_avail"], END_TAIL_S) for i in info]
+    for k in range(len(info) - 1):
+        a, b = info[k], info[k + 1]
+        follows = a["name"] == b["name"] and b["first"]["_i"] > a["last"]["_i"]
+        g = GAPS[join_kind(a["last"]["word"], follows)] * scale
+        lead[k + 1] = min(b["lead_avail"], min(max(g * 0.3, 0.04), 0.10))
+        tail[k] = min(a["tail_avail"], g - lead[k + 1])
+        if tail[k] < g - lead[k + 1]:
+            lead[k + 1] = min(b["lead_avail"], g - tail[k])
+
+    dbs: dict[str, np.ndarray] = {}
+    segments = []
+    for run, i, ld, tl in zip(runs, info, lead, tail):
+        name, first, last = i["name"], i["first"], i["last"]
         src = (material.get(name) or {}).get("file") or die(f"no source path for {name} in material.json")
         if name not in dbs:
             dbs[name] = quiet_db(src, tr["files"][name].get("track", 0))
-        ws = words[name]
-        first, last = run[0][1], run[-1][1]
-        prev_end = ws[first["_i"] - 1]["end"] + 0.02 if first["_i"] > 0 else 0.0
-        next_start = ws[last["_i"] + 1]["start"] - 0.02 if last["_i"] + 1 < len(ws) else tr["files"][name]["duration"]
-        t_in = snap(max(first["start"] - args.pad_in, prev_end), prev_end, first["start"], dbs[name])
-        t_out = snap(min(last["end"] + args.pad_out, next_start), last["end"], next_start, dbs[name])
+        t_in = snap(first["start"] - ld, first["start"] - i["lead_avail"], first["start"] - min(0.01, ld), dbs[name])
+        t_out = snap(last["end"] + tl, last["end"] + min(0.01, tl), last["end"] + i["tail_avail"], dbs[name])
         if t_out - t_in < MIN_SEGMENT_S:
             continue
         segments.append({"source": src, "name": name, "in": t_in, "out": t_out,

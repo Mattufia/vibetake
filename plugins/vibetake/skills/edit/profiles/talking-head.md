@@ -14,3 +14,4 @@ Opinion, educational or explainer content spoken to camera by one person.
 - **Traps**: over-cleaning removes the person's natural rhythm; keep pauses that
   carry meaning.
 - **Color**: Full is usually the recommendation: skin is what's judged. `natural` look at most.
+- **Pace**: `cutlist.py --pace tight`.

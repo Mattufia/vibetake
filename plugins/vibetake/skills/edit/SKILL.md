@@ -218,9 +218,13 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   and in what order (`--keep auto` = everything except marked retakes; an
   explicit list can reorder, e.g. a cold open first). `cutlist.py` turns that into
   word-accurate cuts: dropped fillers (`--fillers drop|keep`, per the profile),
-  pauses longer than `--max-pause` shortened (tight 0.3 · default 0.45 ·
-  breathing 0.8), a margin around each phrase, and every cut moved to the
-  quietest moment within ±80 ms, never into a dropped word.
+  long pauses inside a phrase shortened, and **a pause at every join that sounds
+  like speech**: ~0.4 s after a sentence, ~0.25 s after a comma, ~0.15 s where a
+  filler came out mid-phrase. That air is taken from clean silence (mostly after
+  the previous phrase), never from the tail of a word that was dropped.
+  `--pace tight|normal|relaxed` scales it all (feed/ad: tight · testimonial:
+  relaxed). If a join still feels rushed or slow, change the pace or edit that
+  segment's `in`/`out`.
 - **Framing (`reframe.py`), like a camera operator, not a tracker**: the crop
   holds still while the face stays in a dead zone, pans with eased acceleration
   and a speed limit when it leaves it, and cuts straight to the new framing if

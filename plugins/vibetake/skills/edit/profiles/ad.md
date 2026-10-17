@@ -16,3 +16,4 @@ Brand ads, UGC ads, product promos.
 - **Traps**: offer, price, dates and legal text are checked letter by letter
   against the request or the brief.
 - **Color**: recommend Full with people on camera, Basic otherwise; brand-consistent (the brand's LUT as Custom if there is one); every version and aspect ratio shares the same grade.
+- **Pace**: `cutlist.py --pace tight`.

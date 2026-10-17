@@ -110,6 +110,18 @@ def main() -> None:
     edges = [t for s in edl["segments"] for t in (s["in"], s["out"])]
     checks[f"every cut in silence (loudest of {len(edges)} cut points ≤ −40 dB)"] = max(map(level, edges)) <= -40
 
+    # Pauses at joins sound like speech: ~0.4 s after a sentence (normal pace).
+    tr = json.loads((FIX / "retakes_es.transcript.json").read_text(encoding="utf-8"))
+    words = sorted((w for f in tr["files"].values() for s in f["segments"] for w in s["words"]),
+                   key=lambda w: w["start"])
+    gaps = []
+    for a, b in zip(edl["segments"], edl["segments"][1:]):
+        last = max((w for w in words if w["end"] <= a["out"] + 1e-3), key=lambda w: w["end"])
+        first = min((w for w in words if w["start"] >= b["in"] - 1e-3), key=lambda w: w["start"])
+        if last["word"].strip().endswith((".", "?", "!")):
+            gaps.append(round((a["out"] - last["end"]) + (first["start"] - b["in"]), 2))
+    checks[f"pause after each sentence ≈ 0.4 s ({gaps})"] = bool(gaps) and all(0.33 <= g <= 0.47 for g in gaps)
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     print("flash→beep offsets (ms):", [round(p * 1000) for p in pairs])

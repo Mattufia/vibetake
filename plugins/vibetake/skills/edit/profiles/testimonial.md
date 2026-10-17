@@ -14,3 +14,4 @@ A customer or real person talking about their experience.
   claims and numbers they mention are checked against the request.
 - **Color**: Full (skin first), natural and slightly warm; never a stylized look.
 - **Framing**: `reframe.py --punch off`; hide cuts with b-roll or keep them, never a visible zoom on someone telling their story.
+- **Pace**: `cutlist.py --pace relaxed`.
