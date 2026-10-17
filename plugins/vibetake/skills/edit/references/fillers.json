@@ -1,0 +1,21 @@
+{
+  "_doc": "Per-language filler data for transcribe.py. prompt: punctuated verbatim text with fillers, so Whisper keeps fillers and punctuation instead of cleaning them. always: fillers marked anywhere (single words or phrases). contextual: words that are fillers only when followed by a comma/ellipsis or a pause. restart: phrases a speaker uses when redoing a take. Add a language by copying an entry; codes are the ones passed to --lang.",
+  "es": {
+    "prompt": "Ehm, bueno, este... o sea, la verdad es que, eh, no sé. Mmm, digamos que sí, ¿viste?",
+    "always": ["eh", "ehm", "em", "emm", "mm", "mmm", "ah", "o sea", "digamos", "así que nada", "en plan", "viste", "tipo que"],
+    "contextual": ["bueno", "este", "nada", "tipo", "pues", "vale", "dale", "entonces"],
+    "restart": ["perdón", "de nuevo", "otra vez", "mejor dicho", "me equivoqué", "arranco de nuevo", "empiezo de nuevo"]
+  },
+  "en": {
+    "prompt": "Um, so, uh... I mean, like, you know, it's, hmm, basically fine. Yeah.",
+    "always": ["um", "umm", "uh", "uhm", "erm", "hmm", "mm", "you know", "i mean"],
+    "contextual": ["so", "like", "well", "basically", "actually", "okay", "right"],
+    "restart": ["sorry", "let me start over", "start again", "scratch that", "take two", "one more time"]
+  },
+  "pt": {
+    "prompt": "Éh, então, tipo... né, assim, ahn, sabe? Hum, bom, é isso.",
+    "always": ["éh", "eh", "ahn", "hum", "hm", "né", "tipo assim", "sabe"],
+    "contextual": ["então", "tipo", "assim", "bom", "bem"],
+    "restart": ["desculpa", "de novo", "começando de novo", "quer dizer", "vou de novo"]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "vibetake",
+  "description": "Vibetake: AI video editing with real editorial judgment.",
+  "owner": { "name": "Vibetake" },
+  "plugins": [
+    {
+      "name": "vibetake",
+      "source": "./plugins/vibetake",
+      "description": "From raw footage to a finished video: ingest, cut, mix, subtitle, graphics, thumbnails and delivery."
+    }
+  ]
+}
