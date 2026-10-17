@@ -24,8 +24,9 @@ The scripts live in `${CLAUDE_PLUGIN_ROOT}/skills/edit/scripts/`.
 3. **Install what's missing** (if anything): run `setup.py install` (a dry run that
    prints the plan), show the user the list, and after their OK run
    `setup.py install --yes`. On Windows, winget may open permission prompts the
-   user has to accept. Optional tools (Node for Remotion, Real-ESRGAN) only if the
-   user wants them — say what each is for. If there's no package manager or no
+   user has to accept. Optional tools (Node for Remotion, Real-ESRGAN, yt-dlp) only
+   if the user wants them — say what each is for. **Never install without the
+   user's OK**, here or mid-edit. If there's no package manager or no
    permission to install (a locked-down work machine), say what's missing and what
    still works without it (SKILL.md, section 0).
 

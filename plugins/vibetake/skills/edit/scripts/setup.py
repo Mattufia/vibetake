@@ -16,8 +16,9 @@ plugin, one per machine — with the absolute path of every tool, so the scripts
 a tool installed a minute ago even before the terminal's PATH refreshes.
 
 install uses the system's package manager (winget on Windows, Homebrew on macOS,
-apt/dnf on Linux) for system tools and downloads Real-ESRGAN's official release to
-~/.vibetake/tools/realesrgan. Without --yes it only prints what it would run.
+apt/dnf on Linux) for system tools, `uv tool install` for Python tools (yt-dlp),
+and downloads Real-ESRGAN's official release to ~/.vibetake/tools/realesrgan.
+Without --yes it only prints the plan: show it to the user and ask first.
 Nothing already installed is reinstalled.
 
 prefetch downloads, now instead of mid-edit: the Whisper model (~3 GB) plus, with
@@ -64,6 +65,7 @@ NEED = {  # tool: (level, what it's for)
     "exiftool": ("recommended", "camera and log-profile detection"),
     "node": ("optional", "Remotion graphics layer (Node 18+)"),
     "realesrgan": ("optional", "AI upscaling of stretched vertical crops"),
+    "yt-dlp": ("optional", "download material from a link (YouTube, etc.)"),
 }
 
 
@@ -114,7 +116,7 @@ def find(name: str) -> str | None:
 
 def version(name: str, path: str) -> str:
     args = {"ffmpeg": ["-version"], "uv": ["--version"], "exiftool": ["-ver"], "node": ["--version"],
-            "realesrgan": ["-h"]}[name]
+            "realesrgan": ["-h"], "yt-dlp": ["--version"]}[name]
     out = sh([path, *args], timeout=20).strip().splitlines()
     if name == "ffmpeg":
         m = re.search(r"ffmpeg version (\S+)", out[0] if out else "")
@@ -343,6 +345,9 @@ def cmd_install(args) -> None:
     for t in todo:
         if t == "realesrgan":
             plan.append((t, None, f"download Real-ESRGAN (official release) → {HOME / 'tools' / 'realesrgan'}"))
+        elif t == "yt-dlp":
+            # A Python tool: isolated but available system-wide, the same on every OS.
+            plan.append((t, ["uv", "tool", "install", "yt-dlp"], "uv tool install yt-dlp"))
         elif t == "uv" and OS == "Linux":
             plan.append((t, ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"], "uv official installer"))
         else:

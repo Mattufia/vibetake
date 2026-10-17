@@ -49,6 +49,7 @@ def main() -> None:
         "subtitles" in prof.get("ffmpeg", {}).get("filters", {})
     checks["check: GPUs, RAM, disk reported"] = "gpus" in prof and prof.get("ram_gb") and "disk_free_gb" in prof
     checks["check: readable table"] = "required" in out and "profile →" in out
+    checks["check: yt-dlp listed, no auto-editor"] = "yt-dlp" in out and "auto-editor" not in out
 
     # 2. Pretend exiftool is missing: install shows the plan and doesn't run it.
     prof["tools"]["exiftool"] = {"path": None, "version": None}
@@ -59,6 +60,11 @@ def main() -> None:
     want = {"winget": "OliverBetz.ExifTool", "brew": "brew install exiftool", "apt": "libimage-exiftool-perl"}
     checks[f"install: dry-run plan with {prof['package_manager']}"] = want[prof["package_manager"]] in out and \
         "dry run" in out
+
+    prof["tools"]["yt-dlp"] = {"path": None, "version": None}
+    prof_path.write_text(json.dumps(prof), encoding="utf-8")
+    out = run(env, "install", "--only", "yt-dlp")
+    checks["install: yt-dlp as an isolated Python tool, plan only"] = "uv tool install yt-dlp" in out and         "dry run" in out
 
     # 3. Tool lookup through the profile when PATH doesn't have it.
     if ff:

@@ -5,8 +5,8 @@ description: Edit video from raw footage to a finished deliverable — ingest an
 
 # Video editing instructions
 
-**Tools:** ffmpeg and yt-dlp (prepare and download material), Whisper
-(transcription), auto-editor (silences), Remotion with the `remotion-*` skills
+**Tools:** ffmpeg (prepare, cut, render), yt-dlp (download material from a link),
+Whisper (transcription; cuts come from it), Remotion with the `remotion-*` skills
 (graphics layer only, see below), rembg (remove the background of people or
 objects in stills; for people, use the `birefnet-portrait` model, and check hair
 and hands).
@@ -36,7 +36,8 @@ the `/vibetake:setup` command walks the user through it (`setup.py install`,
 assume any GPU brand. Video eats hundreds of GB: if disk
 is tight, flag it before starting.
 
-**Install what's missing, saying what gets installed.** Command-line tools are
+**Ask before installing anything**: what, what it's for and how big; install only
+after the user's OK (a declined tool: work without it). Command-line tools are
 installed **globally**: they're used across all projects and there's no point
 reinstalling them each time (the transcription dependencies alone weigh several
 GB). For Python tools, use an installer that keeps them isolated from each other
@@ -49,9 +50,9 @@ The only per-project install is Remotion, because its version is pinned in each
 project.
 
 **If installing isn't possible** (no permissions, no network, locked-down work
-machine), make do with what's there and say so in one line: without auto-editor,
-silences come from the transcript; without Remotion, graphics are done with
-canvas; without a GPU, an optimized CPU runtime. The only non-negotiable is
+machine), make do with what's there and say so in one line: without Remotion, graphics
+are done with canvas; without yt-dlp, the user downloads the material; without a
+GPU, an optimized CPU runtime. The only non-negotiable is
 ingest.
 
 ## 1. Ingest: never edit blind
