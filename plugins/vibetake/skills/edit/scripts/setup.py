@@ -421,7 +421,7 @@ def cmd_prefetch(args) -> None:
                     subprocess.run([ff, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=64x64:d=0.1",
                                     "-frames:v", "1", str(img)], check=True)
                     print("rembg portrait model: downloading if needed (~1 GB)…", flush=True)
-                    p = subprocess.run([uvx, "--from", "rembg[cpu,cli]", "rembg", "i", "-m", "birefnet-portrait",
+                    p = subprocess.run([uvx, "--python", "3.12", "--from", "rembg[cpu,cli]", "rembg", "i", "-m", "birefnet-portrait",
                                         str(img), str(Path(tmp) / "o.png")])
                     print("rembg: ready" if p.returncode == 0 else "WARNING: rembg failed (covers fall back to "
                           "no cutout)")

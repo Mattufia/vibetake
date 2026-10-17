@@ -116,7 +116,7 @@ def cmd_init(args) -> None:
             continue
         dst = PROJ / rel
         # The video's own components and data are never overwritten by the kit.
-        if dst.exists() and rel.parts[:2] in (("src", "custom"), ("src", "data")):
+        if dst.exists() and rel.parts[:2] in (("src", "custom"), ("src", "data"), ("src", "covers")):
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
@@ -139,8 +139,25 @@ def cmd_sync(args) -> None:
     data = PROJ / "src" / "data"
     data.mkdir(parents=True, exist_ok=True)
     work = Path("02-work")
+    # Covers: their plan (covers.json) and the frames and cut-outs they use.
+    cp = work / "covers.json"
+    (data / "covers.json").write_text(cp.read_text(encoding="utf-8") if cp.exists()
+                                      else '{"platforms": [], "concepts": []}', encoding="utf-8")
+    pc = PROJ / "public" / "covers"
+    pc.mkdir(parents=True, exist_ok=True)
+    for f in (work / "covers").glob("*.png") if (work / "covers").exists() else []:
+        if f.name.startswith(("cutout_", "frame_")):
+            shutil.copy2(f, pc / f.name)
+    if getattr(args, "covers_only", False) and not (work / "graphics.json").exists():
+        for name in ("cues.json", "design.json"):
+            if (work / name).exists():
+                shutil.copy2(work / name, data / name)
+        if not (work / "graphics.json").exists() and not (data / "graphics.json").exists():
+            (data / "graphics.json").write_text('{"elements": []}', encoding="utf-8")
     for name in ("cues.json", "design.json", "graphics.json"):
         src = work / name
+        if getattr(args, "covers_only", False) and not src.exists() and (data / name).exists():
+            continue
         if not src.exists():
             die(f"02-work/{name} is missing" + (" (graphics.py cues)" if name == "cues.json" else
                 " — write this video's design first (references/design.md)" if name == "design.json" else
@@ -163,7 +180,7 @@ def cmd_sync(args) -> None:
         if (work / "icons").exists() else {}
     (data / "icons.ts").write_text("export const ICONS: Record<string, string> = " + json.dumps(icons, ensure_ascii=False)
                                    + ";\n", encoding="utf-8")
-    print(f"synced: design, scene plan ({len(json.loads((work / 'graphics.json').read_text(encoding='utf-8')).get('elements', []))} "
+    print(f"synced: design, scene plan ({len(json.loads((data / 'graphics.json').read_text(encoding='utf-8')).get('elements', []))} "
           f"elements), {len(fonts)} font file(s), {len(icons)} icon(s)")
 
 

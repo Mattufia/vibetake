@@ -13,12 +13,16 @@ People open Claude Code in the folder where their files already are. This moves:
     photos                           → 00-raw/ (stills, b-roll)
     logos (name says logo/brand/marca, or a PNG with transparency),
     fonts and .cube LUTs             → brand/
-Anything else (a script, a brief, a PDF) stays where it is. Moves within the same
+    images named ref/referencia/inspo… → references/
+    audio named music/musica/track/song… → music/
+Anything else (a script, a brief, a PDF) stays where it is. It also creates the folders
+the user can fill — brand/, references/, music/ — empty if there's nothing for them
+yet, and lists them with what goes in each. Moves within the same
 folder are instant renames — nothing is copied or re-encoded, file names are kept.
 Every move is logged in 00-raw/.organized.json so --undo restores the original
 layout exactly.
 
-What's already in 00-raw/ and brand/ is left alone: run it again after adding
+What's already in the project folders is left alone: run it again after adding
 files and only the new loose ones move.
 """
 from __future__ import annotations
@@ -33,8 +37,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import AUDIO_EXT, VIDEO_EXT, die  # noqa: E402
 
-RAW, BRAND = Path("00-raw"), Path("brand")
-PROJECT_DIRS = {"00-raw", "01-ingest", "02-work", "03-delivery", "brand"}
+RAW, BRAND, REFS, MUSIC = Path("00-raw"), Path("brand"), Path("references"), Path("music")
+PROJECT_DIRS = {"00-raw", "01-ingest", "02-work", "03-delivery", "brand", "references", "music"}
+USER_DIRS = {  # folders the user fills, and what goes in each (said to the user in their language)
+    RAW: "footage: video, separate audio, photos, b-roll",
+    BRAND: "logo, typefaces, brand colors, a LUT",
+    REFS: "styles you like: covers, graphics, edits (taken as criteria, never copied)",
+    MUSIC: "your own music",
+}
+REF_WORDS = ("ref", "referencia", "reference", "inspo", "inspiracion", "inspiration", "moodboard")
+MUSIC_WORDS = ("music", "musica", "música", "track", "song", "tema", "cancion", "canción", "beat")
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".tif", ".tiff", ".dng", ".arw", ".cr2", ".cr3",
              ".nef", ".raf"}
 FONT_EXT = {".ttf", ".otf", ".woff", ".woff2"}
@@ -67,10 +79,14 @@ def destination(p: Path) -> Path | None:
     if p.name.startswith(".") or p.name == "project.md":
         return None
     if is_media(p):
+        if ext in AUDIO_EXT and any(w in name for w in MUSIC_WORDS):
+            return MUSIC / p.name
         return RAW / p.name
     if ext in FONT_EXT | LUT_EXT:
         return BRAND / p.name
     if ext in PHOTO_EXT:
+        if any(w in name for w in REF_WORDS):
+            return REFS / p.name
         if any(w in name for w in BRAND_WORDS) or (ext == ".png" and png_has_alpha(p)):
             return BRAND / p.name
         return RAW / p.name
@@ -98,6 +114,15 @@ def plan() -> list[tuple[Path, Path]]:
     return moves
 
 
+def user_dirs() -> None:
+    """Create the folders the user can fill and say what's in each."""
+    print("project folders:")
+    for d, what in USER_DIRS.items():
+        d.mkdir(exist_ok=True)
+        n = sum(1 for f in d.rglob("*") if f.is_file() and not f.name.startswith("."))
+        print(f"  {str(d) + '/':<13} {n:>3} file(s)  — {what}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true")
@@ -115,7 +140,7 @@ def main() -> None:
                 os.replace(src, free_name(dst))    # never overwrite: a clashing name gets " (2)"
                 back += 1
         LOG.unlink()
-        for d in (BRAND, RAW):
+        for d in (BRAND, REFS, MUSIC, RAW):
             if d.exists() and not any(d.iterdir()):
                 d.rmdir()
         print(f"{back} item(s) back where they were")
@@ -127,6 +152,8 @@ def main() -> None:
         have = any(is_media(f) for f in RAW.rglob("*")) if RAW.exists() else False
         print("already organized: footage in 00-raw/" if have else
               "no video or audio here: put the footage in this folder (or 00-raw/) and run again")
+        if not args.dry_run:
+            user_dirs()
         return
     if not media_moves and not RAW.exists():
         print("no video or audio here — only:", ", ".join(s.name for s, _ in moves))
@@ -152,6 +179,7 @@ def main() -> None:
     print(f"organized: {done} item(s) moved (undo: organize.py --undo)")
     for f in failed:
         print("WARNING: couldn't move", f, "— close it in other programs and run again")
+    user_dirs()
 
 
 if __name__ == "__main__":

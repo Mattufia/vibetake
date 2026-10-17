@@ -58,10 +58,13 @@ ingest.
 ## 1. Ingest: never edit blind
 
 Before touching filmed material, however trivial the request seems. The user opens
-Claude Code in the folder where their files are: first tidy it, then ingest.
+Claude Code in the folder where their files are: tidy it (it also creates `brand/`,
+`references/`, `music/` for the user's own material), then **start ingest at once,
+in the background** — it's the long part — and ask the questions (section 2) while
+it runs. After the answer, run both again: new files are picked up, the rest skipped.
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/organize.py      # loose footage → 00-raw/, logos/fonts/LUTs → brand/
+uv run ${CLAUDE_SKILL_DIR}/scripts/organize.py      # loose files → 00-raw/, brand/, references/, music/
 uv run ${CLAUDE_SKILL_DIR}/scripts/ingest.py 00-raw --lang <code> --glossary "<names, brands, terms>" --out 01-ingest
 ```
 
@@ -144,45 +147,17 @@ them.
 
 ### Questions: only real doubts, all at once
 
-There's no fixed questionnaire. Before asking anything, two checks: **can it be
-deduced with confidence** (from the request, the material, `project.md`)? And
-**how expensive is it to fix if wrong?**
-
-| | Cheap to fix | Expensive to fix |
-|---|---|---|
-| **Deducible** | decide, state it in the delivery | decide, state it in the delivery |
-| **In doubt** | propose, apply, state it in the delivery | **ask** |
-
-Applied:
-
-- **Destination and format** (where it's published, orientation): the raw
-  footage doesn't determine it — people shoot horizontal and publish vertical all
-  the time — and getting it wrong redoes reframing, margins, pacing and duration.
-  **Ask, unless the request says it.** Ask it as one question: the platform
-  implies the orientation (TikTok/Reels/Shorts 9:16, YouTube 16:9). Paid ads: offer
-  in the same question two openings to A/B test (`profiles/ad.md`).
-- **Type**: ask only with low confidence; otherwise state it.
-- **Subtitles**: don't ask. They follow from the destination and the material
-  (section 6); state the choice in the delivery.
-- **Color**: ask, as levels, with the recommended one marked from what was
-  measured (section 4). It's subjective and it's the user's image. Log footage
-  without its conversion LUT: also ask for the LUT.
-
-When something has to be asked, it's **one moment**: say in one line what the
-raw footage is, then ask every open question together. With a multiple-choice
-question tool, use it (up to 4 questions in one go, recommended option first);
-without one, a single message with the proposals.
-
-```
-It's a UGC ad (high confidence), 48 s, one person to camera. Color: mild warm cast,
-skin leaning red · before/after: 02-work/color/basic/ and 02-work/color/full/
-→ Where will it be published?  TikTok + Reels 9:16 (recommended) · YouTube 16:9 · Both
-→ Color?  Full (recommended) · Basic · Untouched · (write: a look, your LUT, a reference)
-```
-
-- **Don't ask what the request already says.** Often there's no question at all.
-- If the user says "no questions" or "your call", take the recommended options
-  and flag them in the delivery.
+Ask only what can't be deduced with confidence **and** is expensive to fix if wrong:
+usually the **destination** (unless the request says it) and the **color level**
+(section 4); the type only with low confidence; subtitles never. It's **one
+moment**: one line on what the raw footage is, every open question together — and,
+in the same moment, **whether all the material is in** ("Have you added everything
+you'd like me to use? Brand assets in `brand/`, style references in `references/`,
+your own music in `music/`. Anything missing, I'll source myself — typefaces, music
+and icons; your logo only if you provide it"), in the user's language. Brand assets
+are never searched for or recreated. Nothing to ask? Don't stop for the folders:
+mention them in the delivery. "Your call" → the recommended options, flagged in the
+delivery. Rules, example: **`${CLAUDE_SKILL_DIR}/references/questions.md`**.
 
 Margins, pacing and duration follow from the answers; don't ask about them
 separately.
@@ -450,21 +425,21 @@ copy to publish with**.
 - **Upload resolution**: YouTube gives 1440p+ uploads better codecs, so a 1080p
   edit for YouTube goes out with `render.py --upload-height 1440`.
 
-**Covers: one per platform it's published on**, composed, not extracted (a raw
-frame is worse than nothing): a YouTube thumbnail 1280×720; a 1080×1920 cover for
-Reels, TikTok or Shorts whose headline and face survive the profile grid's central
-3:4 crop. **2–3 variants**, each with a different frame and gesture; they ship with
-the video and don't hold up the delivery.
+**Covers: three different concepts, one file per platform** (YouTube 1280×720;
+Reels, TikTok, Shorts 1080×1920 with headline and face inside the grid's 3:4 crop).
+Each concept is a free canvas designed for this video — its idea, the person's
+expression with a few words, something bold — not one layout with three texts.
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py candidates                 # frames worth a cover
-uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py make --video <file> --time 12.4 --title "…" --keyword … --big "3×" --platform youtube --platform reels --variant 1
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py candidates            # face visible, big, sharp
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py cutout --time 14.5    # person cut out (default) + face position
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py render && cover.py preview   # → 03-delivery/, then at real size
 ```
 
-Default composition (colors, fonts, logo from the brand): headline in capitals with
-the keyword boxed, the person cut out and leaving through the bottom edge, a brand
-background with depth, a giant half-transparent element; the face never under text.
-How to choose the frame and the rest: **`${CLAUDE_SKILL_DIR}/references/covers.md`**. The video's first frame must work alone too (autoplay starts there).
+The person is cut out by default (whole frame only if asked); if the cut fails, try
+another frame. Concepts, checks and what makes a cover work:
+**`${CLAUDE_SKILL_DIR}/references/covers.md`**. The video's first frame must work
+alone too (autoplay starts there).
 
 **Before delivering, always run the QA** (with the destination's platforms and
 loudness):

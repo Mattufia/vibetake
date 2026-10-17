@@ -44,7 +44,7 @@ def main() -> None:
     checks = {}
     tmp = Path(tempfile.mkdtemp(prefix="vibetake-org-"))
     for n in ("DJI_0001.MP4", "DJI_0002.MP4", "mic.wav", "foto.jpg", "guion.docx", "Montserrat-Black.ttf",
-              "camara.cube"):
+              "camara.cube", "musica-fondo.mp3", "referencia-portada.jpg"):
         (tmp / n).write_bytes(b"x")
     png(tmp / "logo-acme.png", alpha=False)
     png(tmp / "sello.png", alpha=True)
@@ -66,6 +66,9 @@ def main() -> None:
     checks["logo by name or transparency, fonts, LUTs → brand/"] = {
         "brand/logo-acme.png", "brand/sello.png", "brand/Montserrat-Black.ttf", "brand/camara.cube"} <= after
     checks["documents and other folders stay"] = {"guion.docx", "notas/ideas.txt"} <= after
+    checks["music and references go to their folders"] = {"music/musica-fondo.mp3",
+                                                         "references/referencia-portada.jpg"} <= after
+    checks["the user's folders exist, even empty"] = all((tmp / d).is_dir() for d in ("brand", "references", "music"))
     checks["move log written"] = (tmp / "00-raw" / ".organized.json").exists()
 
     # New file later: only it moves; a name clash never overwrites.

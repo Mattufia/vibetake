@@ -1,6 +1,10 @@
 # Covers and thumbnails
 
-**One per platform it's published on**, because each shows it differently:
+**Three different concepts**, designed for this video — not one layout with three
+texts. Each is a free canvas (a React component, rendered as a still per platform),
+so a concept can be anything: the video's own idea turned into an image, the
+person's expression with a short line, something bold. The user picks, or asks for
+changes; they don't want to be consulted before.
 
 | Platform | File | Size | What must survive |
 |---|---|---|---|
@@ -9,42 +13,64 @@
 | TikTok | cover | 1080×1920 | the profile grid crops the center: same rule |
 | YouTube Shorts | thumbnail | 1080×1920 | same rule; check whether the account can upload a custom one |
 
-`cover.py make` builds every requested platform from the same frame and headline,
-each with its own layout. **2–3 variants** to choose from (`--variant 1|2|3`), each
-with a different frame and gesture; the composition stays. Files are overwritten
-on every run (no versions for covers); `02-work/covers/*.guides.jpg` shows the crop
-areas to check.
+## The steps
 
-## Choosing the frame
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py candidates            # frames: face visible, big, sharp
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py cutout --time 14.5    # the person, cut out and located
+# write 02-work/covers.json + the concepts in 02-work/remotion/src/covers/index.tsx
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py render                # → 03-delivery/cover_<platform>_<n>.jpg
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py preview               # at real size: profile grid / feed
+```
 
-`cover.py candidates` ranks moments with a big, steady face into a numbered sheet.
-Pick with judgment: a gesture that matches the headline (pointing, surprise, hands
-up at chest height — hands that end up low get lost under the crop), eyes open, no
-mouth mid-syllable. The frame comes out with the file's color grade.
+1. **The frame.** `candidates` keeps only moments in the edit with a face that's
+   visible, confidently detected, as big as the video's best and sharp — never a back,
+   a profile or someone across the room. Choose among them for the **expression and
+   gesture** that fit the concept (a laugh, surprise, pointing, hands up at chest
+   height), eyes open, mouth not mid-syllable.
+2. **The person, cut out — by default.** `cutout` grabs the frame with the grade,
+   cuts the person out (rembg `birefnet-portrait`), trims it and records where the face
+   is. If the cut fails or looks wrong, try another frame; never fall back silently.
+   Without a cut-out only when the user asks (a concept can use the whole frame:
+   `<Frame>`). Check hair, hands and edges.
+3. **Three concepts** (`02-work/covers.json`):
 
-## Composition (defaults; colors, fonts and elements come from the brand)
+   ```json
+   {"platforms": ["reels", "youtube"],
+    "concepts": [{"id": "1", "component": "ChatUnread", "idea": "the video's idea: …"},
+                 {"id": "2", "component": "BigFace",    "idea": "the face, huge, one short question"},
+                 {"id": "3", "component": "SeenTicks",  "idea": "bold: …"}]}
+   ```
 
-- **Headline**: capitals, large, 2–3 lines, nearly edge to edge of the area that
-  survives the crop, with a soft shadow. The keyword boxed in the accent color and
-  larger. No subtitle: it has to read as a thumbnail. Written in the video's
-  language, from the hook or the promise of the video, never a sentence copied from
-  the transcript.
-- **Brand** small above the headline (vertical) or top-left (YouTube): logo and/or
-  name.
-- **The person cut out** (rembg, `birefnet-portrait`; the first run downloads ~1 GB),
-  large, leaving the canvas through its bottom edge — no visible cut at a table or
-  the waist — with a light outline and a soft shadow. Vertical: centered under the
-  headline. YouTube: on the right, the headline on the left.
-- **Background in the brand color** with depth: a glow behind the person, darker
-  edges, a faint dot pattern.
-- **One giant, half-transparent element** (`--big`): the number, the keyword or an
-  icon of the topic, between the headline and the head (in YouTube, under the
-  headline), partly hidden by the person.
-- **The face is never under text or logos**; headline and face inside the area that
-  survives the crop. `make` warns when the headline is too long for it.
-- **Check the cutout**: hair, hands and edges against clothes are where it fails. If
-  it fails, try another frame, or `--no-cutout` (the frame goes where the text
-  isn't, fading into the background).
-- **The video's design rules the cover too**: its typefaces (`fonts.py`, never system
-  fonts), its colors (`--colors` defaults to the design's paper, accent and ink) and
-  real icons (`icons.py png` for a mark or icon on the cover).
+   Each component gets `platform`, `width`, `height` and `keep` (the area that
+   survives the crop) and composes freely: `<Person file="cutout_014.50.png"
+   faceCenter={[x, y]} faceHeight={px} outline="#fff" />` places the person by the
+   face (the body leaves through the bottom edge on its own), the video's design
+   tokens (`font()`, `color()`), the project's icons, inline SVG drawn for the cover,
+   CSS of any kind. Lay it out per platform (vertical and 16:9 are different
+   compositions, not a resize).
+4. **Look at them** at real size (`preview`) and as a viewer: does each read in under
+   a second, is the face big and expressive, does it stand out next to others, is
+   anything cut by the grid. `render` already warns when there's no face, the face is
+   small, or it falls outside the crop. Fix and render again.
+
+## What makes a cover work
+
+- **One idea, readable at thumbnail size**: a few words (2–4) at a size that reads on a
+  phone, one of them emphasized. Never a sentence copied from the transcript.
+- **A face, big** — a quarter of the height on YouTube, a good share on vertical — with
+  an expression; eyes and mouth never under text.
+- **Contrast and separation**: the person and the headline pop off the background
+  (outline, glow, a darker or brighter backdrop, depth).
+- **The video's design as the starting point** — its typefaces and palette, so the
+  cover and the video feel like one thing — but the cover is free to be louder:
+  bigger type, more saturation, a bolder composition. Breaking from the video's
+  design is fine when it makes a better cover; say why in the delivery.
+- **Three ideas that really differ**: what's shown, how it's framed, what it says —
+  not three colors of the same layout.
+- **References**: if `references/` has images (covers or styles the user likes), take
+  their criteria — composition, intensity, how much text — never copy them.
+- Brand assets only as provided (`brand/`); never searched for or recreated.
+
+**Without Node** (Remotion can't run): `cover.py make` — one fixed layout (headline,
+cut-out person, brand background); say that the designed concepts need Node.

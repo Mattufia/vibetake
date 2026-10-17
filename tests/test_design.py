@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10,<3.14"
-# dependencies = ["numpy>=1.26"]
+# dependencies = ["numpy>=1.26", "pillow>=10", "opencv-python-headless>=4.9"]
 # ///
 """Design tests: project fonts and icons, palette, the design reaching subtitles and covers,
 and a Remotion graphics layer built from a design and a scene plan. Needs the network
@@ -148,6 +148,41 @@ def main() -> None:
         info = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=pix_fmt",
                                "-of", "csv=p=0", str(mov)], capture_output=True, text=True).stdout.strip() if mov.exists() else ""
         checks[f"remotion: full layer rendered with alpha ({info})"] = info.startswith("yuva")
+
+    # Covers as free canvases (Remotion stills): concepts render per platform, preview at real size.
+    if shutil.which("node") and (tmp / "02-work" / "remotion" / "node_modules").exists():
+        plan = {"platforms": ["reels", "youtube"], "concepts": [
+            {"id": "1", "component": "Plain", "idea": "test", "no_person": True},
+            {"id": "2", "component": "Plain", "idea": "test 2", "no_person": True}]}
+        (tmp / "02-work" / "covers.json").write_text(json.dumps(plan), encoding="utf-8")
+        cov = tmp / "02-work" / "remotion" / "src" / "covers"
+        for f in cov.glob("index.*"):
+            f.unlink()
+        (cov / "index.tsx").write_text("""import React from "react";
+import { AbsoluteFill } from "remotion";
+import type { CoverProps } from "../kit/cover";
+import { color, font } from "../kit/design";
+const Plain: React.FC<CoverProps> = ({ width, keep, height }) => (
+  <AbsoluteFill style={{ background: color("paper") }}>
+    <div style={{ position: "absolute", top: keep.y0 * height + 40, width, textAlign: "center", ...font("display"),
+      fontSize: width * 0.12, color: color("accent") }}>Hola</div>
+  </AbsoluteFill>);
+export const COVERS: Record<string, React.FC<CoverProps>> = { Plain };
+""", encoding="utf-8")
+        p = run(tmp, S("cover.py"), "render")
+        outs = sorted(x.name for x in (tmp / "03-delivery").glob("cover_*_*.jpg"))
+        checks[f"covers: each concept × platform rendered ({outs})"] = p.returncode == 0 and {
+            "cover_reels_1.jpg", "cover_reels_2.jpg", "cover_youtube_1.jpg", "cover_youtube_2.jpg"} <= set(outs)
+        checks["covers: fewer than three concepts is flagged"] = "three different ideas" in p.stdout
+        sz = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0",
+                             str(tmp / "03-delivery" / "cover_youtube_1.jpg")], capture_output=True, text=True).stdout
+        checks[f"covers: platform size ({sz.strip()})"] = sz.strip() == "1280,720"
+        p = run(tmp, S("cover.py"), "preview")
+        checks["covers: real-size previews"] = (tmp / "02-work" / "covers" / "preview_reels.png").exists() and             (tmp / "02-work" / "covers" / "preview_youtube.png").exists()
+        sys.path.insert(0, str(SCRIPTS))
+        import cover
+        checks["covers: a cover without a face is flagged"] = bool(
+            cover.face_check(tmp / "03-delivery" / "cover_reels_1.jpg", "reels"))
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
