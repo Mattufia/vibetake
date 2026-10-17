@@ -12,4 +12,4 @@ Company presentations, institutional videos, internal communication.
   with name and role.
 - **Traps**: names, roles and figures are checked letter by letter; nothing
   off-brand on screen.
-- **Color**: `natural`; brand colors in frame (logos, uniforms, products) must stay accurate; no stylized looks unless the brand asks.
+- **Color**: Basic or Full, natural; brand colors in frame (logos, uniforms, products) must stay accurate; no stylized looks unless the brand asks.

@@ -105,6 +105,28 @@ def main() -> None:
     matched_b = json.loads((tmp / "ref" / "color.json").read_text())["matched.mp4"]["neutral"]["b"]
     checks[f"reference pulls toward the warm image (b {matched_b} → near {warm_b})"] = matched_b > warm_b * 0.5
 
+    # Levels: "none" touches nothing; propose writes a recommendation for the color question.
+    grade(tmp, "build", "warm.mp4", "--level", "none", "--out", "none")
+    p = json.loads((tmp / "none" / "grade.json").read_text())["warm.mp4"]["params"]
+    checks["level none: untouched"] = p["gains"] == [1.0, 1.0, 1.0] and not p["finish"] and p["stops"] == 0
+    grade(tmp, "propose", "warm.mp4", "--out", "prop")
+    prop = (tmp / "prop" / "propose.md").read_text(encoding="utf-8")
+    checks["propose: previews for basic and full + recommendation"] = (
+        "Recommended:" in prop and list((tmp / "prop" / "basic").glob("preview_*.jpg"))
+        and list((tmp / "prop" / "full").glob("preview_*.jpg")))
+
+    # Global skin shift: skin-like colors move toward the skin line; neutrals and blue don't.
+    sys.path.insert(0, str(GRADE.parent))
+    import grade as g
+    colors = np.array([[0.80, 0.55, 0.50],   # reddish skin
+                       [0.50, 0.50, 0.50],   # gray
+                       [0.20, 0.30, 0.80]], np.float32)  # blue
+    hue = lambda c: float(np.degrees(np.arctan2((c[0] - g.luma(c)) / 1.5748, (c[2] - g.luma(c)) / 1.8556)))  # noqa: E731
+    skin_before = hue(colors[0])
+    out = g.skin_shift(colors, skin_before, 8.0)
+    checks["skin shift moves skin toward the line"] = abs(hue(out[0]) - 123) < abs(skin_before - 123)
+    checks["skin shift leaves gray and blue"] = np.allclose(out[1:], colors[1:], atol=1e-3)
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     print("warm:", warm, "\nlog:", log)

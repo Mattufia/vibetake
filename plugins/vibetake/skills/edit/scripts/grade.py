@@ -5,7 +5,8 @@
 """Color: measure, build the grade as a .cube, preview before/after.
 
     uv run grade.py analyze [files...] [--ingest 01-ingest] [--out 02-work/color]
-    uv run grade.py build   [files...] [--correct auto|on|off] [--look cinematic --intensity 60]
+    uv run grade.py propose [files...]   # Basic and Full side by side + previews + recommendation
+    uv run grade.py build   [files...] [--level none|basic|full] [--look cinematic --intensity 60]
                             [--input-lut <format>.cube] [--match] [--out 02-work/color]
                             [--creative-lut <user>.cube] [--reference <image> (experimental)]
     uv run grade.py preview [files...] [--out 02-work/color]
@@ -40,6 +41,9 @@ SKIN_LINE_DEG = 123.0        # where skin of any color sits on a vectorscope (th
 STOP_IN_LOG = 0.08           # approx. code-value change per stop in common log curves
 CAST_STRONG, CAST_MILD = 6.0, 3.0   # chroma (Lab) of what should be neutral
 MILD_STRENGTH = 0.6                 # share of a mild cast removed in auto mode
+LEVELS_STRENGTH = 0.7               # how far milky blacks / dull whites are pulled to full range
+SKIN_MAX_SHIFT = 8.0                # degrees; global skin correction stays small (no mask yet)
+LEVELS = ("none", "basic", "full")
 MAX_STOPS = 1.0
 LUT_SIZE = 33
 LOOKS = ("natural", "cinematic", "warm", "cold", "bw", "vintage")
@@ -154,6 +158,32 @@ def split_tone(x, shadows, highlights, amount):
     tint = (1 - y) ** 2 * np.array(shadows, np.float32) + y ** 2 * np.array(highlights, np.float32)
     out = x + tint * amount
     return out - (luma(out) - luma(x))[..., None]          # keep brightness
+
+
+def vibrance(x, amount):
+    """Saturation boost that spares what is already saturated (and skin, mostly)."""
+    mx, mn = x.max(-1, keepdims=True), x.min(-1, keepdims=True)
+    sat = (mx - mn) / np.maximum(mx, 1e-6)
+    y = luma(x)[..., None]
+    return y + (x - y) * (1 + amount * (1 - sat))
+
+
+def skin_shift(x, center_deg: float, shift_deg: float):
+    """Rotates hues near the measured skin hue toward the skin line, over the whole frame.
+    Weighted by hue distance, chroma and luma so neutrals and strong colors don't move;
+    other skin-like surfaces (wood) move too, which is why the shift is small and capped."""
+    y = luma(x)
+    cb, cr = (x[..., 2] - y) / 1.8556, (x[..., 0] - y) / 1.5748
+    ang = np.degrees(np.arctan2(cr, cb))
+    d = (ang - center_deg + 180) % 360 - 180
+    chroma = np.hypot(cb, cr)
+    w = (np.exp(-(d / 18) ** 2) * np.clip((chroma - 0.02) / 0.04, 0, 1)
+         * np.clip((y - 0.08) / 0.1, 0, 1) * np.clip((0.95 - y) / 0.1, 0, 1))
+    a = np.radians(shift_deg) * w
+    cb2, cr2 = cb * np.cos(a) - cr * np.sin(a), cb * np.sin(a) + cr * np.cos(a)
+    r, b = y + 1.5748 * cr2, y + 1.8556 * cb2
+    g = (y - 0.2126 * r - 0.0722 * b) / 0.7152
+    return np.stack([r, g, b], -1)
 
 
 def look(x: np.ndarray, name: str | None, intensity: float) -> np.ndarray:
@@ -377,9 +407,12 @@ def lab_stats(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity, stop_size: float = STOP_IN_LOG,
-             creative=None, transfer=None):
-    """creative: (table, intensity) of a user LUT. transfer: (src_mean, src_std, ref_mean, ref_std) in Lab."""
+             creative=None, transfer=None, finish: dict | None = None):
+    """creative: (table, intensity) of a user LUT. transfer: (src_mean, src_std, ref_mean, ref_std) in Lab.
+    finish: level extras after the correction — levels (black, white), skin (center, shift deg),
+    vibrance, contrast."""
     gains = np.asarray(gains, np.float32)
+    finish = finish or {}
 
     def fn(x: np.ndarray) -> np.ndarray:
         if is_log:
@@ -388,6 +421,16 @@ def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity,
             x = apply_cube(x, input_lut) if input_lut is not None else x
         else:
             x = to_disp(soft_clip(to_lin(x) * gains * 2 ** stops))
+        x = np.clip(x, 0, 1)
+        if "levels" in finish:
+            b, w = finish["levels"]
+            x = np.clip(x + ((x - b) / (w - b) - x) * LEVELS_STRENGTH, 0, 1)
+        if "skin" in finish:
+            x = skin_shift(x, *finish["skin"])
+        if finish.get("contrast"):
+            x = s_curve(x, finish["contrast"])
+        if finish.get("vibrance"):
+            x = vibrance(x, finish["vibrance"])
         x = np.clip(x, 0, 1)
         if transfer is not None:
             sm, ss, rm, rs, t = transfer
@@ -408,19 +451,26 @@ def cmd_build(args) -> None:
     material = load_material(Path(args.ingest))
     lut = read_cube(Path(args.input_lut)) if args.input_lut else None
     items = resolve(args.files, material)
-    target = float(np.median([report[m["name"]]["median_luma"] for m in items])) if args.match else None
+    faces = {}
+    if (Path(args.ingest) / "faces.json").exists():
+        faces = json.loads((Path(args.ingest) / "faces.json").read_text(encoding="utf-8"))
+    level = args.level
+    lumas = [report[m["name"]]["median_luma"] for m in items]
+    # Basic includes matching shots: automatic when several files clearly differ.
+    match = args.match or (level != "none" and len(items) > 1 and max(lumas) - min(lumas) > 0.08)
+    target = float(np.median(lumas)) if match else None
     plan = {}
     for m in items:
         r = report[m["name"]]
         is_log = bool(args.input_lut and (m.get("log_hint") or m.get("faces", {}).get("image", {}).get("flat")
                                           or args.force_log))
         # The baseline is the most natural image: strong casts fully, mild ones partly
-        # (a warm room keeps some warmth). Skin offsets are only reported.
+        # (a warm room keeps some warmth).
         cast = r.get("neutral", {}).get("cast_chroma", 0)
-        correct = args.correct == "on" or (args.correct == "auto" and (
-            cast >= CAST_MILD or any("exposed" in v for v in r["verdict"])))
+        correct = level != "none" and (args.correct == "on" or (args.correct == "auto" and (
+            cast >= CAST_MILD or any("exposed" in v for v in r["verdict"]))))
         strength = 1.0 if args.correct == "on" or cast >= CAST_STRONG else MILD_STRENGTH
-        gains, stops, notes = [1.0, 1.0, 1.0], 0.0, []
+        gains, stops, notes, finish = [1.0, 1.0, 1.0], 0.0, [f"level {level}"], {}
         if correct and cast >= 1 and "neutral" in r:
             gains = [round(g ** strength, 4) for g in r["neutral"]["gains"]]
             notes.append(f"white balance (cast {cast}{', partial' if strength < 1 else ''})")
@@ -432,14 +482,20 @@ def cmd_build(args) -> None:
             stops = float(np.clip(stops + math.log2(target / max(r["median_luma"], 0.02)) * GAMMA,
                                   -MAX_STOPS, MAX_STOPS))
             notes.append(f"matched to median luma {target:.2f}")
+        if level != "none" and not is_log and (r["p1"] > 0.06 or r["p99"] < 0.88):
+            black = min(max(r["p1"] - 0.01, 0.0), 0.08) if r["p1"] > 0.06 else 0.0
+            white = max(r["p99"] + 0.01, 0.85) if r["p99"] < 0.88 else 1.0
+            finish["levels"] = (round(black, 3), round(white, 3))
+            notes.append("black/white points")
         stop_size = log_stop_size(lut) if is_log else STOP_IN_LOG
         if is_log:
             notes.insert(0, f"log → Rec.709 with {Path(args.input_lut).name} ({stop_size:.3f}/stop)")
-        frames, _ = analysis_frames(m, None)
+        frames, times = analysis_frames(m, None)
+        boxes = [faces_at(faces, m["name"], t) for t in times]
 
-        def through(g, s):
-            fn = grade_fn(g, s, is_log, lut if is_log else None, None, 0, stop_size)
-            return measure([fn(f.reshape(-1, 3)).reshape(f.shape) for f in frames], [[] for _ in frames])
+        def through(g, s, fin=None):
+            fn = grade_fn(g, s, is_log, lut if is_log else None, None, 0, stop_size, finish=fin)
+            return measure([fn(f.reshape(-1, 3)).reshape(f.shape) for f in frames], boxes)
 
         after = through(gains, stops)
         if gains != [1.0, 1.0, 1.0] and strength == 1.0:
@@ -449,13 +505,24 @@ def cmd_build(args) -> None:
                     break
                 gains = [round(g * a, 4) for g, a in zip(gains, after["neutral"]["gains"])]
                 after = through(gains, stops)
+        if level == "full":
+            # Skin toward the skin line: half the offset, capped — global, so kept small.
+            off = after.get("skin_offset_deg")
+            if off is not None and abs(off) > 5:
+                shift = float(np.clip(-off * 0.5, -SKIN_MAX_SHIFT, SKIN_MAX_SHIFT))
+                finish["skin"] = (after["skin_hue_deg"], round(shift, 1))
+                notes.append(f"skin {shift:+.1f}° toward the skin line (global, gentle)")
+            finish["contrast"], finish["vibrance"] = 0.06, 0.08
+            notes.append("contrast and vibrance tidy-up")
+        if finish:
+            after = through(gains, stops, finish)
         creative = transfer = None
         if args.creative_lut:
             creative = (read_cube(Path(args.creative_lut)), args.creative_intensity / 100)
             notes.append(f"creative LUT {Path(args.creative_lut).name} {args.creative_intensity:.0f}%")
         if args.reference:
             # Experimental: move the shot's Lab mean/spread toward the reference image's.
-            base = grade_fn(gains, stops, is_log, lut if is_log else None, None, 0, stop_size)
+            base = grade_fn(gains, stops, is_log, lut if is_log else None, None, 0, stop_size, finish=finish)
             sm, ss = lab_stats([base(f.reshape(-1, 3)).reshape(f.shape) for f in frames])
             rm, rs = lab_stats([reference_image(Path(args.reference))])
             transfer = (sm, ss, rm, rs, args.reference_intensity / 100)
@@ -465,24 +532,50 @@ def cmd_build(args) -> None:
             notes.append(f"look {args.look} {args.intensity:.0f}%")
         cube = out / f"{m['stem']}.cube"
         write_cube(cube, grade_fn(gains, stops, is_log, lut if is_log else None, args.look, args.intensity,
-                                  stop_size, creative, transfer), f"vibetake {m['name']}")
+                                  stop_size, creative, transfer, finish), f"vibetake {m['name']}")
         pre = ""
         if m.get("hdr"):
             from ingest import pick_tonemap
             pre = pick_tonemap()[1]
             notes.insert(0, f"HDR {m['hdr']} tone-mapped before the LUT")
         plan[m["name"]] = {"source": m["file"], "pre": pre, "lut": str(cube), "notes": notes,
-                           "params": {"gains": gains, "stops": round(stops, 3), "log": is_log,
-                                      "look": args.look, "intensity": args.intensity}}
+                           "params": {"level": level, "gains": gains, "stops": round(stops, 3), "log": is_log,
+                                      "finish": finish, "look": args.look, "intensity": args.intensity}}
         plan[m["name"]]["check"] = {"cast_before": r.get("neutral", {}).get("cast_chroma"),
                                     "cast_after": after.get("neutral", {}).get("cast_chroma"),
-                                    "median_luma_before": r["median_luma"], "median_luma_after": after["median_luma"]}
+                                    "median_luma_before": r["median_luma"], "median_luma_after": after["median_luma"],
+                                    "skin_offset_before": r.get("skin_offset_deg"),
+                                    "skin_offset_after": after.get("skin_offset_deg")}
         print(f"{m['name']}: {', '.join(notes) or 'no change'} · cast {plan[m['name']]['check']['cast_before']} → "
               f"{plan[m['name']]['check']['cast_after']} · luma {r['median_luma']} → {after['median_luma']}")
     gp = out / "grade.json"
     old = json.loads(gp.read_text(encoding="utf-8")) if gp.exists() else {}
     gp.write_text(json.dumps({**old, **plan}, indent=1), encoding="utf-8")
     print(f"grade plan → {gp}")
+
+
+def cmd_propose(args) -> None:
+    """Builds Basic and Full side by side with previews, and recommends one, for the color question."""
+    out = Path(args.out)
+    report = None
+    for level in ("basic", "full"):
+        sub = argparse.Namespace(**{**vars(args), "level": level, "out": str(out / level), "look": None,
+                                    "correct": "auto", "match": False, "force_log": args.force_log,
+                                    "creative_lut": None, "reference": None, "creative_intensity": 100,
+                                    "reference_intensity": 60, "intensity": 60, "n": 2})
+        cmd_build(sub)
+        cmd_preview(sub)
+        report = report or json.loads((out / level / "color.json").read_text(encoding="utf-8"))
+    skin = any(abs(r.get("skin_offset_deg", 0)) > 10 for r in report.values())
+    anything = any(r["verdict"] for r in report.values())
+    rec = "full" if skin else "basic" if anything else "none"
+    findings = "; ".join(f"{n}: {', '.join(r['verdict']) or 'nothing to correct'}" for n, r in report.items())
+    lines = ["# Color proposal", "", f"Findings: {findings}", f"Recommended: {rec}", "",
+             f"- Basic: exposure, white balance, black/white points, matching shots → previews in {out / 'basic'}",
+             f"- Full: Basic + skin (global, gentle), contrast and vibrance → previews in {out / 'full'}",
+             "- None: the material as is", "- Custom: free text (a look, the user's LUT, a reference image)"]
+    (out / "propose.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines))
 
 
 def reference_image(path: Path) -> np.ndarray:
@@ -536,13 +629,18 @@ def cmd_preview(args) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("analyze", "build", "preview"):
+    for name in ("analyze", "propose", "build", "preview"):
         s = sub.add_parser(name)
         s.add_argument("files", nargs="*")
         s.add_argument("--ingest", default="01-ingest")
         s.add_argument("--out", default="02-work/color")
         s.add_argument("--input-lut", help="the log format's official conversion LUT (.cube)")
+        if name == "propose":
+            s.add_argument("--force-log", action="store_true", help="treat files as log even if not flagged")
         if name == "build":
+            s.add_argument("--level", choices=LEVELS, default="basic",
+                           help="none: untouched · basic: exposure, white balance, black/white, matching · "
+                                "full: basic + skin, contrast, vibrance")
             s.add_argument("--correct", choices=("auto", "on", "off"), default="auto",
                            help="auto: strong casts fully, mild ones partly, exposure when clearly off")
             s.add_argument("--look", choices=LOOKS)
@@ -560,7 +658,8 @@ def main() -> None:
     s.add_argument("--intensity", type=float, default=60)
     s.add_argument("--file")
     args = ap.parse_args()
-    {"analyze": cmd_analyze, "build": cmd_build, "preview": cmd_preview, "look": cmd_look}[args.cmd](args)
+    {"analyze": cmd_analyze, "propose": cmd_propose, "build": cmd_build, "preview": cmd_preview,
+     "look": cmd_look}[args.cmd](args)
 
 
 if __name__ == "__main__":

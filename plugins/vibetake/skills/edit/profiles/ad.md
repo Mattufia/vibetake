@@ -15,4 +15,4 @@ Brand ads, UGC ads, product promos.
   for paid campaigns, make the aspect ratios that platform needs without asking.
 - **Traps**: offer, price, dates and legal text are checked letter by letter
   against the request or the brief.
-- **Color**: level 1 always checked; brand-consistent look (the brand's LUT if there is one, else `natural`); every version and aspect ratio shares the same grade.
+- **Color**: recommend Full with people on camera, Basic otherwise; brand-consistent (the brand's LUT as Custom if there is one); every version and aspect ratio shares the same grade.

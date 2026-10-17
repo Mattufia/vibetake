@@ -12,4 +12,4 @@ A customer or real person talking about their experience.
 - **Graphics**: lower third with name and role/company; minimal otherwise.
 - **Traps**: never change the meaning of what the person said by cutting;
   claims and numbers they mention are checked against the request.
-- **Color**: `natural`, slightly warm and soft; skin first, never a stylized look.
+- **Color**: Full (skin first), natural and slightly warm; never a stylized look.

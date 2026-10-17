@@ -14,4 +14,4 @@ Conversations with two or more voices: podcasts, interviews, panels.
 - **Graphics**: lower thirds with name and role the first time each person speaks.
 - **Traps**: crosstalk — don't cut one voice in the middle of another's sentence;
   levels per voice must match.
-- **Color**: `--match` between cameras is the priority (two angles that don't match are very visible); `natural`.
+- **Color**: Basic: matching the cameras is the priority (two angles that don't match are very visible); Full if skin is off.

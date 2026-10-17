@@ -185,8 +185,9 @@ Applied:
 - **Type**: ask only with low confidence; otherwise state it.
 - **Subtitles**: don't ask. They follow from the destination and the material
   (section 6); state the choice in the delivery.
-- **Color**: don't ask. The baseline is the most natural, best-looking image
-  (section 4). Only exception: log footage without its conversion LUT.
+- **Color**: ask, as levels, with the recommended one marked from what was
+  measured (section 4). It's subjective and it's the user's image. Log footage
+  without its conversion LUT: also ask for the LUT.
 
 When something has to be asked, it's **one moment**: say in one line what the
 raw footage is, then ask every open question together. With a multiple-choice
@@ -194,8 +195,10 @@ question tool, use it (up to 4 questions in one go, recommended option first);
 without one, a single message with the proposals.
 
 ```
-It's a UGC ad (high confidence), 48 s, one person to camera.
+It's a UGC ad (high confidence), 48 s, one person to camera. Color: mild warm cast,
+skin leaning red · before/after: 02-work/color/basic/ and 02-work/color/full/
 → Where will it be published?  TikTok + Reels 9:16 (recommended) · YouTube 16:9 · Both
+→ Color?  Full (recommended) · Basic · Untouched · (write: a look, your LUT, a reference)
 ```
 
 - **Don't ask what the request already says.** Often there's no question at all.
@@ -228,30 +231,35 @@ within that frame.
 
 ## 4. Color
 
-**The baseline is the most natural, best-looking image**, done without asking;
-anything stylized only when asked. **Always on the whole frame**: no masks, no
-tracking. Faces are only used to *measure* skin. Three levels:
+The goal of the correction is the most natural, best-looking image; anything
+stylized is the user's choice. **Always on the whole frame**: no masks, no
+tracking (faces are only used to *measure* skin). It's asked, in the same moment as
+the other questions, as levels:
 
-| Level | What | When |
-|---|---|---|
-| 1. Correction | white balance, exposure, matching shots | **by default**, whenever it makes the image more natural: strong casts fully, mild casts partly (natural isn't sterile: a warm room keeps some warmth), exposure clearly off, shots that should match. Nothing to fix → nothing is touched |
-| 2. Look | `natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity | when asked, or when the type profile expects one |
-| 3. Creative | the user's LUT, a reference image (experimental), a custom look | only when asked |
+| Option | What |
+|---|---|
+| **Basic** | exposure (when clearly off), white balance (strong casts fully, mild ones partly: natural isn't sterile, a warm room keeps some warmth), black and white points, **matching shots and cameras** |
+| **Full** | Basic + skin toward the skin line (global and gentle, capped at a few degrees: similar colors like wood barely move), contrast and vibrance tidy-up |
+| **Untouched** | the material as is (e.g. the user grades it elsewhere) |
+| **Custom** (free text) | a look (`natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity), the user's LUT, a reference image (experimental) — on top of Basic unless told otherwise |
 
-Don't ask about color (exception: log footage without its LUT). In the delivery,
-say in one line what was corrected, point to the before/after preview, and offer
-the looks.
+**Recommended**: Full when skin is clearly off the line (>10°); Basic when only
+exposure, balance or matching need work; Untouched when nothing needs fixing.
+Before asking, run `propose`, which builds Basic and Full with before/after
+previews so the user can compare, and give the folders in the question's context
+line (the options themselves can only show text). "Your call" → the recommended.
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py analyze
-uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build [--look cinematic --intensity 60] [--match]
-       [--input-lut <format>.cube] [--creative-lut <user>.cube] [--reference <image>]
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py propose            # before the question
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none
+       [--look cinematic --intensity 60] [--input-lut <format>.cube]
+       [--creative-lut <user>.cube] [--reference <image>]       # after the answer
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py preview
 ```
 
-- `analyze` → `02-work/color/color.md`: exposure, the cast of what should be
-  neutral, skin hue against the skin line, verdict. Skin offsets are reported,
-  never auto-corrected: lighting and complexion legitimately move them.
+- `analyze` (also run by `propose` and `build`) → `02-work/color/color.md`:
+  exposure, the cast of what should be neutral, skin hue against the skin line,
+  verdict.
 - `build` bakes everything into **one .cube per file** and writes `grade.json`
   (which pre-filter and LUT each file gets at render). It re-measures through the
   grade and prints the cast and exposure before → after.

@@ -13,4 +13,4 @@ Opinion, educational or explainer content spoken to camera by one person.
 - **Jump cuts**: always covered with a punch-in (alternate framings) or b-roll.
 - **Traps**: over-cleaning removes the person's natural rhythm; keep pauses that
   carry meaning.
-- **Color**: level 1 only; `natural` at most. Skin is what's judged.
+- **Color**: Full is usually the recommendation: skin is what's judged. `natural` look at most.

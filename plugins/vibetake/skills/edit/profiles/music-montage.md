@@ -13,4 +13,4 @@ Events, aftermovies, real estate, places and products with little or no speech.
 - **Picture**: stabilize, match color between clips; this type is judged on looks.
 - **Traps**: a cut that misses the beat is very noticeable; check sync after any
   re-encode.
-- **Color**: `--match` plus a look is expected (this type is judged on looks): propose `cinematic` unless the brief says otherwise.
+- **Color**: Basic plus a look is expected (this type is judged on looks): suggest `cinematic` as Custom unless the brief says otherwise.
