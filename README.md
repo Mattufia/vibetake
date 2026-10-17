@@ -38,6 +38,7 @@ uv run tests/test_reframe.py      # camera operator: holds, eases, cuts; rendere
 uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts; hook ranking
 uv run tests/test_audio.py        # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
 uv run tests/test_subs.py         # .srt rules, word groups, face avoidance, burn-in
+uv run tests/test_qa.py           # delivery QA: a good file passes, planted faults are caught
 ```
 
 Generates synthetic clips for each ingest trap (VFR, HDR, rotation, two audio

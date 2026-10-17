@@ -447,18 +447,30 @@ or the person.
   grid's center crop**, and the first frame of the video has to work on its own,
   because autoplay starts there.
 
-**Before delivering, always:**
+**Before delivering, always run the QA** (with the destination's platforms and
+loudness):
 
-- Measure the export: `ffmpeg -af ebur128=peak=true`. Confirm −14 LUFS /
-  ≤ −1 dBTP and that SFX and music don't bury the voice.
-- Pull stills from the final export and look at them: safe zone, readable
-  subtitles, nothing cut off.
-- Say in one line what was left out or what was resolved on your own judgment.
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/qa.py 03-delivery/edit.mp4 --platform reels --platform tiktok --loudness social
+```
 
-**After verifying the export, delete the heavy intermediates** (intermediate
-renders, ProRes, temporary WAVs): they're regenerated from the project in minutes
-and there's no point in them taking up disk. They're temporary: no need to
-mention it.
+It checks format (H.264 yuv420p, constant frame rate, BT.709, AAC 48 kHz,
+faststart), size and duration against the edit, picture = sound, unintended black
+or frozen stretches, loudness and true peak, long silences, `.srt` rules, burned-in
+captions inside the safe zone (height and width), platform aspect/length/
+resolution, and that the `.srt` and thumbnails are there. Report in
+`03-delivery/qa/qa.md`; exit code 1 on any FAIL. **A FAIL is fixed before
+delivering**; a WARN is judged and mentioned if it stays.
+
+- **Look at the QA contact sheets** (`03-delivery/qa/`, the vertical safe zone in
+  green): framing, readable captions, nothing cut off, the first frame works alone.
+- Platform limits and export settings: `${CLAUDE_SKILL_DIR}/references/platforms.md`
+  (they change: verify when a limit matters).
+- In the delivery, say in one line what was left out, what was resolved on your
+  own judgment, what the master was encoded with, and any WARN that stays.
+- **Then `qa.py --cleanup`** deletes the heavy disposable intermediates (preview,
+  render chunks, normalized copies) — only if nothing failed. Cleaned audio and
+  grades stay: re-renders need them. No need to mention it.
 
 ## 12. Safe margins
 

@@ -31,6 +31,8 @@ from _timeline import starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
+SAFE_X_V = (0.06, 0.86)        # horizontal extent of the 9:16 safe zone
+CHAR_W = 0.68                  # average glyph width / font size for a heavy sans (Arial Black), with margin
 WHITE, YELLOW, BLACK = "&H00FFFFFF", "&H0000FFFF", "&H00000000"
 
 
@@ -193,6 +195,10 @@ def main() -> None:
     size = args.size or (0.055 if vertical else 0.06)
     fs = round(H * size * (1.15 if args.upper else 1))
     safe, default = (SAFE_V, 0.70) if vertical else (SAFE_H, 0.86)
+    # The 9:16 safe zone isn't symmetric (the like/comment/share column is on the right):
+    # center captions on it, not on the frame.
+    x0, x1 = SAFE_X_V if vertical else (0.05, 0.95)
+    center_x, safe_w = (x0 + x1) / 2, (x1 - x0)
     t0 = starts(edl["segments"], fps)
     from _timeline import resolve_broll
     broll, _ = resolve_broll(edl["segments"], fps, edl.get("broll", []))
@@ -209,8 +215,11 @@ def main() -> None:
         half = fs * 1.25 * lines / 2 / H
         y, clash = place(face_band((start + end) / 2, edl, t0, faces, material, broll), default, half, safe)
         clashes += clash
-        pos = f"{{\\an5\\pos({W // 2},{int(y * H)})}}"
         texts = [w["text"].upper() if args.upper else w["text"] for w in g]
+        # Width: shrink the font for a group that wouldn't fit the safe width (a long word).
+        longest = max(wrap(" ".join(texts), 42) if args.style == "sentence" else [" ".join(texts)], key=len)
+        fs_g = min(fs, int(safe_w * W / (len(longest) * CHAR_W)))
+        pos = f"{{\\an5\\pos({int(center_x * W)},{int(y * H)})" + (f"\\fs{fs_g}" if fs_g < fs else "") + "}"
         if args.style == "highlight":
             for i, w in enumerate(g):
                 ws = start if i == 0 else w["t"]
