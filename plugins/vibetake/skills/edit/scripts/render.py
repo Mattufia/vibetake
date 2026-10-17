@@ -28,7 +28,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import Log, die, ffmpeg_progress, ffprobe, filter_path, run, tc, tool  # noqa: E402
-from _timeline import resolve_broll  # noqa: E402
+from _timeline import resolve_broll, total as timeline_total  # noqa: E402
+from audio import BUS, TARGETS, master, music_graph  # noqa: E402
 
 FADE_S = 0.012
 CHUNK = 40
@@ -94,7 +95,7 @@ def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path) -> str:
     return f"sendcmd=f='{filter_path(cmd)}',crop@rf{k}=w={cw}:h={ch}:x={x0}:y={y0}"
 
 
-def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, preview: bool,
+def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | None, preview: bool,
                   workdir: Path) -> tuple[str, str]:
     W, H, fps = out["width"], out["height"], out["fps"]
     dur = frames(seg["out"] - seg["in"], fps) / fps
@@ -110,8 +111,8 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, pr
               f"fps={fps}", f"tpad=stop_mode=clone:stop_duration=0.2,trim=duration={dur:.6f}",
               "setpts=PTS-STARTPTS", "format=yuv420p"]
     v = f"[{k}:v:0]{','.join(chain)}[v{k}]"
-    if has_audio:
-        a = (f"[{k}:a:{seg.get('track', 0)}]aformat=sample_rates=48000:channel_layouts=stereo,"
+    if audio_in:
+        a = (f"[{audio_in}]aformat=sample_rates=48000:channel_layouts=stereo,"
              f"apad,atrim=duration={dur:.6f},asetpts=PTS-STARTPTS,"
              f"afade=t=in:d={FADE_S},afade=t=out:st={max(dur - FADE_S, 0):.6f}:d={FADE_S}[a{k}]")
     else:
@@ -141,24 +142,55 @@ def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade
     return inputs, graphs, cur
 
 
+def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: dict) -> tuple[list, list]:
+    """What goes over the whole edit: b-roll, then subtitles on top of everything; the
+    voice bus (gentle compression across cuts), then music ducked under it."""
+    b_inputs, graphs, v_last = broll_graph(first_input, v, fin["overlays"], out, grade)
+    if fin.get("subs"):
+        fonts = f":fontsdir='{filter_path(fin['fontsdir'])}'" if fin.get("fontsdir") else ""
+        graphs.append(f"[{v_last}]subtitles=filename='{filter_path(fin['subs'])}'{fonts}[vs]")
+        v_last = "vs"
+    graphs.append(f"[{v_last}]null[v]")
+    graphs.append(f"[{a}]{BUS}[voice]")
+    m_inputs, m_graphs, a_last = music_graph(first_input + len(fin["overlays"]), "voice", fin["music"],
+                                             fin["total"])
+    graphs += m_graphs + [f"[{a_last}]anull[a]"]
+    return b_inputs + m_inputs, graphs
+
+
 def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
-                 preview: bool, label: str, overlays: list[dict] | None = None) -> float:
+                 preview: bool, label: str, clean: dict, fin: dict | None = None) -> float:
+    """Segments joined in one pass. With `fin`, the finishing (b-roll, subtitles, voice bus,
+    music) happens in the same pass; without it (chunks of a long edit) it comes later."""
     inputs, graphs, total = [], [], 0.0
     with tempfile.TemporaryDirectory(prefix="vibetake-render-") as tmp:
         workdir = Path(tmp)
+        idx = 0
         for k, s in enumerate(segs):
             fps = out["fps"]
             dur = frames(s["out"] - s["in"], fps) / fps
             inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
-            has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
-            gph, d = segment_graph(k, s, out, grade, has_audio, preview, workdir)
-            graphs.append(gph)
+            vid, idx = idx, idx + 1
+            c = clean.get(s.get("name", Path(s["source"]).name))
+            if c:
+                # The cleaned audio of this file (audio.py clean): same timing as the original.
+                inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", c["file"]]
+                audio_in, idx = f"{idx}:a:0", idx + 1
+            elif any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"]):
+                audio_in = f"{vid}:a:{s.get('track', 0)}"
+            else:
+                audio_in = None
+            gph, d = segment_graph(k, s, out, grade, audio_in, preview, workdir)
+            graphs.append(gph.replace(f"[{k}:v:0]", f"[{vid}:v:0]", 1))
             total += d
         joined = "".join(f"[v{k}][a{k}]" for k in range(len(segs)))
-        graphs.append(f"{joined}concat=n={len(segs)}:v=1:a=1[vc][a]")
-        b_inputs, b_graphs, last = broll_graph(len(segs), "vc", overlays or [], out, grade)
-        inputs += b_inputs
-        graphs += b_graphs + [f"[{last}]null[v]"]
+        if fin:
+            graphs.append(f"{joined}concat=n={len(segs)}:v=1:a=1[vc][ac]")
+            f_inputs, f_graphs = finish_graph(idx, "vc", "ac", fin, out, grade)
+            inputs += f_inputs
+            graphs += f_graphs
+        else:
+            graphs.append(f"{joined}concat=n={len(segs)}:v=1:a=1[v][a]")
         script = workdir / "graph.txt"
         # Long graphs overflow the command line, so the graph goes in a file.
         script.write_text(";".join(graphs), encoding="utf-8")
@@ -177,6 +209,12 @@ def main() -> None:
     ap.add_argument("--grade", default="02-work/color/grade.json")
     ap.add_argument("--no-grade", action="store_true")
     ap.add_argument("--preview", action="store_true", help="small, fast render to check the edit")
+    ap.add_argument("--loudness", choices=tuple(TARGETS), default="social")
+    ap.add_argument("--clean", default="01-ingest/audio/clean.json", help="cleaned audio index (audio.py clean)")
+    ap.add_argument("--raw-audio", action="store_true", help="use the original audio even if cleaned exists")
+    ap.add_argument("--subs", default="02-work/subs.ass", help="burned-in subtitles (subtitles.py)")
+    ap.add_argument("--no-subs", action="store_true")
+    ap.add_argument("--fontsdir", help="folder with the subtitle font, if it isn't installed")
     args = ap.parse_args()
 
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
@@ -214,9 +252,18 @@ def main() -> None:
         log(f"WARNING: {w}")
     if overlays:
         log(f"b-roll: {len(overlays)} clip(s) over {sum(b['dur'] for b in overlays):.1f} s")
+    clean = {}
+    if not args.raw_audio and Path(args.clean).exists():
+        clean = json.loads(Path(args.clean).read_text(encoding="utf-8"))
+    subs = None if args.no_subs else Path(args.subs)
+    fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
+           "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir}
+    log(f"audio: {'cleaned' if clean else 'original'} · music: {len(fin['music'])} · "
+        f"subtitles: {'burned-in' if fin['subs'] else 'none'} · loudness: {args.loudness}")
 
+    pre = dst.with_name(dst.stem + ".premaster" + dst.suffix)
     if len(segs) <= CHUNK:
-        total = render_chunk(segs, out, grade, enc, dst, log, args.preview, "render", overlays)
+        total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
     else:
         work = Path("02-work") / "render"
         work.mkdir(parents=True, exist_ok=True)
@@ -225,18 +272,19 @@ def main() -> None:
         for i in range(n):
             part = work / f"part_{i:03d}.mkv"
             total += render_chunk(segs[i * CHUNK:(i + 1) * CHUNK], out, grade, INTERMEDIATE, part, log,
-                                  args.preview, f"chunk {i + 1}/{n}")
+                                  args.preview, f"chunk {i + 1}/{n}", clean)
             parts.append(part)
         lst = work / "parts.txt"
         lst.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
-        b_inputs, b_graphs, last = broll_graph(1, "0:v", overlays, out, grade)
-        overlay_args = (["-filter_complex", ";".join(b_graphs + [f"[{last}]null[v]"]), "-map", "[v]", "-map", "0:a"]
-                        if overlays else [])
-        ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *b_inputs, *overlay_args, *enc,
+        f_inputs, f_graphs = finish_graph(1, "0:v", "0:a", fin, out, grade)
+        ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *f_inputs,
+                         "-filter_complex", ";".join(f_graphs), "-map", "[v]", "-map", "[a]", *enc,
                          "-pix_fmt", "yuv420p", *TAGS, "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart",
-                         str(dst)], total, "final encode", log)
+                         str(pre)], total, "final encode", log)
         for p in parts:
             p.unlink(missing_ok=True)
+    master(pre, dst, args.loudness, log)
+    pre.unlink(missing_ok=True)
 
     got = ffprobe(dst)
     vd = float(next(s for s in got["streams"] if s["codec_type"] == "video").get("duration") or 0)

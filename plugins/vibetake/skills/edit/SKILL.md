@@ -131,16 +131,9 @@ of weight:
    "step 1", "today I'm…").
 3. **Context**: duration, orientation, file names.
 
-| Type | Covers | Typical signals |
-|---|---|---|
-| `ad` | brand, UGC, product promo | CTA, price/offer, brand mentioned, short, product on screen |
-| `talking-head` | opinion, educational to camera | one face, fixed framing, dense speech |
-| `tutorial` | screencast, step by step | screen/UI, instructional vocabulary, face absent or in a corner |
-| `vlog` | day in the life, travel | many locations, handheld, spontaneous speech, ambient sound |
-| `podcast-interview` | 2+ voices in conversation | several speakers, long, fixed cameras |
-| `testimonial` | customer or real case | interviewee talking about an experience, emotion, short |
-| `music-montage` | event, aftermovie, real estate, product with no voice | little or no speech, music, many shots |
-| `corporate` | company or institutional presentation | formal speech, brand, offices/team |
+Types: `ad`, `talking-head`, `tutorial`, `vlog`, `podcast-interview`,
+`testimonial`, `music-montage`, `corporate`. **What each covers and its typical
+signals: `${CLAUDE_SKILL_DIR}/references/types.md`** — read it to classify.
 
 The result is one line: **type + confidence + alternative**. If nothing fits, use
 the closest type and say which. Mixed material gets a **main type plus segments
@@ -307,20 +300,35 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # afte
 
 ## 5. Voice, music and SFX
 
-- **Voice chain before leveling** (it's the most noticeable difference between
-  amateur and paid work): high-pass ~80 Hz → gentle de-noise → de-esser →
-  moderate compression. Only then, level.
-- **The voice rules.** SFX leveled by loudness (not by peak), ~8–12 dB below the
-  voice. Never an SFX louder than the voice.
-- **Music with dynamic ducking** against the voice, aiming for ~18 dB below
-  (10–15% of the voice) while someone is speaking and rising in the gaps. A fixed
-  level sounds like a template.
-- Final master at **−14 LUFS integrated**, true peak ≤ −1 dBTP. Leave headroom in
-  the mix (careful: mono voice → stereo adds +3 LU) and bring it to −14 with
-  linear gain/loudnorm at the end.
-- Careful with `loudnorm` in `linear=true`: when the true-peak ceiling limits the
-  gain, **`offset` is ignored**. For fine adjustment, use an explicit
-  `volume=-XdB`.
+**Clean on the raw, mix and level on the cut.**
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py clean                    # after ingest, once per file
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file <track>     # optional bed (--gain, --start, --clear)
+uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and masters
+```
+
+- **Cleanup on the whole raw file** (it depends on how it was recorded): high-pass
+  ~80 Hz, noise reduction calibrated on that file's own noise floor (the raw's
+  long pauses teach it the noise), de-esser, and every file brought to the same
+  speech level (−20 LUFS), so phone and camera match. The chain's latency is
+  measured and compensated: lips stay in sync. `render.py` uses the cleaned audio
+  automatically. Transcription stays on the original.
+- **On the cut** (it depends on the final edit): gentle compression across the
+  whole voice (consistent level across cuts); music leveled to a bed and **ducked
+  under the voice** (~14–18 dB down while someone talks, back up in the pauses —
+  a fixed level sounds like a template); then an audio-only second pass that
+  measures the result and sets the destination's loudness, with a 4× oversampled
+  limiter only if true peak needs it:
+
+  | `--loudness` | Integrated | True peak |
+  |---|---|---|
+  | `social` (TikTok, Reels, Shorts, YouTube) | −14 LUFS | −1 dBTP |
+  | `podcast` | −16 LUFS | −1 dBTP |
+  | `broadcast-eu` / `broadcast-us` (TV ads: confirm with the station) | −23 / −24 | −2 dBTP |
+- **The voice rules.** Music never competes with it; SFX (when added) leveled by
+  loudness ~8–12 dB below it. Music source: the user's file for now (free
+  libraries: planned). Rights: never music the user can't publish (Content ID).
 
 ## 6. Subtitles
 
@@ -331,11 +339,25 @@ no subtitles · keywords only as a graphic punchline · full burned-in · separa
 chosen viewing with clean audio and clear diction → `.srt` only. The type profile
 can override.
 
-- Vertical: 2–3 words per frame. Horizontal: lines of ≤42 characters.
-- **Never over the face.** Check the stills section by section: the face moves
-  with zooms and reframes.
-- Always inside the safe zone.
-- **Check proper names, brands and numbers by hand.** That's where it always
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--font "Arial Black"]
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
+```
+
+- Run it after the edit and the framing are final (it reads both); `render.py`
+  burns `02-work/subs.ass` on top of everything (after color and b-roll).
+- **`.srt` always** (`03-delivery/edit.srt`): ≤2 lines of ≤42 characters, ~17
+  characters per second, 1–7 s. Platforms use it for accessibility and indexing
+  even when captions are burned in.
+- **Burned-in default (`highlight`)**: groups of 2–3 words, white with a black
+  outline, the word being said in yellow. `sentence` for sober types (corporate,
+  testimonial). Font: the brand's if there is one (`--fontsdir` in render.py if it
+  isn't installed).
+- **Never over the face, always inside the safe zone**: placed from where the face
+  is in the final frame (after reframing): low by default, below the face or
+  above it when it's there; if the face fills the frame, just under the mouth (the
+  chin can be covered, the mouth and eyes never). It warns when it can't avoid it.
+- **Check the names, brands and numbers it lists** by ear. That's where it always
   fails, with any model; the glossary prevents most of it, not all.
 
 ## 7. Graphics over the video
@@ -369,36 +391,14 @@ Pure motion graphics — an animated reel, a card, a visual explainer:
 
 ## 9. GPU
 
-**Prioritize the GPU where it helps, falling back to CPU without drama.** If
-there's a GPU, use it to raise quality too, not just to go faster: larger
-transcription models, accelerated rendering, higher-resolution previews.
-
-**Transcription**: with a GPU, a large model. Without a GPU, the same model size
-on an optimized runtime (`faster-whisper` in int8) rather than dropping model
-size: here the transcript defines where the cuts go, so degrading it degrades the
-edit, not just the text. Drop model size only as a last resort, and say so.
-Choose the size according to available VRAM. **Always set the language
-explicitly**: auto-detection looks at the first 30 seconds and an intro with
-music or silence ruins everything.
-
-**Parallelize by real contention, not by a fixed rule.** Two heavy GPU jobs, in
-series. One GPU job and one CPU job that don't step on each other, in parallel.
-Light tasks, all together. Ingest is the typical case where it pays to launch
-everything at once.
-
-**Final master: GPU by default, at high quality; CPU as fallback.** Platforms
-re-encode everything: what defines final quality is uploading a file with quality
-to spare, not which encoder made it.
-
-- Use the hardware encoder of whatever GPU is present, in **constant quality**
-  mode (not fixed bitrate) and with its highest-quality preset. Check the options
-  on that machine (`ffmpeg -h encoder=<name>`) instead of assuming them.
-- **Test it first with a few seconds**: having a GPU doesn't guarantee the encoder
-  works (drivers, disabled card, ffmpeg build without support).
-- **CPU (x264, slow preset, low CRF)** if there's no GPU or the test fails, or
-  when file size matters: at equal size, x264 gives more quality.
-- Intermediates and previews, always on the GPU if there is one.
-- State in the delivery what the master was encoded with.
+**GPU where it helps, CPU without drama.** The scripts already pick: Whisper on
+CUDA (float16) or the same model on CPU int8 — never a smaller model just for
+speed, since the transcript decides the cuts; the master on the GPU's hardware
+encoder at constant quality after a short test, x264 slow/CRF 17 otherwise.
+**Always set the language explicitly** (auto-detection reads only the first 30 s).
+Run heavy GPU jobs one at a time; a GPU job and CPU work can overlap. State in the
+delivery what the master was encoded with. Details and reasons:
+`${CLAUDE_SKILL_DIR}/references/gpu.md`.
 
 ## 10. Project structure
 
