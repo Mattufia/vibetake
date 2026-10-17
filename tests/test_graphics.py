@@ -153,7 +153,7 @@ def main() -> None:
         return int(h) * 3600 + int(m) * 60 + float(x)
     starts = [secs(l.split(",")[1]) for l in ass.splitlines() if l.startswith("Dialogue:")]
     checks["subs --off: nothing burned in the range"] = starts and not any(a0 + 0.05 < t < a1 - 0.3 for t in starts)
-    srt = (tmp / "03-delivery" / "edit.srt").read_text(encoding="utf-8")
+    srt = next((tmp / "03-delivery").glob("*.srt")).read_text(encoding="utf-8")
     first = cues["lines"][0]["words"][0]["text"]
     checks["subs --off: the .srt keeps it"] = re.search(re.escape(first), srt) is not None
 

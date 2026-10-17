@@ -19,6 +19,9 @@ def total(segs: list[dict], fps: float) -> float:
     return sum(seg_frames(s, fps) for s in segs) / fps
 
 
+EDGE_SLACK = 0.3     # how far outside a cut a word timestamp can sit and still belong to it
+
+
 def to_timeline(segs: list[dict], fps: float, name: str, time: float) -> float | None:
     """Where a moment of a source file lands in the edit. A moment used twice (a cold open
     repeated later) maps to its regular place, not the hook. None if it was cut out."""
@@ -26,7 +29,16 @@ def to_timeline(segs: list[dict], fps: float, name: str, time: float) -> float |
     hits = [(s.get("role") == "hook", t0[i] + time - s["in"]) for i, s in enumerate(segs)
             if s.get("name") == name and s["in"] - 1e-3 <= time <= s["out"] + 1e-3]
     if not hits:
-        return None
+        # Cuts sit on the real audio, word timestamps can sit a little outside them: a moment
+        # just before a segment's start (or after its end) belongs to that segment's edge.
+        near = [(min(abs(time - s["in"]), abs(time - s["out"])), s.get("role") == "hook", i)
+                for i, s in enumerate(segs) if s.get("name") == name
+                and s["in"] - EDGE_SLACK <= time <= s["out"] + EDGE_SLACK]
+        if not near:
+            return None
+        _, _, i = min(near)
+        s = segs[i]
+        return t0[i] + min(max(time, s["in"]), s["out"]) - s["in"]
     return sorted(hits)[0][1]
 
 

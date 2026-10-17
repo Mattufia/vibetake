@@ -4,7 +4,11 @@
 # ///
 """Render an edit decision list from the original files.
 
-    uv run render.py [02-work/edl.json] [--out 03-delivery/edit.mp4] [--preview] [--no-grade]
+    uv run render.py [02-work/edl.json] [--out <file>] [--overwrite] [--preview] [--no-grade]
+
+The master goes to 03-delivery/<name>_v<N>.mp4 — a new version on every render, so
+each round of changes stays (<name>: edl.json's "name" or the project folder).
+--overwrite replaces the latest version instead (a fix before it was delivered).
 
 Per segment: seek into the original, color (HDR pre-filter + the file's LUT from
 02-work/color/grade.json), frame to the output size, constant frame rate, and a
@@ -27,7 +31,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import Log, die, ffmpeg_progress, ffprobe, filter_path, run, tc, tool  # noqa: E402
+from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
+                     tool, versions)
 from _timeline import resolve_broll, total as timeline_total  # noqa: E402
 from audio import BUS, TARGETS, master, music_graph  # noqa: E402
 from sfx import resolve as resolve_sfx, sfx_graph  # noqa: E402
@@ -256,7 +261,8 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("edl", nargs="?", default="02-work/edl.json")
-    ap.add_argument("--out")
+    ap.add_argument("--out", help="output file (default: the next version in 03-delivery/)")
+    ap.add_argument("--overwrite", action="store_true", help="replace the latest version instead of adding one")
     ap.add_argument("--grade", default="02-work/color/grade.json")
     ap.add_argument("--no-grade", action="store_true")
     ap.add_argument("--preview", action="store_true", help="small, fast render to check the edit")
@@ -270,6 +276,8 @@ def main() -> None:
                                        "(default: 02-work/graphics.mov or .webm if present)")
     ap.add_argument("--no-graphics", action="store_true")
     ap.add_argument("--no-sfx", action="store_true")
+    ap.add_argument("--upload-height", type=int, help="scale the master up to this height for upload "
+                                                      "(e.g. 1440 for YouTube: it gets better codecs)")
     args = ap.parse_args()
 
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
@@ -277,6 +285,10 @@ def main() -> None:
     if not segs:
         die("the edit has no segments")
     out = dict(edl["output"])
+    if args.upload_height and not args.preview and args.upload_height > out["height"]:
+        # Same framing, more pixels (lanczos): the platform's better codec pays off, no detail is invented.
+        k = args.upload_height / out["height"]
+        out["width"], out["height"] = round(out["width"] * k / 2) * 2, args.upload_height
     if args.preview:
         scale = min(1.0, 540 / min(out["width"], out["height"]))
         out["width"], out["height"] = (int(out["width"] * scale) // 2 * 2, int(out["height"] * scale) // 2 * 2)
@@ -294,7 +306,15 @@ def main() -> None:
         if src_fps:
             s["in"] = round(s["in"] * src_fps) / src_fps
             s["out"] = round(s["out"] * src_fps) / src_fps
-    dst = Path(args.out or ("02-work/preview.mp4" if args.preview else "03-delivery/edit.mp4"))
+    if args.out:
+        dst = Path(args.out)
+    elif args.preview:
+        dst = Path("02-work/preview.mp4")
+    else:
+        name = deliverable_name(edl)
+        have = versions(name)
+        n = (have[-1][0] if args.overwrite else have[-1][0] + 1) if have else 1
+        dst = DELIVERY / f"{name}_v{n}.mp4"
     dst.parent.mkdir(parents=True, exist_ok=True)
     log = Log(Path("02-work") / "render.log")
     enc_name, enc = pick(PREVIEW if args.preview else MASTER)

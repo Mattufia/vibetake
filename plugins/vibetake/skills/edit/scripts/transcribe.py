@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -295,7 +296,34 @@ def write_outputs(out: Path, result: dict, ld: dict) -> None:
     (out / "transcript.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+CUDA_WHEELS = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
+
+
+def ensure_cuda_libs() -> None:
+    """With an NVIDIA GPU, faster-whisper needs cuBLAS/cuDNN; they come as pip wheels that
+    this script's own environment doesn't include (they're heavy, useless without the GPU).
+    If they're missing, run again through uv with them added — so every caller (ingest,
+    qa, a person by hand) gets the GPU without remembering the flags."""
+    if os.environ.get("VIBETAKE_CUDA_REEXEC") or not shutil.which("nvidia-smi"):
+        return
+    try:
+        import nvidia.cublas  # noqa: F401
+        import nvidia.cudnn  # noqa: F401
+        return
+    except ImportError:
+        pass
+    uv = shutil.which("uv")
+    if not uv:
+        return
+    cmd = [uv, "run"]
+    for w in CUDA_WHEELS:
+        cmd += ["--with", w]
+    env = {**os.environ, "VIBETAKE_CUDA_REEXEC": "1"}
+    sys.exit(subprocess.run([*cmd, str(Path(__file__).resolve()), *sys.argv[1:]], env=env).returncode)
+
+
 def main() -> None:
+    ensure_cuda_libs()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="*")
     ap.add_argument("--lang", required=True, help="language code; never auto-detect")
@@ -330,6 +358,9 @@ def main() -> None:
     elif not result["files"]:
         die(f"nothing to rebuild: {result_path} is missing or empty")
 
+    result["lang"] = args.lang
+    if args.glossary or "glossary" not in result:
+        result["glossary"] = args.glossary or ""
     write_outputs(out, result, ld)
     print(f"transcript → {out / 'transcript.md'}", flush=True)
 

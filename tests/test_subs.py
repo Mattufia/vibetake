@@ -74,7 +74,7 @@ def main() -> None:
 
     # 1–2 without faces.
     run(tmp, "uv", "run", str(SCRIPTS / "subtitles.py"))
-    cues = srt_cues((tmp / "03-delivery" / "edit.srt").read_text(encoding="utf-8"))
+    cues = srt_cues(next((tmp / "03-delivery").glob("*.srt")).read_text(encoding="utf-8"))
     all_text = " ".join(" ".join(c["lines"]) for c in cues).lower()
     checks["srt: ≤2 lines of ≤42 characters"] = all(len(c["lines"]) <= 2 and all(len(x) <= 42 for x in c["lines"])
                                                      for c in cues)

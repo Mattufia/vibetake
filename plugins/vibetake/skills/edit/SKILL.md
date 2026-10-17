@@ -46,13 +46,8 @@ check first and note in `project.md` what was installed.
 The only per-project install is Remotion, because its version is pinned in each
 project.
 
-**Known trap**: installing PyTorch plainly usually brings the CPU-only variant,
-and then the GPU "isn't detected" without any visible error. If there's a GPU,
-install the variant for that platform and verify it's detected **before**
-transcribing.
-
-**The first run on a new machine downloads models and a headless browser**
-(several GB). Say so instead of leaving the terminal hanging without explanation.
+**The first run on a new machine downloads models, CUDA libraries (NVIDIA) and a
+headless browser** (several GB): say so instead of leaving the terminal hanging.
 
 **If installing isn't possible** (no permissions, no network, locked-down work
 machine), make do with what's there and say so in one line: without auto-editor,
@@ -344,33 +339,28 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
 
 ## 6. Subtitles
 
-It's an editing decision, not a consequence of the format, and it isn't asked:
-decide from the destination and the material, and state it in the delivery. Options:
-no subtitles · keywords only as a graphic punchline · full burned-in · separate
-`.srt`. Defaults: a feed (it starts muted) → word-by-word burned-in + `.srt`;
-chosen viewing with clean audio and clear diction → `.srt` only. The type profile
-can override.
+An editing decision, not asked: decide from the destination and the material and
+state it in the delivery. Options: none · keywords as a graphic · burned-in ·
+`.srt` only. Defaults: a feed (starts muted) → word-by-word burned-in + `.srt`;
+chosen viewing with clean audio → `.srt` only. The type profile can override.
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--font "Arial Black"]
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--font "Arial Black"] [--off hook]
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 ```
 
-- Run it after the edit and the framing are final (it reads both); `render.py`
-  burns `02-work/subs.ass` on top of everything (after color and b-roll).
-- **`.srt` always** (`03-delivery/edit.srt`): ≤2 lines of ≤42 characters, ~17
-  characters per second, 1–7 s. Platforms use it for accessibility and indexing
-  even when captions are burned in.
-- **Burned-in default (`highlight`)**: groups of 2–3 words, white with a black
-  outline, the word being said in yellow. `sentence` for sober types (corporate,
-  testimonial). Font: the brand's if there is one (`--fontsdir` in render.py if it
-  isn't installed).
-- **Never over the face, always inside the safe zone**: placed from where the face
-  is in the final frame (after reframing): low by default, below the face or
-  above it when it's there; if the face fills the frame, just under the mouth (the
-  chin can be covered, the mouth and eyes never). It warns when it can't avoid it.
-- **Check the names, brands and numbers it lists** by ear. That's where it always
-  fails, with any model; the glossary prevents most of it, not all.
+- After the edit and the framing are final (it reads both); `render.py` burns
+  `02-work/subs.ass` on top of everything.
+- **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
+  characters per second, 1–7 s — platforms use it even when captions are burned in.
+- **Burned-in (`highlight`)**: groups of 2–3 words, white with a black outline, the
+  word being said in yellow; `sentence` for sober types. The brand's font if there
+  is one (`--fontsdir` in render.py if it isn't installed).
+- **Never over the face, always inside the safe zone**: low by default, below or
+  above the face when it's there, just under the mouth if the face fills the frame
+  (the chin can be covered, mouth and eyes never). It warns when it can't.
+- **Check by ear the names, brands and numbers it lists**: that's where every model
+  fails; the glossary prevents most of it, not all.
 
 ## 7. Graphics over the video
 
@@ -413,13 +403,10 @@ Studio. **`${CLAUDE_SKILL_DIR}/references/from-scratch.md`**.
 
 ## 9. GPU
 
-**GPU where it helps, CPU without drama.** The scripts already pick: Whisper on
-CUDA (float16) or the same model on CPU int8 — never a smaller model just for
-speed, since the transcript decides the cuts; the master on the GPU's hardware
-encoder at constant quality after a short test, x264 slow/CRF 17 otherwise.
-**Always set the language explicitly** (auto-detection reads only the first 30 s).
-Run heavy GPU jobs one at a time; a GPU job and CPU work can overlap. State in the
-delivery what the master was encoded with. Details and reasons:
+**GPU where it helps, CPU without drama** — the scripts pick: Whisper on CUDA or
+the same model on CPU int8 (never a smaller model: the transcript decides the cuts);
+the master on the GPU's encoder after a short test, x264 otherwise. **Always set the
+language explicitly.** Heavy GPU jobs one at a time. Details:
 `${CLAUDE_SKILL_DIR}/references/gpu.md`.
 
 ## 10. Project structure
@@ -429,15 +416,18 @@ project/
   00-raw/          original material. Never touched, renamed or overwritten.
   01-ingest/       transcript, stills, material data. Regenerable.
   02-work/         cuts, intermediates, graphics layer. Disposable.
-  03-delivery/     final video, .srt, thumbnail.
+  03-delivery/     video versions, .srt, covers, copy.
   project.md       what was decided and why.
 ```
 
 `00-raw` is untouchable: if something has to be normalized or converted, the
 result goes to `01-ingest`. `01` and `02` can be deleted entirely to recover
 disk without losing anything. `project.md` holds orientation, destination,
-subtitle decision, the transcription glossary, what was cut and why, what was installed and what's pending,
-so work can resume without asking everything again.
+subtitle decision, the transcription glossary, what was cut and why, the color
+correction and LUT used, where every piece of music, sound effect, stock clip and
+font comes from and under which license (the proof if a copyright claim comes),
+what was installed and what's pending, so work can resume without asking
+everything again.
 
 **If the project is already organized differently, adapt and don't reorganize
 it.** This structure is only created when starting from scratch.
@@ -445,8 +435,19 @@ it.** This structure is only created when starting from scratch.
 ## 11. Delivery
 
 Always in `03-delivery`: **the video, the `.srt`** (even if subtitles are burned
-in: YouTube and Meta use it for accessibility and index it) **and a designed
-thumbnail**.
+in: YouTube and Meta use it for accessibility and index it), **the covers and the
+copy to publish with**.
+
+- **Video: versioned, never overwritten.** Each master is `<name>_v<N>.mp4`; every
+  round of changes is a new version. `render.py --overwrite` only to fix the
+  latest before it was delivered (a QA FAIL). The `.srt`, covers and copy are one
+  per project and are overwritten. Several formats (9:16, 1:1, 16:9) come from the
+  same edit, each with its own framing and margins checked.
+- **Copy** (`copy.txt`): a section per platform, from the transcript, in the
+  brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
+  past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
+- **Upload resolution**: YouTube gives 1440p+ uploads better codecs, so a 1080p
+  edit for YouTube goes out with `render.py --upload-height 1440`.
 
 **Covers: one per platform it's published on**, composed, not extracted (a raw
 frame is worse than nothing): a YouTube thumbnail 1280×720; a 1080×1920 cover for
@@ -469,16 +470,19 @@ The first frame of the video also has to work on its own: autoplay starts there.
 loudness):
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/qa.py 03-delivery/edit.mp4 --platform reels --platform tiktok --loudness social
+uv run ${CLAUDE_SKILL_DIR}/scripts/qa.py --platform reels --platform tiktok --loudness social   # the latest version
 ```
 
 It checks format (H.264 yuv420p, constant frame rate, BT.709, AAC 48 kHz,
 faststart), size and duration against the edit, picture = sound, unintended black
 or frozen stretches, loudness and true peak, long silences, `.srt` rules, burned-in
-captions inside the safe zone (height and width), platform aspect/length/
-resolution, and that the `.srt` and thumbnails are there. Report in
-`03-delivery/qa/qa.md`; exit code 1 on any FAIL. **A FAIL is fixed before
-delivering**; a WARN is judged and mentioned if it stays.
+captions inside the safe zone, platform aspect/length/resolution, covers and copy
+per platform — and it **listens**: the export is transcribed again and compared
+with the edit's words, which catches a cut mid-word, a lost or doubled word, or a
+leftover filler that stills can't show. Report in `03-delivery/qa/qa.md`, with the
+upload reminders per platform (Instagram's "highest quality" switch, TikTok's HD
+upload); exit code 1 on any FAIL. **A FAIL is fixed before delivering**; a WARN is
+judged (listen where the listening check points) and mentioned if it stays.
 
 - **Look at the QA contact sheets** (`03-delivery/qa/`, the vertical safe zone in
   green): framing, readable captions, nothing cut off, the first frame works alone.

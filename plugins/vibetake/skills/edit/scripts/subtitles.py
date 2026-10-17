@@ -7,7 +7,7 @@
 
 Words come from the transcript, mapped onto the edit's timeline (what was cut isn't
 there). Outputs:
-    03-delivery/edit.srt    readable captions: ≤2 lines of ≤42 characters, ≤17
+    03-delivery/<name>.srt  readable captions: ≤2 lines of ≤42 characters, ≤17
                             characters per second, 1–7 s each (platforms index it and
                             use it for accessibility even when captions are burned in)
     02-work/subs.ass        burned-in captions that render.py draws over everything:
@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die  # noqa: E402
+from _common import DELIVERY, deliverable_name, die  # noqa: E402
 from _timeline import starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
@@ -43,10 +43,19 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
              for n, f in tr["files"].items()}
     out = []
     for k, s in enumerate(edl["segments"]):
-        for w in words.get(s["name"], []):
-            if s["in"] - 1e-3 <= w["start"] and w["end"] <= s["out"] + 1e-3:
-                out.append({"text": w["word"].strip(), "t": round(t0[k] + w["start"] - s["in"], 3),
-                            "end": round(t0[k] + w["end"] - s["in"], 3), "seg": k, "src": w["start"]})
+        ws = words.get(s["name"], [])
+        if "words" in s:
+            # cutlist.py says which words the segment holds: trust that over the timestamps,
+            # which can sit a little outside the cut that was placed on the real audio.
+            a, b = s["words"]
+            chosen = ws[a:b + 1]
+        else:
+            chosen = [w for w in ws if s["in"] - 1e-3 <= w["start"] and w["end"] <= s["out"] + 1e-3]
+        for w in chosen:
+            st = min(max(w["start"], s["in"]), s["out"])
+            en = min(max(w["end"], st), s["out"])
+            out.append({"text": w["word"].strip(), "t": round(t0[k] + st - s["in"], 3),
+                        "end": round(t0[k] + en - s["in"], 3), "seg": k, "src": w["start"]})
     return out
 
 
@@ -163,7 +172,7 @@ def main() -> None:
     ap.add_argument("--upper", action="store_true")
     ap.add_argument("--font", default="Arial Black")
     ap.add_argument("--size", type=float, help="font size as a share of the frame height (default by format)")
-    ap.add_argument("--srt", default="03-delivery/edit.srt")
+    ap.add_argument("--srt", help="default: 03-delivery/<name>.srt (one per project, not versioned)")
     ap.add_argument("--ass", default="02-work/subs.ass")
     ap.add_argument("--no-burn", action="store_true", help="only the .srt (removes the burned-in file)")
     ap.add_argument("--off", default="", help="no burned-in captions here: 'hook' and/or timeline ranges "
@@ -183,7 +192,7 @@ def main() -> None:
         die("no words inside the edit")
 
     cues = srt_cues(words)
-    srt = Path(args.srt)
+    srt = Path(args.srt) if args.srt else DELIVERY / f"{deliverable_name(edl)}.srt"
     srt.parent.mkdir(parents=True, exist_ok=True)
     srt.write_text("".join(f"{i}\n{srt_time(c['start'])} --> {srt_time(c['end'])}\n" + "\n".join(c["lines"]) + "\n\n"
                            for i, c in enumerate(cues, 1)), encoding="utf-8")

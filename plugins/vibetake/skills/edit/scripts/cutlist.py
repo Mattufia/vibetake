@@ -11,7 +11,10 @@
 lines into cut points: word-accurate, without the dropped fillers, long pauses
 shortened (--pace tight|normal|relaxed), a pause at every join that sounds like speech
 (longer after a sentence than after a comma), and every cut moved to the quietest
-moment nearby (never into a word that was dropped). Then:
+moment nearby (never into a word that was dropped). Word edges are measured on the
+audio, not taken from Whisper's timestamps (which can be a quarter second off and
+usually include some air): so a dropped word leaves no fragment at the cut and the
+pauses heard are the ones intended. Each segment records which words it holds. Then:
 
     uv run render.py            # renders 02-work/edl.json
 
@@ -87,6 +90,39 @@ def snap(t: float, lo: float, hi: float, db: np.ndarray) -> float:
     return round((i0 + int(np.argmin(db[i0:i1]))) / 100 + 0.005, 3)
 
 
+VALLEY_REACH = 0.25   # how far Whisper's word edges can be off around a gap
+
+
+def valley(db: np.ndarray, gap_a: float, gap_b: float) -> tuple[float, float] | None:
+    """The real silence between two words whose timestamps put the gap at [gap_a, gap_b]:
+    among the stretches (≥50 ms, 18 dB under the speech around them) within VALLEY_REACH of
+    it, the one that overlaps it most (then the nearest). Whisper's word edges can be off by
+    a quarter second; the audio isn't. A stop consonant inside a word (the closure of a
+    't') is short and close to the word's middle, so it rarely wins."""
+    lo, hi = gap_a - VALLEY_REACH, gap_b + VALLEY_REACH
+    i0, i1 = max(int(lo * 100), 0), min(int(hi * 100), len(db))
+    if i1 - i0 < 5:
+        return None
+    ctx = db[max(i0 - 30, 0):min(i1 + 30, len(db))]
+    quiet = db[i0:i1] < np.percentile(ctx, 90) - 18
+    found, start = [], None
+    for k, q in enumerate(np.r_[quiet, False]):
+        if q and start is None:
+            start = k
+        elif not q and start is not None:
+            if k - start >= 5:
+                found.append(((i0 + start) / 100, (i0 + k) / 100))
+            start = None
+    if not found:
+        return None
+
+    def score(v):
+        overlap = min(v[1], gap_b + 0.15) - max(v[0], gap_a - 0.15)
+        dist = max(v[0] - gap_b, gap_a - v[1], 0)
+        return (overlap, -dist)
+    return max(found, key=score)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--keep", default="auto", help='"auto" or lines like "L9,L2-L7"')
@@ -145,16 +181,36 @@ def main() -> None:
                 continue
         runs.append([item])
 
-    # Clean silence available around each run: before its first word (after the previous
-    # word's tail, kept or dropped) and after its last word.
+    dbs: dict[str, np.ndarray] = {}
+    srcs: dict[str, str] = {}
+    for name in {file_of[id(r[0][1])] for r in runs}:
+        srcs[name] = (material.get(name) or {}).get("file") or die(f"no source path for {name} in material.json")
+        dbs[name] = quiet_db(srcs[name], tr["files"][name].get("track", 0))
+
+    def sound_start(name: str, i: int) -> float:
+        """Where word i's sound really starts: the end of the silence the audio shows before it
+        (Whisper's edges can be a quarter second off, and they usually include some air)."""
+        ws, w = words[name], words[name][i]
+        v = valley(dbs[name], ws[i - 1]["end"] if i > 0 else w["start"] - 0.3, w["start"])
+        return v[1] if v and v[1] <= w["end"] else w["start"]
+
+    def sound_end(name: str, i: int) -> float:
+        ws, w = words[name], words[name][i]
+        v = valley(dbs[name], w["end"], ws[i + 1]["start"] if i + 1 < len(ws) else w["end"] + 0.3)
+        return v[0] if v and v[0] >= w["start"] else w["end"]
+
+    # Clean silence available around each run, from the audio: before its first word (after
+    # the previous word's tail, kept or dropped) and after its last word.
     info = []
     for run in runs:
         name = file_of[id(run[0][1])]
         ws, first, last = words[name], run[0][1], run[-1][1]
-        before = ws[first["_i"] - 1]["end"] + TAIL_S if first["_i"] > 0 else 0.0
-        after = ws[last["_i"] + 1]["start"] - 0.02 if last["_i"] + 1 < len(ws) else tr["files"][name]["duration"]
-        info.append({"name": name, "first": first, "last": last,
-                     "lead_avail": max(first["start"] - before, 0.0), "tail_avail": max(after - last["end"], 0.0)})
+        s0, e0 = sound_start(name, first["_i"]), sound_end(name, last["_i"])
+        before = sound_end(name, first["_i"] - 1) + TAIL_S if first["_i"] > 0 else 0.0
+        after = sound_start(name, last["_i"] + 1) - 0.02 if last["_i"] + 1 < len(ws) \
+            else tr["files"][name]["duration"]
+        info.append({"name": name, "first": first, "last": last, "s0": s0, "e0": e0,
+                     "lead_avail": max(s0 - before, 0.0), "tail_avail": max(after - e0, 0.0)})
 
     # The pause at each join sounds like speech: longer after a sentence than after a comma,
     # short where a filler was taken out mid-phrase. It's taken from wherever there's clean
@@ -170,19 +226,23 @@ def main() -> None:
         if tail[k] < g - lead[k + 1]:
             lead[k + 1] = min(b["lead_avail"], g - tail[k])
 
-    dbs: dict[str, np.ndarray] = {}
     segments = []
     for run, i, ld, tl in zip(runs, info, lead, tail):
-        name, first, last = i["name"], i["first"], i["last"]
-        src = (material.get(name) or {}).get("file") or die(f"no source path for {name} in material.json")
-        if name not in dbs:
-            dbs[name] = quiet_db(src, tr["files"][name].get("track", 0))
-        t_in = snap(first["start"] - ld, first["start"] - i["lead_avail"], first["start"] - min(0.01, ld), dbs[name])
-        t_out = snap(last["end"] + tl, last["end"] + min(0.01, tl), last["end"] + i["tail_avail"], dbs[name])
+        name, s0, e0 = i["name"], i["s0"], i["e0"]
+        src = srcs[name]
+        # Edges measured on the audio, so a misplaced timestamp neither leaves a fragment of a
+        # dropped word at the cut ("…no") nor eats the air the join needs.
+        t_in = snap(s0 - ld, s0 - i["lead_avail"], s0 - min(0.01, ld), dbs[name])
+        t_out = snap(e0 + tl, e0 + min(0.01, tl), e0 + i["tail_avail"], dbs[name])
+        # On the source's frame grid, as render.py cuts: so subtitles, graphics, b-roll and
+        # sound effects, which read these values, land on the same frames the render does.
+        fr = (material.get(name) or {}).get("fps")
+        if fr:
+            t_in, t_out = (round(round(t * fr) / fr, 4) for t in (t_in, t_out))
         if t_out - t_in < MIN_SEGMENT_S:
             continue
         segments.append({"source": src, "name": name, "in": t_in, "out": t_out,
-                         "lines": sorted({n for n, _ in run}),
+                         "lines": sorted({n for n, _ in run}), "words": [run[0][1]["_i"], run[-1][1]["_i"]],
                          "text": "".join(w["word"] for _, w in run).strip()})
     # A first line that comes later in the material is a cold open (hook).
     if segments and len(keep) > 1 and keep[0] > min(keep[1:]):

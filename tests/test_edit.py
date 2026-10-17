@@ -114,12 +114,26 @@ def main() -> None:
     tr = json.loads((FIX / "retakes_es.transcript.json").read_text(encoding="utf-8"))
     words = sorted((w for f in tr["files"].values() for s in f["segments"] for w in s["words"]),
                    key=lambda w: w["start"])
+    # Measured on the audio (what's heard), not on Whisper's word edges, which can be off.
+    env = 20 * np.log10(np.sqrt((src[: len(src) // 480 * 480].reshape(-1, 480) ** 2).mean(1)) + 1e-9)
+    speech = env > env.max() - 30
+
+    def sound_end(t: float) -> float:          # last speech frame before t
+        i = int(t * 100)
+        while i > 0 and not speech[i]:
+            i -= 1
+        return (i + 1) / 100
+
+    def sound_start(t: float) -> float:        # first speech frame after t
+        i = int(t * 100)
+        while i < len(speech) - 1 and not speech[i]:
+            i += 1
+        return i / 100
     gaps = []
     for a, b in zip(edl["segments"], edl["segments"][1:]):
-        last = max((w for w in words if w["end"] <= a["out"] + 1e-3), key=lambda w: w["end"])
-        first = min((w for w in words if w["start"] >= b["in"] - 1e-3), key=lambda w: w["start"])
+        last = max((w for w in words if w["end"] <= a["out"] + 0.3), key=lambda w: w["end"])
         if last["word"].strip().endswith((".", "?", "!")):
-            gaps.append(round((a["out"] - last["end"]) + (first["start"] - b["in"]), 2))
+            gaps.append(round((a["out"] - sound_end(a["out"])) + (sound_start(b["in"]) - b["in"]), 2))
     checks[f"pause after each sentence ≈ 0.4 s ({gaps})"] = bool(gaps) and all(0.33 <= g <= 0.47 for g in gaps)
 
     for name, ok in checks.items():

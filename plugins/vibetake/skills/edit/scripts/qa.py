@@ -4,7 +4,9 @@
 # ///
 """Check the delivery before handing it over.
 
-    uv run qa.py [03-delivery/edit.mp4] [--platform reels --platform tiktok] [--loudness social] [--cleanup]
+    uv run qa.py [video] [--platform reels --platform tiktok] [--loudness social] [--no-listen] [--cleanup]
+
+video: default, the latest version in 03-delivery/ (<name>_v<N>.mp4).
 
 Writes 03-delivery/qa/qa.md (PASS / WARN / FAIL per check) and contact sheets of the
 final file with the vertical safe zone drawn on them (03-delivery/qa/). Exit code 1
@@ -17,7 +19,12 @@ if anything FAILs. Checks:
     subtitles   .srt rules (≤2 lines of ≤42 chars, 1–7 s, no overlaps, inside the
                 video); burned-in captions inside the safe zone
     delivery    .srt present; per platform, 2–3 covers (cover_<platform>_<n>.jpg) at the
-                right size, YouTube thumbnails under 2 MB
+                right size, YouTube thumbnails under 2 MB; copy.txt with a section per
+                platform within its limits (title, caption, hashtags, chapters)
+    listening   the export transcribed again and compared with the edit's words: words
+                missing, doubled or extra (a cut mid-word, a lost phrase, a leftover
+                filler) that stills can't show
+Upload reminders per platform go at the end of the report.
 --cleanup deletes the heavy disposable intermediates (preview, render chunks,
 normalized copies) — only when nothing failed. Look at the sheets anyway.
 """
@@ -32,7 +39,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import ffprobe, filter_path, find_font, run, tc, tool  # noqa: E402
+from _common import DELIVERY, ffprobe, filter_path, find_font, latest_video, run, tc, tool  # noqa: E402
 from _timeline import total as timeline_total  # noqa: E402
 from audio import TARGETS, measure  # noqa: E402
 from subtitles import CHAR_W  # noqa: E402
@@ -47,6 +54,17 @@ PLATFORMS = {
     "linkedin": {"aspect": None, "max_s": 600},
 }
 SAFE_V = (0.06, 0.13, 0.86, 0.77)          # x0, y0, x1, y1 of the 9:16 safe zone
+COPY_LIMITS = {      # caption characters, title characters (verify: they change)
+    "reels": {"caption": 2200}, "tiktok": {"caption": 4000},
+    "youtube": {"title": 100, "title_soft": 60, "description": 5000}, "shorts": {"title": 100},
+}
+REMINDERS = {
+    "reels": "Instagram: turn on \"Upload at highest quality\" (Settings → Data usage and media quality; "
+             "off by default) and set the cover from the cover_reels file.",
+    "tiktok": "TikTok: turn on HD upload when posting (More options → upload quality), and set the cover.",
+    "youtube": "YouTube: upload the thumbnail, the .srt (Subtitles) and the chapters in the description.",
+    "shorts": "Shorts: the cover can only be chosen in the YouTube mobile app.",
+}
 COVER_SIZES = {"youtube": (1280, 720), "reels": (1080, 1920), "tiktok": (1080, 1920), "shorts": (1080, 1920)}
 
 
@@ -146,18 +164,111 @@ def sheets(video: Path, out_dir: Path, w: int, h: int, dur: float) -> list[str]:
     return sorted(p.name for p in out_dir.glob("sheet_*.jpg"))
 
 
+def check_copy(path: Path, platforms: list[str], dur: float, r: Report) -> None:
+    """copy.txt: a '## <platform>' section per platform, within each platform's limits."""
+    if not platforms:
+        return
+    if not path.exists():
+        r.add("WARN", "delivery: copy", f"{path.name} missing (the text to publish with, per platform)")
+        return
+    text = path.read_text(encoding="utf-8")
+    parts = {m.group(1).lower(): m.group(2).strip()
+             for m in re.finditer(r"^##\s*(\w+)\s*\n(.*?)(?=^##\s|\Z)", text, re.M | re.S)}
+    for p in platforms:
+        body = parts.get(p)
+        if body is None:
+            r.add("WARN", f"{p}: copy", f"no '## {p}' section in {path.name}")
+            continue
+        lim = COPY_LIMITS.get(p, {})
+        title = re.search(r"^(?:title|título|titulo)\s*:\s*(.+)$", body, re.I | re.M)
+        if "title" in lim:
+            if not title:
+                r.add("WARN", f"{p}: title", "no 'Title:' line")
+            else:
+                n = len(title.group(1).strip())
+                r.ok(n <= lim["title"], f"{p}: title length", f"{n} chars (max {lim['title']})")
+                if n <= lim["title"] and lim.get("title_soft") and n > lim["title_soft"]:
+                    r.add("WARN", f"{p}: title length", f"{n} chars: past ~{lim['title_soft']} it's cut in search")
+        caption = re.sub(r"^(?:title|título|titulo)\s*:.*$", "", body, flags=re.I | re.M).strip()
+        if "caption" in lim:
+            r.ok(len(caption) <= lim["caption"], f"{p}: caption length",
+                 f"{len(caption)} chars (max {lim['caption']})")
+            tags = re.findall(r"(?<!\w)#\w+", caption)
+            r.ok(3 <= len(tags) <= 5, f"{p}: hashtags", f"{len(tags)} (3–5 work best)", "WARN")
+        if p == "youtube":
+            r.ok(len(caption) <= lim["description"], "youtube: description length", f"{len(caption)} chars")
+            if dur > 300:
+                ch = re.findall(r"^\s*(\d{1,2}:\d{2}(?::\d{2})?)\s+\S", caption, re.M)
+                r.ok(len(ch) >= 3 and ch[0] in ("0:00", "00:00"), "youtube: chapters",
+                     f"{len(ch)} timestamps (over 5 min: chapters from 0:00, at least 3)", "WARN")
+
+
+def listen(video: Path, edl: dict, ing: Path, lang: str | None, r: Report) -> None:
+    """Transcribe the export again and compare it with the words the edit should contain."""
+    import difflib
+    import unicodedata
+    from subtitles import timeline_words
+
+    def norm(text: str) -> str:              # same as transcribe.py (which needs faster-whisper to import)
+        t = unicodedata.normalize("NFD", text.lower())
+        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+        return re.sub(r"[^\w\s']", " ", t).strip()
+
+    trp = ing / "transcript.json"
+    if not trp.exists():
+        r.add("WARN", "listening", "no transcript to compare with")
+        return
+    tr = json.loads(trp.read_text(encoding="utf-8"))
+    lang = lang or tr.get("lang")
+    if not lang:
+        r.add("WARN", "listening", "skipped: pass --lang (this transcript doesn't record its language)")
+        return
+    out = video.parent / "qa" / "heard"
+    print("listening: transcribing the export again…", flush=True)
+    p = run(["uv", "run", str(Path(__file__).parent / "transcribe.py"), str(video), "--lang", lang,
+             "--glossary", tr.get("glossary", "") or "", "--out", str(out)], check=False)
+    if p.returncode != 0 or not (out / "transcript.json").exists():
+        r.add("WARN", "listening", f"couldn't transcribe the export: {(p.stderr or '').strip()[-200:]}")
+        return
+    heard_tr = json.loads((out / "transcript.json").read_text(encoding="utf-8"))
+    hw = [w for s in heard_tr["files"][video.name]["segments"] for w in s["words"]]
+    heard = [(norm(w["word"]), w["start"]) for w in hw if norm(w["word"])]
+    expected = [(norm(w["text"]), w["t"]) for w in timeline_words(edl, tr) if norm(w["text"])]
+    sm = difflib.SequenceMatcher(a=[x[0] for x in expected], b=[x[0] for x in heard], autojunk=False)
+    issues = []
+    for op, a0, a1, b0, b1 in sm.get_opcodes():
+        if op == "equal":
+            continue
+        exp_txt = " ".join(x[0] for x in expected[a0:a1])
+        got_txt = " ".join(x[0] for x in heard[b0:b1])
+        # A word heard slightly differently (accents, plural) is the model, not the edit.
+        if op == "replace" and a1 - a0 == b1 - b0 and \
+                difflib.SequenceMatcher(a=exp_txt, b=got_txt).ratio() > 0.7:
+            continue
+        at = expected[a0][1] if a0 < len(expected) else (heard[b0][1] if b0 < len(heard) else 0)
+        what = {"delete": f"missing «{exp_txt}»", "insert": f"extra «{got_txt}»",
+                "replace": f"«{exp_txt}» heard as «{got_txt}»"}[op]
+        issues.append(f"{tc(at)} {what}")
+    r.ok(not issues, "listening: the export says what the edit should",
+         f"{len(expected)} words, {len(issues)} difference(s)" + (": " + "; ".join(issues[:12]) if issues else "")
+         + (" — listen there: a cut mid-word, a lost or doubled word, a leftover filler" if issues else ""), "WARN")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("video", nargs="?", default="03-delivery/edit.mp4")
+    ap.add_argument("video", nargs="?", help="default: the latest version in 03-delivery/")
     ap.add_argument("--edl", default="02-work/edl.json")
     ap.add_argument("--platform", action="append", choices=tuple(PLATFORMS), default=[])
     ap.add_argument("--loudness", choices=tuple(TARGETS), default="social")
     ap.add_argument("--srt", help="default: the video's name with .srt")
     ap.add_argument("--subs", default="02-work/subs.ass")
     ap.add_argument("--cleanup", action="store_true", help="delete disposable intermediates if nothing failed")
+    ap.add_argument("--no-listen", action="store_true", help="skip transcribing the export again")
+    ap.add_argument("--lang", help="language for the listening check (default: the transcript's)")
+    ap.add_argument("--ingest", default="01-ingest")
     args = ap.parse_args()
 
-    video = Path(args.video)
+    video = Path(args.video) if args.video else (latest_video() or DELIVERY / "edit.mp4")
     if not video.exists():
         sys.exit(f"ERROR: {video} not found")
     r = Report()
@@ -188,7 +299,10 @@ def main() -> None:
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8")) if Path(args.edl).exists() else None
     if edl:
         o = edl["output"]
-        r.ok((W, H) == (o["width"], o["height"]), "size: matches the edit", f"{W}×{H} (edit {o['width']}×{o['height']})")
+        same = (W, H) == (o["width"], o["height"])
+        upscaled = H > o["height"] and abs(W / H - o["width"] / o["height"]) < 0.01
+        r.ok(same or upscaled, "size: matches the edit", f"{W}×{H} (edit {o['width']}×{o['height']}"
+             + (", scaled up for upload" if upscaled else "") + ")")
         exp = timeline_total(edl["segments"], o["fps"])
         r.ok(abs(vd - exp) <= 2 / o["fps"], "duration: matches the edit", f"{tc(vd)} (edit {tc(exp)})")
     r.ok(a is not None and abs(vd - ad) <= 1.5 / max(fps, 1), "duration: picture = sound",
@@ -224,7 +338,7 @@ def main() -> None:
         r.add("FAIL", "sound", "no audio stream")
 
     # Subtitles
-    srt = Path(args.srt) if args.srt else video.with_suffix(".srt")
+    srt = Path(args.srt) if args.srt else video.with_name(re.sub(r"_v\d+$", "", video.stem) + ".srt")
     if srt.exists():
         check_srt(srt, vd, r)
     else:
@@ -255,6 +369,9 @@ def main() -> None:
         r.ok(vd <= spec["max_s"], f"{p}: length", f"{tc(vd)} (max {tc(spec['max_s'])}"
              + (f"; {spec['note']}" if spec.get("note") else "") + ")")
         r.ok(min(W, H) >= 1080, f"{p}: resolution", f"{min(W, H)} px short side (1080 recommended)", "WARN")
+        if p == "youtube" and W > H:
+            r.ok(H >= 1440, "youtube: upload resolution", f"{H}p — YouTube gives 1440p+ uploads its better codecs "
+                 "(VP9/AV1), which look better even watched at 1080p: render.py --upload-height 1440", "WARN")
     thumbs = [p for p in video.parent.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png")
               and re.search(r"cover|thumb|portada", p.stem, re.I)]
     r.ok(bool(thumbs), "delivery: thumbnails", f"{len(thumbs)} found (2–3 designed covers expected)", "WARN")
@@ -272,6 +389,10 @@ def main() -> None:
                 r.ok(c.stat().st_size <= 2_000_000, f"{p}: {c.name} weight",
                      f"{c.stat().st_size / 1e6:.2f} MB (YouTube's limit is 2 MB)")
 
+    check_copy(video.parent / "copy.txt", args.platform, vd, r)
+    if not args.no_listen and edl:
+        listen(video, edl, Path(args.ingest), args.lang, r)
+
     qa_dir = video.parent / "qa"
     qa_dir.mkdir(exist_ok=True)
     shots = sheets(video, qa_dir, W, H, vd)
@@ -281,9 +402,14 @@ def main() -> None:
     lines += [f"| {icon[s]} | {c} | {d} |" for s, c, d in r.rows]
     lines += ["", "Contact sheets (safe zone in green on vertical): " + ", ".join(f"qa/{s}" for s in shots) +
               " — look at them: framing, captions readable, nothing cut off."]
+    notes = [REMINDERS[p] for p in args.platform if p in REMINDERS]
+    if notes:
+        lines += ["", "## When uploading", ""] + [f"- {n}" for n in notes]
     (qa_dir / "qa.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     for s, c, d in r.rows:
         print(f"{s:4}  {c}: {d}")
+    for n in notes:
+        print(f"NOTE  {n}")
     print(f"report → {qa_dir / 'qa.md'}")
 
     if args.cleanup:

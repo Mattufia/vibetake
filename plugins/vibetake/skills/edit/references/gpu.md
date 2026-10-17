@@ -32,3 +32,13 @@ to spare, not which encoder made it.
 - Intermediates and previews, always on the GPU if there is one.
 - State in the delivery what the master was encoded with.
 
+
+## CUDA libraries for transcription (NVIDIA)
+
+faster-whisper needs cuBLAS and cuDNN, which come as pip wheels (`nvidia-cublas-cu12`,
+`nvidia-cudnn-cu12`). Installed inside an isolated tool environment, Windows doesn't
+find their DLLs and transcription fails with `cublas64_12.dll is not found`.
+`transcribe.py` handles it: with an NVIDIA GPU and the wheels missing, it runs itself
+again through uv with them added, and puts their `bin` folders on the DLL path of its
+own process (never the global PATH). Called by hand, by ingest or by QA, it's the same.
+If it still fails, check `nvidia-smi` and the driver before blaming the script.

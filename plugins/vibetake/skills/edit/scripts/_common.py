@@ -136,3 +136,40 @@ class Cache:
         with self._lock:
             self.data[step] = self.key(src, params)
             self.path.write_text(json.dumps(self.data, indent=1), encoding="utf-8")
+
+
+# ---------- deliverable names and versions ----------
+
+DELIVERY = Path("03-delivery")
+
+
+def deliverable_name(edl: dict | None = None) -> str:
+    """Base name of the deliverables: edl.json's "name", else the project folder's name."""
+    import re
+    import unicodedata
+    raw = (edl or {}).get("name") or Path.cwd().name
+    s = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode()
+    s = re.sub(r"[^\w-]+", "-", s).strip("-_").lower()
+    return s or "edit"
+
+
+def versions(name: str, folder: Path = DELIVERY) -> list[tuple[int, Path]]:
+    """Existing <name>_v<N>.mp4 in the delivery folder, oldest first."""
+    import re
+    out = []
+    for p in folder.glob(f"{name}_v*.mp4"):
+        m = re.fullmatch(re.escape(name) + r"_v(\d+)", p.stem)
+        if m:
+            out.append((int(m.group(1)), p))
+    return sorted(out)
+
+
+def latest_video(folder: Path = DELIVERY) -> Path | None:
+    """The newest versioned video in the delivery folder (any name), or None."""
+    import re
+    best = None
+    for p in folder.glob("*_v*.mp4"):
+        m = re.search(r"_v(\d+)$", p.stem)
+        if m and (best is None or (int(m.group(1)), p.stat().st_mtime) > best[0]):
+            best = ((int(m.group(1)), p.stat().st_mtime), p)
+    return best[1] if best else None
