@@ -16,7 +16,8 @@ if anything FAILs. Checks:
     sound       loudness on target, true peak under the ceiling, long silences
     subtitles   .srt rules (≤2 lines of ≤42 chars, 1–7 s, no overlaps, inside the
                 video); burned-in captions inside the safe zone
-    delivery    .srt present; thumbnails present (2–3 designed covers are expected)
+    delivery    .srt present; per platform, 2–3 covers (cover_<platform>_<n>.jpg) at the
+                right size, YouTube thumbnails under 2 MB
 --cleanup deletes the heavy disposable intermediates (preview, render chunks,
 normalized copies) — only when nothing failed. Look at the sheets anyway.
 """
@@ -46,6 +47,13 @@ PLATFORMS = {
     "linkedin": {"aspect": None, "max_s": 600},
 }
 SAFE_V = (0.06, 0.13, 0.86, 0.77)          # x0, y0, x1, y1 of the 9:16 safe zone
+COVER_SIZES = {"youtube": (1280, 720), "reels": (1080, 1920), "tiktok": (1080, 1920), "shorts": (1080, 1920)}
+
+
+def image_size(path: Path) -> tuple[int, int]:
+    p = ffprobe(path)
+    s = next(st for st in p["streams"] if st.get("codec_type") == "video")
+    return int(s["width"]), int(s["height"])
 
 
 class Report:
@@ -250,6 +258,19 @@ def main() -> None:
     thumbs = [p for p in video.parent.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png")
               and re.search(r"cover|thumb|portada", p.stem, re.I)]
     r.ok(bool(thumbs), "delivery: thumbnails", f"{len(thumbs)} found (2–3 designed covers expected)", "WARN")
+    for p in args.platform:
+        if p not in COVER_SIZES:
+            continue
+        mine = sorted(video.parent.glob(f"cover_{p}_*.jpg"))
+        r.ok(len(mine) >= 2, f"{p}: covers", f"{len(mine)} (2–3 variants expected; cover.py make --platform {p})",
+             "WARN")
+        for c in mine:
+            w, h = image_size(c)
+            r.ok((w, h) == COVER_SIZES[p], f"{p}: {c.name} size", f"{w}×{h} (expected "
+                 f"{COVER_SIZES[p][0]}×{COVER_SIZES[p][1]})")
+            if p == "youtube":
+                r.ok(c.stat().st_size <= 2_000_000, f"{p}: {c.name} weight",
+                     f"{c.stat().st_size / 1e6:.2f} MB (YouTube's limit is 2 MB)")
 
     qa_dir = video.parent / "qa"
     qa_dir.mkdir(exist_ok=True)

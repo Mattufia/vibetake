@@ -448,21 +448,22 @@ Always in `03-delivery`: **the video, the `.srt`** (even if subtitles are burned
 in: YouTube and Meta use it for accessibility and index it) **and a designed
 thumbnail**.
 
-The thumbnail is composed, not extracted: a well-chosen frame from the material
-plus text and branding on top. A raw frame is worse than nothing.
+**Covers: one per platform it's published on**, composed, not extracted (a raw
+frame is worse than nothing): a YouTube thumbnail 1280×720; a 1080×1920 cover for
+Reels, TikTok or Shorts whose headline and face survive the profile grid's central
+3:4 crop. **2–3 variants**, each with a different frame and gesture; they ship with
+the video and don't hold up the delivery.
 
-**Choose the frame with judgment**: a gesture that matches the headline
-(pointing, surprise, thumbs up), eyes open, no mouth mid-syllable. **Deliver 2–3
-complete thumbnails** to choose from, each with a different frame and gesture;
-they ship with the video and don't hold up the delivery.
-Minimalist background or with subtle patterns: it shouldn't compete with the text
-or the person.
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py candidates                 # frames worth a cover
+uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py make --video <file> --time 12.4 --title "…" --keyword … --big "3×" --platform youtube --platform reels --variant 1
+```
 
-- Horizontal: 1280×720.
-- Vertical: at full resolution (Instagram and TikTok accept a custom cover and it
-  shows in the feed and in the profile grid). **The text has to survive the
-  grid's center crop**, and the first frame of the video has to work on its own,
-  because autoplay starts there.
+Default composition (colors, fonts, logo from the brand): headline in capitals with
+the keyword boxed, the person cut out and leaving through the bottom edge, a brand
+background with depth, a giant half-transparent element; the face never under text.
+How to choose the frame and the rest: **`${CLAUDE_SKILL_DIR}/references/covers.md`**.
+The first frame of the video also has to work on its own: autoplay starts there.
 
 **Before delivering, always run the QA** (with the destination's platforms and
 loudness):
