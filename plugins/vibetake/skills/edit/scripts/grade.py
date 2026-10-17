@@ -47,6 +47,9 @@ LEVELS = ("none", "basic", "full")
 MAX_STOPS = 1.0
 LUT_SIZE = 33
 LOOKS = ("natural", "cinematic", "warm", "cold", "bw", "vintage")
+# Optional repairs, before the correction (pre-filters, like HDR tone mapping).
+DENOISE = {"light": "hqdn3d=2:1.5:3:3", "medium": "hqdn3d=4:3:6:4.5"}
+MOIRE = "format=yuv444p16le,gblur=sigma=10:planes=6"      # blur only the chroma planes (U, V)
 
 
 # --------------------------------------------------------------------- LUTs
@@ -538,6 +541,15 @@ def cmd_build(args) -> None:
             from ingest import pick_tonemap
             pre = pick_tonemap()[1]
             notes.insert(0, f"HDR {m['hdr']} tone-mapped before the LUT")
+        # Repairs go before the correction: correcting amplifies noise and false color.
+        repairs = []
+        if getattr(args, "denoise", "off") != "off":
+            repairs.append(DENOISE[args.denoise])
+            notes.append(f"noise reduction {args.denoise}")
+        if getattr(args, "moire", False):
+            repairs.append(MOIRE)
+            notes.append("false color (moiré) softened in the chroma")
+        pre = ",".join(x for x in (pre, *repairs) if x)
         plan[m["name"]] = {"source": m["file"], "pre": pre, "lut": str(cube), "notes": notes,
                            "params": {"level": level, "gains": gains, "stops": round(stops, 3), "log": is_log,
                                       "finish": finish, "look": args.look, "intensity": args.intensity}}
@@ -641,6 +653,10 @@ def main() -> None:
             s.add_argument("--level", choices=LEVELS, default="basic",
                            help="none: untouched · basic: exposure, white balance, black/white, matching · "
                                 "full: basic + skin, contrast, vibrance")
+            s.add_argument("--denoise", choices=("off", *DENOISE), default="off",
+                           help="noise reduction, only when asked (grain can be wanted): light or medium")
+            s.add_argument("--moire", action="store_true",
+                           help="soften false color (moiré) in the chroma — only if a 100%% still of the raw shows it")
             s.add_argument("--correct", choices=("auto", "on", "off"), default="auto",
                            help="auto: strong casts fully, mild ones partly, exposure when clearly off")
             s.add_argument("--look", choices=LOOKS)

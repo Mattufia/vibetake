@@ -115,6 +115,24 @@ def main() -> None:
         "Recommended:" in prop and list((tmp / "prop" / "basic").glob("preview_*.jpg"))
         and list((tmp / "prop" / "full").glob("preview_*.jpg")))
 
+    # Repairs (only when asked): denoise and moiré go into the pre-filter; the moiré one
+    # softens false color (chroma) without touching detail (luma).
+    grade(tmp, "build", "clean.mp4", "--denoise", "light", "--moire", "--out", "repair")
+    pre = json.loads((tmp / "repair" / "grade.json").read_text())["clean.mp4"]["pre"]
+    checks["repairs go in the pre-filter, before the correction"] = "hqdn3d" in pre and "gblur" in pre
+    ff(tmp, "-f", "lavfi", "-i", "nullsrc=s=320x240:d=0.2,geq=lum='128+60*sin(X/2)':cb='128+50*sin(X/1.3+Y/1.7)':"
+       "cr='128+50*cos(X/1.1-Y/1.9)'", "-frames:v", "1", "moire.png")
+    planes = []
+    sys.path.insert(0, str(GRADE.parent))
+    from grade import MOIRE
+    for vf in ("format=yuv444p", f"{MOIRE},format=yuv444p"):
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(tmp / "moire.png"), "-vf", vf, "-f", "rawvideo",
+                              "-"], capture_output=True, check=True).stdout
+        planes.append(np.frombuffer(raw, np.uint8).reshape(3, 240, 320).astype(float))
+    luma_kept = np.abs(planes[0][0] - planes[1][0]).mean() < 1
+    chroma_down = planes[1][1].std() < 0.3 * planes[0][1].std()
+    checks["moiré repair: false color down, detail kept"] = luma_kept and chroma_down
+
     # Global skin shift: skin-like colors move toward the skin line; neutrals and blue don't.
     sys.path.insert(0, str(GRADE.parent))
     import grade as g

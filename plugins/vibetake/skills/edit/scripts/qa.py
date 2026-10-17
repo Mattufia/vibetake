@@ -164,6 +164,31 @@ def sheets(video: Path, out_dir: Path, w: int, h: int, dur: float) -> list[str]:
     return sorted(p.name for p in out_dir.glob("sheet_*.jpg"))
 
 
+def digital_silence(video: Path, dur: float) -> list[tuple[float, float]]:
+    """Stretches of exact silence (≥0.25 s, not at the very ends): real rooms are never silent."""
+    import subprocess
+
+    import numpy as np
+    raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", "8000",
+                          "-f", "f32le", "-"], capture_output=True).stdout
+    x = np.abs(np.frombuffer(raw, np.float32))
+    hop = 80                                                  # 10 ms
+    n = len(x) // hop
+    if not n:
+        return []
+    dead = x[: n * hop].reshape(n, hop).max(1) < 1e-5
+    out, start = [], None
+    for i, d in enumerate(np.r_[dead, False]):
+        if d and start is None:
+            start = i
+        elif not d and start is not None:
+            a, b = start / 100, i / 100
+            if b - a >= 0.25 and a > 0.15 and b < dur - 0.15:
+                out.append((a, b))
+            start = None
+    return out
+
+
 def check_copy(path: Path, platforms: list[str], dur: float, r: Report) -> None:
     """copy.txt: a '## <platform>' section per platform, within each platform's limits."""
     if not platforms:
@@ -334,6 +359,9 @@ def main() -> None:
         sil = [(s, e) for s, e in intervals(err, "silence_start", "silence_end") if s > 1 and min(e, vd) < vd - 1]
         r.ok(not sil, "sound: long silences", ", ".join(f"{tc(s)}–{tc(min(e, vd))}" for s, e in sil) or "none",
              "WARN")
+        dead = digital_silence(video, vd)
+        r.ok(not dead, "sound: no digital silence", (", ".join(f"{tc(s)}–{tc(e)}" for s, e in dead) or "none")
+             + (" — sounds like a dropout: fill it with room tone" if dead else ""), "WARN")
     else:
         r.add("FAIL", "sound", "no audio stream")
 

@@ -46,3 +46,12 @@ on its music: use a real track there.
 brings it back in the pauses, fades in and out, and masters the whole mix to the
 destination's loudness. `--gain` on `audio.py music` nudges the bed (+3 louder,
 −3 quieter).
+
+## Any third-party material (music, effects, stock, images, fonts)
+
+- Free licenses, ideally without attribution: CC0, or Pixabay/Pexels-style licenses;
+  fonts under OFL (Google Fonts). If only an option with attribution exists, say so
+  and put the credit in the copy.
+- **Keep the source link of every piece in `project.md`** with its license: if a
+  copyright claim (Content ID) arrives, that's the proof.
+- No recognizable brands or people in stock used for ads (they need releases).

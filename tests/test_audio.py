@@ -90,6 +90,14 @@ def main() -> None:
     lag = lag if lag < n else lag - 2 * n
     checks[f"clean: same timing as the original (lag {lag / 16:.1f} ms)"] = abs(lag) <= 32
     checks["clean: same length"] = abs(len(raw) - len(cl)) <= 16
+    rt = clean.get("roomtone")
+    if rt:
+        rt_pcm = pcm(tmp / rt if not Path(rt).is_absolute() else Path(rt))
+        rt_db = 20 * np.log10(np.sqrt((rt_pcm ** 2).mean()) + 1e-12)
+        speech_db = 20 * np.log10(np.sqrt((cl ** 2).mean()) + 1e-12)
+        checks[f"room tone: the room's air, quiet but not dead ({rt_db:.1f} dB vs speech {speech_db:.1f})"] =             -90 < rt_db < speech_db - 15
+    else:
+        checks["room tone: sample saved"] = False
 
     (tmp / "02-work").mkdir(exist_ok=True)
     edl = {"version": 1, "output": {"width": 320, "height": 180, "fps": 30},

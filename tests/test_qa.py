@@ -72,6 +72,14 @@ def main() -> None:
     code, out = qa(tmp, "frozen.mp4")
     checks["frozen picture → flagged"] = status(out, "picture: frozen") == "WARN"
 
+    # One second of digital silence in the middle (a dropout).
+    ff(tmp, "-i", "good.mp4", "-c:v", "copy", "-af", "volume=enable='between(t,3,4)':volume=0", "-c:a", "aac",
+       "-movflags", "+faststart", "dead.mp4")
+    code, out = qa(tmp, "dead.mp4")
+    checks["digital silence → WARN"] = status(out, "sound: no digital silence") == "WARN"
+    _, out = qa(tmp, "good.mp4")
+    checks["room sound → no digital-silence warning"] = status(out, "sound: no digital silence") == "PASS"
+
     # Quiet master (−8 dB) and no faststart.
     ff(tmp, "-i", "good.mp4", "-c:v", "copy", "-af", "volume=-8dB", "-c:a", "aac", "quiet.mp4")
     code, out = qa(tmp, "quiet.mp4")

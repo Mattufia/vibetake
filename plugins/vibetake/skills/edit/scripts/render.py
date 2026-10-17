@@ -142,12 +142,13 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     dur = frames(seg["out"] - seg["in"], fps) / fps
     g = grade.get(seg.get("name", Path(seg["source"]).name)) or {}
     chain = []
-    if g.get("pre"):
-        chain.append(g["pre"])
-    if g.get("lut"):
-        chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
-    # Framing from reframe.py, or a plain center crop to the output aspect.
-    chain.append(framing(k, seg, dur, fps, workdir) or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
+    if not seg.get("_up"):          # an upscaled segment comes graded and framed already
+        if g.get("pre"):
+            chain.append(g["pre"])
+        if g.get("lut"):
+            chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
+        # Framing from reframe.py, or a plain center crop to the output aspect.
+        chain.append(framing(k, seg, dur, fps, workdir) or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
     chain += [f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1",
               f"fps={fps}", f"tpad=stop_mode=clone:stop_duration=0.2,trim=duration={dur:.6f}",
               "setpts=PTS-STARTPTS", "format=yuv420p"]
@@ -225,17 +226,30 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
         for k, s in enumerate(segs):
             fps = out["fps"]
             dur = frames(s["out"] - s["in"], fps) / fps
-            inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
+            if s.get("_up"):
+                inputs += ["-t", f"{dur + 0.25:.4f}", "-i", s["_up"]]          # upscale.py's picture
+            else:
+                inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
             vid, idx = idx, idx + 1
             c = clean.get(s.get("name", Path(s["source"]).name))
+            has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
             if c:
                 # The cleaned audio of this file (audio.py clean): same timing as the original.
                 inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", c["file"]]
                 audio_in, idx = f"{idx}:a:0", idx + 1
-            elif any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"]):
+            elif has_audio and s.get("_up"):
+                inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
+                audio_in, idx = f"{idx}:a:{s.get('track', 0)}", idx + 1
+            elif has_audio:
                 audio_in = f"{vid}:a:{s.get('track', 0)}"
             else:
-                audio_in = None
+                # No sound in this piece: the room's own air, never a dead digital silence.
+                rt = next((x["roomtone"] for x in clean.values() if x.get("roomtone")), None)
+                if rt:
+                    inputs += ["-stream_loop", "-1", "-i", rt]
+                    audio_in, idx = f"{idx}:a:0", idx + 1
+                else:
+                    audio_in = None
             gph, d = segment_graph(k, s, out, grade, audio_in, preview, workdir)
             graphs.append(gph.replace(f"[{k}:v:0]", f"[{vid}:v:0]", 1))
             total += d
@@ -296,6 +310,15 @@ def main() -> None:
     if not args.no_grade and Path(args.grade).exists():
         grade = json.loads(Path(args.grade).read_text(encoding="utf-8"))
     probes = {}
+    from upscale import signature
+    for k, s in enumerate(segs):
+        up = s.get("upscaled")
+        if up:
+            if Path(up["file"]).exists() and up.get("sig") == signature(s, grade, edl["output"]):
+                s["_up"] = up["file"]
+            else:
+                print(f"WARNING: segment {k}'s upscaled picture is stale or missing (the edit, framing or "
+                      f"grade changed): using the original. Re-run upscale.py run --seg {k} if it's needed.")
     for s in segs:
         s["_probe"] = probes.setdefault(s["source"], ffprobe(Path(s["source"])))
         # Cut on the source's frame grid, for picture and sound alike: a cut between two

@@ -222,7 +222,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   framing if the face would leave the crop. `--mode fixed|operator` forces one.
   The face sits at ~40% from the top when there's room; the head is never cut. It
   warns when a crop is smaller than the output (1080p horizontal cut to vertical
-  is upscaled ~1.8×: softer image — say so).
+  is stretched ~1.8×, softer): say so, or once the segment is final recover detail
+  with AI — `upscale.py run --seg N --test 2` first (time, comparison), never a
+  plain resize to "gain" resolution.
 - **Zoom at every cut**: at jump cuts the base zoom alternates between 1.0 and
   `--zoom` (1.12; half for a face that already fills the frame), so the jump reads
   as a closer shot; each segment after a cut enters with a short impact zoom
@@ -250,18 +252,11 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 - **Check the preview** (stills of it, and the cuts around retakes) before the
   master.
 
-- **Cut on the transcript, not on the waveform.** The word timestamps are the
-  cut points; auto-editor isn't needed when there's a transcript.
-- Cut on the breath, never mid-word.
 - **Cleanup follows the type profile**: fillers and retakes come out fully in a
   talking head or an ad, lightly in a vlog, and almost not at all in a
   testimonial, where hesitation carries emotion. Retakes: keep the last good take.
 - **J/L cuts**: the audio comes in before or carries on after the picture. It's
   what makes the cut go unnoticed.
-- Talking-head jump cut: cover it with a punch-in (automatic, see above) or
-  b-roll. Never leave it raw.
-- ffmpeg does the cutting. **Don't send the footage through Remotion**:
-  re-encoding hours of camera footage through a browser is a waste of time.
 
 ## 4. Color
 
@@ -294,6 +289,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # afte
   crushed blacks or burnt whites the original didn't have, a look at a sensible
   strength.
 - **Graphics and subtitles go on top after the grade**, or brand colors shift.
+- **Repairs only when needed, before the correction**: `--moire` if a 100% still
+  of the raw shows false color on fabrics; `--denoise light|medium` only if asked
+  (grain can be wanted — offer it in the delivery instead).
 - Commands, options (looks, log LUTs, the user's LUT, reference image, look-only
   .cube export) and what each measurement means:
   **`${CLAUDE_SKILL_DIR}/references/color.md`**.
@@ -313,7 +311,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   long pauses teach it the noise), de-esser, and every file brought to the same
   speech level (−20 LUFS), so phone and camera match. The chain's latency is
   measured and compensated: lips stay in sync. `render.py` uses the cleaned audio
-  automatically. Transcription stays on the original.
+  automatically. Transcription stays on the original. It also keeps each file's
+  room tone: a gap is filled with the room's air, never digital silence.
 - **On the cut** (it depends on the final edit): gentle compression across the
   whole voice (consistent level across cuts); music leveled to a bed and **ducked
   under the voice** (~14–18 dB down while someone talks, back up in the pauses —
@@ -334,8 +333,10 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   length (`musicgen.py`, no licenses; it sounds synthetic up close, fine ducked
   under the voice). For scripted, brand or music-driven videos, a real track (the
   user's, or downloaded by hand from libraries without attribution). Never music
-  the user can't publish. Options and licenses:
-  **`${CLAUDE_SKILL_DIR}/references/music.md`**.
+  the user can't publish. **Any third-party material** (music, effects, stock,
+  fonts) under a free license, ideally without attribution (CC0, Pixabay/Pexels
+  style; OFL fonts); if only an attributed one exists, say so and credit it in the
+  copy. Options and licenses: **`${CLAUDE_SKILL_DIR}/references/music.md`**.
 
 ## 6. Subtitles
 
@@ -463,8 +464,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py make --video <file> --time 12.4 --ti
 Default composition (colors, fonts, logo from the brand): headline in capitals with
 the keyword boxed, the person cut out and leaving through the bottom edge, a brand
 background with depth, a giant half-transparent element; the face never under text.
-How to choose the frame and the rest: **`${CLAUDE_SKILL_DIR}/references/covers.md`**.
-The first frame of the video also has to work on its own: autoplay starts there.
+How to choose the frame and the rest: **`${CLAUDE_SKILL_DIR}/references/covers.md`**. The video's first frame must work alone too (autoplay starts there).
 
 **Before delivering, always run the QA** (with the destination's platforms and
 loudness):

@@ -79,6 +79,36 @@ def measure(path: Path, args: list[str] | None = None, af: str | None = None) ->
             "TP": num(r"Peak:\s+(-?[\d.]+|-inf) dBFS")}
 
 
+ROOM_TONE_S = 1.5
+
+
+def room_tone(src: Path, dst: Path) -> Path | None:
+    """The quietest ROOM_TONE_S of a cleaned file that still has sound (not digital silence):
+    the room's own air, to fill a gap instead of a dead, digital silence."""
+    import subprocess
+
+    import numpy as np
+    raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", str(src), "-ac", "1", "-ar", "8000", "-f", "f32le",
+                          "-"], capture_output=True).stdout
+    x = np.frombuffer(raw, np.float32)
+    win = int(ROOM_TONE_S * 8000)
+    if len(x) < win * 2:
+        return None
+    hop = 800
+    frames = len(x) // hop
+    e = (x[: frames * hop].reshape(frames, hop) ** 2).mean(1)
+    n = win // hop
+    rms = np.sqrt(np.convolve(e, np.ones(n) / n, mode="valid"))
+    ok = rms > 10 ** (-90 / 20)                                # not digital silence
+    if not ok.any():
+        return None
+    i = int(np.argmin(np.where(ok, rms, np.inf)))
+    start = i * hop / 8000
+    run([tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{start:.3f}", "-t", f"{ROOM_TONE_S}", "-i", str(src),
+         "-af", "afade=t=in:d=0.02,areverse,afade=t=in:d=0.02,areverse", "-c:a", "pcm_s24le", str(dst)])
+    return dst
+
+
 def cmd_clean(args) -> None:
     ing = Path(args.ingest)
     material = json.loads((ing / "material.json").read_text(encoding="utf-8"))["files"]
@@ -115,6 +145,9 @@ def cmd_clean(args) -> None:
                          "-c:a", "pcm_s24le", str(dst)], float(m["duration"]), f"{name} clean audio", log, step=50)
         index[name] = {"file": str(dst), "track": track, "chain": af, "gain_db": round(gain, 2),
                        "measured_lufs": level}
+        rt = room_tone(dst, out / f"{Path(name).stem}.roomtone.wav")
+        if rt:
+            index[name]["roomtone"] = str(rt)
         cache.mark(f"clean:{name}", src, af)
         index_path.write_text(json.dumps(index, indent=1), encoding="utf-8")
     log(f"clean audio → {out}")

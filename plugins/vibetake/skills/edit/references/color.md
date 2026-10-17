@@ -45,3 +45,18 @@ Without files, every video in `01-ingest/material.json` is used. Output in
 - Previews: before/after with waveform and vectorscope, a few frames per file.
 - Faces are only used to measure. A person mask for skin (dilated outward, with a
   wide feather) is planned, not available yet.
+
+## Repairs (only when needed)
+
+Pre-filters, before the correction (correcting amplifies noise and false color),
+stored in `grade.json` like the HDR tone mapping:
+
+- `--moire`: false color — color blotches on fine fabrics, stripes or meshes that
+  aren't in the cloth. It depends on the camera and the clothes and comes from the
+  raw, so confirm it on a 100% still of the raw before anything is corrected; if it
+  isn't there, nothing is touched. It blurs only the chroma (the detail stays);
+  check that face, hair and background edges don't smear.
+- `--denoise light|medium`: low-light noise (`hqdn3d`, temporal + spatial). Not by
+  default: grain is sometimes wanted. When noise is visible and nobody asked, offer
+  it in the delivery instead of applying it; when applied, check the skin doesn't go
+  plastic.
