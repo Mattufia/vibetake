@@ -52,11 +52,13 @@ import coverPlan from "../data/covers.json";
 
 export const Person: React.FC<{ file: string; faceCenter: [number, number]; faceHeight: number;
   /** What faceCenter's x places: "face" (default) the face; "body" the weight of head and
-   * shoulders; "balanced" the midpoint of both — what the eye reads as centered when the
-   * person leans or gestures. */
-  align?: "face" | "body" | "balanced";
+   * shoulders; "balanced" the midpoint of both; "visual" the center of what is actually
+   * visible on the canvas once placed and cropped — 85% head, 15% torso — what the eye
+   * reads as centered (best for a big person leaving through the edges). */
+  align?: "face" | "body" | "balanced" | "visual";
+  canvas?: [number, number];        // for "visual": the cover's width and height
   outline?: string; outlinePx?: number; shadow?: boolean; flip?: boolean; style?: React.CSSProperties }> = ({
-  file, faceCenter, faceHeight, align = "face", outline, outlinePx, shadow = true, flip, style }) => {
+  file, faceCenter, faceHeight, align = "face", canvas, outline, outlinePx, shadow = true, flip, style }) => {
   const meta = (coverPlan as any).cutouts?.[file];
   if (!meta?.face) return <Cutout file={file} outline={outline} outlinePx={outlinePx} shadow={shadow} style={style} />;
   const scale = faceHeight / (meta.face.h * meta.height);
@@ -66,7 +68,36 @@ export const Person: React.FC<{ file: string; faceCenter: [number, number]; face
   const bodyCx = meta.upper_cx ?? meta.body_cx;
   const faceCx = meta.face.x + meta.face.w / 2;
   const hasBody = bodyCx !== undefined && bodyCx !== null;
-  const fx = (align === "body" && hasBody ? bodyCx : align === "balanced" && hasBody ? (faceCx + bodyCx) / 2 : faceCx) * w;
+  let fx = (align === "body" && hasBody ? bodyCx : align === "balanced" && hasBody ? (faceCx + bodyCx) / 2 : faceCx) * w;
+  if (align === "visual" && meta.grid && canvas) {
+    // Iterate: place, measure the visible silhouette's center (head ×2), shift, repeat.
+    const g = meta.grid;
+    const cw = w / g.cols, ch = h / g.rows;
+    const headEnd = (meta.face.y + meta.face.h * 1.1) * h;   // down to the chin, not the shoulders
+    const fy0 = (meta.face.y + meta.face.h / 2) * h;
+    let left = faceCenter[0] - faceCx * w;
+    const top = faceCenter[1] - fy0;
+    // The eye centers the head; the visible torso only pulls a little: 85% head, 15% torso,
+    // each measured on what stays inside the canvas.
+    for (let it = 0; it < 6; it++) {
+      let hs = 0, hx = 0, bs = 0, bx = 0;
+      for (let r = 0; r < g.rows; r++) {
+        const y = top + (r + 0.5) * ch;
+        if (y < 0 || y > canvas[1]) continue;
+        const head = (r + 0.5) * ch < headEnd;
+        for (let c = 0; c < g.cols; c++) {
+          const x = left + (c + 0.5) * cw;
+          const v = g.cells[r][c];
+          if (v < 0.05 || x < 0 || x > canvas[0]) continue;
+          if (head) { hs += v; hx += v * x; } else { bs += v; bx += v * x; }
+        }
+      }
+      if (!hs && !bs) break;
+      const cx = hs && bs ? 0.85 * (hx / hs) + 0.15 * (bx / bs) : hs ? hx / hs : bx / bs;
+      left += faceCenter[0] - cx;
+    }
+    fx = faceCenter[0] - left;
+  }
   const fy = (meta.face.y + meta.face.h / 2) * h;
   return (
     <Cutout file={file} outline={outline} outlinePx={outlinePx} shadow={shadow}

@@ -34,6 +34,20 @@ SAFE_H = (0.08, 0.92)
 SAFE_X_V = (0.06, 0.86)        # horizontal extent of the 9:16 safe zone
 CHAR_W = 0.68                  # average glyph width / font size for a heavy sans (Arial Black), with margin
 WHITE, YELLOW, BLACK = "&H00FFFFFF", "&H0000FFFF", "&H00000000"
+OUTLINE = 0.09                 # outline / font size: reads on any image without looking like a sticker
+
+
+def ass_color(hex_: str) -> str:
+    h = hex_.lstrip("#")
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+
+
+def luminance(hex_: str) -> float:
+    """WCAG relative luminance (0 black, 1 white)."""
+    h = hex_.lstrip("#")
+    r, g, b = (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+               for c in (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def timeline_words(edl: dict, tr: dict) -> list[dict]:
@@ -233,16 +247,23 @@ def main() -> None:
             a, _, b = part.partition("-")
             off.append((float(a), float(b)))
     # The highlight takes this video's accent when its design has one (design.json).
-    hl_color = YELLOW
+    # A dark accent would vanish on the black outline: then the highlighted word gets a
+    # light outline (the design's paper, or white) of the same thickness, never thicker.
+    hl_color, hl_edge = YELLOW, ""
     dj = Path("02-work/design.json")
     if dj.exists():
         try:
-            acc = json.loads(dj.read_text(encoding="utf-8")).get("colors", {}).get("accent", "")
+            cols = json.loads(dj.read_text(encoding="utf-8")).get("colors", {})
+            acc = cols.get("accent", "")
             if re.fullmatch(r"#?[0-9A-Fa-f]{6}", acc or ""):
-                h = acc.lstrip("#")
-                hl_color = f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+                hl_color = ass_color(acc)
+                if luminance(acc) < 0.18:
+                    paper = cols.get("paper", "")
+                    ok = re.fullmatch(r"#?[0-9A-Fa-f]{6}", paper or "") and luminance(paper) > 0.5
+                    hl_edge = ass_color(paper if ok else "#FFFFFF")
         except ValueError:
             pass
+    outline = max(2, round(fs * OUTLINE))
     events, clashes, skipped = [], 0, 0
     for gi, g in enumerate(blocks):
         start = g[0]["t"]
@@ -259,18 +280,22 @@ def main() -> None:
         # Width: shrink the font for a group that wouldn't fit the safe width (a long word).
         longest = max(wrap(" ".join(texts), 42) if args.style == "sentence" else [" ".join(texts)], key=len)
         fs_g = min(fs, int(safe_w * W / (len(longest) * CHAR_W)))
-        pos = f"{{\\an5\\pos({int(center_x * W)},{int(y * H)})" + (f"\\fs{fs_g}" if fs_g < fs else "") + "}"
+        # A smaller font keeps the outline in proportion (it's set in pixels, not relative).
+        bord = max(2, round(outline * fs_g / fs))
+        pos = (f"{{\\an5\\pos({int(center_x * W)},{int(y * H)})"
+               + (f"\\fs{fs_g}\\bord{bord}\\shad{max(1, bord // 3)}" if fs_g < fs else "") + "}")
+        on = f"{{\\c{hl_color}&" + (f"\\3c{hl_edge}&" if hl_edge else "") + "}"
+        back = f"{{\\c{WHITE}&" + (f"\\3c{BLACK}&" if hl_edge else "") + "}"
         if args.style == "highlight":
             for i, w in enumerate(g):
                 ws = start if i == 0 else w["t"]
                 we = g[i + 1]["t"] if i + 1 < len(g) else end
-                body = " ".join((f"{{\\c{hl_color}&}}{ass_escape(tx)}{{\\c{WHITE}&}}" if j == i else ass_escape(tx))
+                body = " ".join((f"{on}{ass_escape(tx)}{back}" if j == i else ass_escape(tx))
                                 for j, tx in enumerate(texts))
                 events.append(f"Dialogue: 0,{ass_time(ws)},{ass_time(we)},Main,,0,0,0,,{pos}{body}")
         else:
             body = "\\N".join(ass_escape(x) for x in wrap(" ".join(texts), 42))
             events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Main,,0,0,0,,{pos}{body}")
-    outline = max(2, round(fs * 0.12))
     header = (f"[Script Info]\nScriptType: v4.00+\nPlayResX: {W}\nPlayResY: {H}\nWrapStyle: 2\n"
               "ScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
               "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "

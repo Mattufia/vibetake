@@ -333,7 +333,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
   characters per second, 1–7 s — platforms use it even when captions are burned in.
 - **Burned-in (`highlight`)**: groups of 2–3 words, white with a black outline, the
-  word being said in the design's accent; `sentence` for sober types. In the
+  word being said in the design's accent (a dark accent gets a light outline, same
+  thickness); `sentence` for sober types. Change them with the script's options,
+  never by editing `subs.ass` by hand. In the
   project's caption font (design.json / fonts.py) — never a system font.
 - **Never over the face, always inside the safe zone**: low by default, below or
   above the face when it's there, just under the mouth if the face fills the frame

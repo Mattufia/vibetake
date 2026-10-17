@@ -45,8 +45,10 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py preview               # at real size
    Each component gets `platform`, `width`, `height` and `keep` (the area that
    survives the crop) and composes freely: `<Person file="cutout_014.50.png"
    faceCenter={[x, y]} faceHeight={px} align="balanced" />` places the person by the
-   face (the body leaves through the bottom edge on its own; `align="balanced"` centers
-   what the eye reads — face and shoulders — when they lean or gesture), brand assets
+   face (the body leaves through the bottom edge on its own). For a centered person use
+   `align="visual" canvas={[width, height]}`: it centers what stays visible after the
+   crop, mostly by the head (the eye reads the head, not the shoulders leaving through
+   the edges); `align="balanced"` is the midpoint of face and shoulders. Brand assets
    as provided (`staticFile("brand/<file>")`), the video's design
    tokens (`font()`, `color()`), the project's icons, inline SVG drawn for the cover,
    CSS of any kind. Lay it out per platform (vertical and 16:9 are different

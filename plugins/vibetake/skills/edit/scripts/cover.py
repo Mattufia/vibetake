@@ -525,6 +525,12 @@ def cmd_cutout(args) -> None:
         y_end = int(min(trimmed.height, (fy - box[1]) + 4 * fh))
         up = ta[:max(y_end, 1)].sum(0)
         meta["upper_cx"] = round(float((up * np.arange(len(up))).sum() / max(up.sum(), 1) / trimmed.width), 4)
+    # A coarse map of the silhouette (share of each cell covered): a concept can center what is
+    # actually visible on the canvas, wherever the person is placed and cropped.
+    gw = 40
+    gh = max(1, round(gw * trimmed.height / trimmed.width))
+    small = np.asarray(trimmed.split()[-1].resize((gw, gh), Image.BILINEAR), float) / 255
+    meta["grid"] = {"cols": gw, "rows": gh, "cells": [[round(float(v), 2) for v in row] for row in small]}
     (out / f"cutout_{tag}.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     plan_p = Path("02-work/covers.json")              # the concepts read it: <Person file=… />
     plan = json.loads(plan_p.read_text(encoding="utf-8")) if plan_p.exists() else {"platforms": [], "concepts": []}
