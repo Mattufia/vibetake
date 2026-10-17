@@ -9,7 +9,7 @@ and delivery.
 ## Install
 
 ```text
-/plugin marketplace add <owner>/vibetake
+/plugin marketplace add Mattufia/vibetake
 /plugin install vibetake@vibetake
 ```
 
