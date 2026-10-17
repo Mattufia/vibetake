@@ -115,8 +115,10 @@ def cmd_init(args) -> None:
         if f.is_dir() or rel.parts[0] == "node_modules":
             continue
         dst = PROJ / rel
-        # The video's own components and data are never overwritten by the kit.
-        if dst.exists() and rel.parts[:2] in (("src", "custom"), ("src", "data"), ("src", "covers")):
+        # The video's own components and data are never touched by the kit once they exist:
+        # a folder that already has files is the video's, whole.
+        own = rel.parts[:2] in (("src", "custom"), ("src", "data"), ("src", "covers"))
+        if own and (dst.exists() or any((PROJ / rel.parts[0] / rel.parts[1]).glob("*"))):
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
@@ -148,6 +150,13 @@ def cmd_sync(args) -> None:
     for f in (work / "covers").glob("*.png") if (work / "covers").exists() else []:
         if f.name.startswith(("cutout_", "frame_")):
             shutil.copy2(f, pc / f.name)
+    # The user's brand assets, as provided (logo, marks): staticFile("brand/<name>").
+    pb = PROJ / "public" / "brand"
+    if Path("brand").is_dir():
+        pb.mkdir(parents=True, exist_ok=True)
+        for f in Path("brand").iterdir():
+            if f.suffix.lower() in (".png", ".svg", ".jpg", ".jpeg", ".webp"):
+                shutil.copy2(f, pb / f.name)
     if getattr(args, "covers_only", False) and not (work / "graphics.json").exists():
         for name in ("cues.json", "design.json"):
             if (work / name).exists():

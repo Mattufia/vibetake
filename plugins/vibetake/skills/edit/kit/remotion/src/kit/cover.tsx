@@ -51,14 +51,22 @@ export const Frame: React.FC<{ file: string; style?: React.CSSProperties }> = ({
 import coverPlan from "../data/covers.json";
 
 export const Person: React.FC<{ file: string; faceCenter: [number, number]; faceHeight: number;
+  /** What faceCenter's x places: "face" (default) the face; "body" the weight of head and
+   * shoulders; "balanced" the midpoint of both — what the eye reads as centered when the
+   * person leans or gestures. */
+  align?: "face" | "body" | "balanced";
   outline?: string; outlinePx?: number; shadow?: boolean; flip?: boolean; style?: React.CSSProperties }> = ({
-  file, faceCenter, faceHeight, outline, outlinePx, shadow = true, flip, style }) => {
+  file, faceCenter, faceHeight, align = "face", outline, outlinePx, shadow = true, flip, style }) => {
   const meta = (coverPlan as any).cutouts?.[file];
   if (!meta?.face) return <Cutout file={file} outline={outline} outlinePx={outlinePx} shadow={shadow} style={style} />;
   const scale = faceHeight / (meta.face.h * meta.height);
   const w = meta.width * scale;
   const h = meta.height * scale;
-  const fx = (meta.face.x + meta.face.w / 2) * w;
+  // "body": the weight of head and shoulders (what a close-up shows), not of a stray arm.
+  const bodyCx = meta.upper_cx ?? meta.body_cx;
+  const faceCx = meta.face.x + meta.face.w / 2;
+  const hasBody = bodyCx !== undefined && bodyCx !== null;
+  const fx = (align === "body" && hasBody ? bodyCx : align === "balanced" && hasBody ? (faceCx + bodyCx) / 2 : faceCx) * w;
   const fy = (meta.face.y + meta.face.h / 2) * h;
   return (
     <Cutout file={file} outline={outline} outlinePx={outlinePx} shadow={shadow}

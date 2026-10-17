@@ -506,7 +506,11 @@ def cmd_cutout(args) -> None:
     box = tuple(int(v) for v in (max(0, xs.min() - pad), max(0, ys.min() - pad), min(W, xs.max() + pad), min(H, ys.max() + pad)))
     trimmed = full.crop(box)
     trimmed.save(cut)
-    meta = {"width": trimmed.width, "height": trimmed.height, "face": None,
+    ta = np.asarray(trimmed.split()[-1], float)
+    cols = ta.sum(0)
+    body_cx = float((cols * np.arange(len(cols))).sum() / max(cols.sum(), 1) / trimmed.width)
+    meta = {"width": trimmed.width, "height": trimmed.height, "face": None, "body_cx": round(body_cx, 4),
+            "upper_cx": None,
             "touches_bottom": bool(box[3] >= H - 2), "frame": f"frame_{tag}.png"}
     import cv2
     from ingest import yunet
@@ -516,6 +520,11 @@ def cmd_cutout(args) -> None:
         fx, fy, fw, fh = [float(v) for v in max(found, key=lambda f: f[3])[:4]]
         meta["face"] = {"x": round((fx - box[0]) / trimmed.width, 4), "y": round((fy - box[1]) / trimmed.height, 4),
                         "w": round(fw / trimmed.width, 4), "h": round(fh / trimmed.height, 4)}
+        # The visual weight of what a close-up shows — head and shoulders, down to ~3 face heights
+        # below the face — not of an arm that a cover crops out anyway.
+        y_end = int(min(trimmed.height, (fy - box[1]) + 4 * fh))
+        up = ta[:max(y_end, 1)].sum(0)
+        meta["upper_cx"] = round(float((up * np.arange(len(up))).sum() / max(up.sum(), 1) / trimmed.width), 4)
     (out / f"cutout_{tag}.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     plan_p = Path("02-work/covers.json")              # the concepts read it: <Person file=… />
     plan = json.loads(plan_p.read_text(encoding="utf-8")) if plan_p.exists() else {"platforms": [], "concepts": []}
@@ -590,13 +599,24 @@ def cmd_render(args) -> None:
             if not c.get("no_person"):
                 for prob in face_check(dst, pl):
                     print(f"WARNING: {dst.name}: {prob}")
+    (work / "rendered.json").write_text(json.dumps({"design": design_hash(), "covers": plan_p.read_text(
+        encoding="utf-8")}, indent=1), encoding="utf-8")
     print("now: cover.py preview — and look at them at real size")
+
+
+def design_hash() -> str:
+    import hashlib
+    d = Path("02-work/design.json")
+    return hashlib.sha1(d.read_bytes()).hexdigest()[:12] if d.exists() else ""
 
 
 def cmd_preview(args) -> None:
     """The covers where people meet them: a profile grid (vertical) or a YouTube feed, at phone size."""
     out = Path("02-work/covers")
     out.mkdir(parents=True, exist_ok=True)
+    rendered = out / "rendered.json"
+    if rendered.exists() and json.loads(rendered.read_text(encoding="utf-8")).get("design") != design_hash():
+        print("WARNING: the video's design (design.json) changed after the covers were rendered: cover.py render again")
     made = []
     for pl in ("reels", "tiktok", "shorts", "youtube"):
         files = sorted(Path(args.out_dir).glob(f"cover_{pl}_*.jpg"))
