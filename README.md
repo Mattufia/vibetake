@@ -66,7 +66,7 @@ Ask in your own words. The more it knows, the fewer questions it asks:
 Edit this video for Instagram Reels and TikTok.
 ```
 ```text
-Edit this video for YouTube. It's in Spanish; the brand is Acme, the logo is in brand/.
+Edit this video for YouTube. It's in Spanish; the brand is Acme, the logo is in the folder.
 Names to spell right: Mattu, Vibetake, DaVinci.
 ```
 ```text
