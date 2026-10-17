@@ -156,6 +156,7 @@ uv run tests/test_cover.py        # covers per platform: head size, crop-safe la
 uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audio, listening check
 uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
 uv run tests/test_organize.py     # loose files → 00-raw/ and brand/, nothing overwritten, undo
+uv run tests/test_cut_rules.py    # reactions vs fillers, silent stretches, natural pace, protected ranges
 uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
 ```
 

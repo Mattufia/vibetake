@@ -45,6 +45,8 @@ PAUSE_LINE_S = 0.7      # pauses at least this long get their own line in transc
 SPLIT_PAUSE_S = 0.5     # a pause this long ends a sentence
 MAX_WORDS = 20          # longer sentences are split at their longest internal pause
 FILLER_PAUSE_S = 0.3    # a contextual filler followed by this much silence counts as filler
+REACTION_PAUSE_S = 0.5  # a reaction word after this much silence, answering a question, is content
+SILENT_ITEM_S = 1.5     # a stretch without speech this long becomes an item (S1, S2…) to keep or cut
 RETAKE_WINDOW_S = 20
 RETAKE_LOOKAHEAD = 4
 
@@ -181,14 +183,32 @@ def sentences_of(words: list[dict]) -> list[list[dict]]:
     return out
 
 
-def mark_fillers(words: list[dict], ld: dict) -> list[tuple[int, int]]:
-    """Index spans [i, j) of filler candidates."""
+def is_reaction(words: list[dict], i: int, ld: dict, prev: dict | None) -> bool:
+    """A filler word said as content, not hesitation: written as an exclamation or a
+    question ("¡Ah!", "¿Eh?"), or a reaction word ("ah", "oh"…) starting the answer to a
+    question after a pause ("¿Qué estás haciendo?" … "Ah, me agarraste"). A lone "Eh." is
+    still hesitation."""
+    raw = words[i]["word"].strip()
+    if raw.endswith(("!", "?")) or raw.startswith(("¡", "¿")):
+        return True
+    if norm(words[i]["word"]) not in {norm(r) for r in ld.get("reactions", [])}:
+        return False
+    if i == 0 and prev is not None and words[0]["start"] - prev["end"] >= REACTION_PAUSE_S \
+            and prev["word"].strip().endswith(("?", "!")):
+        return True
+    return False
+
+
+def mark_fillers(words: list[dict], ld: dict, prev: dict | None = None) -> list[tuple[int, int]]:
+    """Index spans [i, j) of filler candidates. prev: the word before this sentence, if any."""
     toks = [norm(w["word"]) for w in words]
     phrases = sorted((norm(p).split() for p in ld["always"]), key=len, reverse=True)
     contextual = {norm(c) for c in ld["contextual"]}
     spans, i = [], 0
     while i < len(words):
         hit = next((len(p) for p in phrases if toks[i:i + len(p)] == p), 0)
+        if hit == 1 and is_reaction(words, i, ld, prev):
+            hit = 0
         if not hit and toks[i] in contextual:
             raw = words[i]["word"].strip()
             nxt = words[i + 1] if i + 1 < len(words) else None
@@ -231,8 +251,10 @@ def analyze(order: list[str], files: dict, ld: dict) -> list[dict]:
         weak = [(s["start"], s["end"]) for s in files[name]["segments"]
                 if s["avg_logprob"] < -1.0 or s["compression_ratio"] > 2.4
                 or (s["no_speech_prob"] > 0.6 and s["avg_logprob"] < -0.5)]
+        prev = None
         for ws in sentences_of(words):
-            spans = mark_fillers(ws, ld)
+            spans = mark_fillers(ws, ld, prev)
+            prev = ws[-1]
             start, end = ws[0]["start"], ws[-1]["end"]
             text_n = norm("".join(w["word"] for w in ws))
             sents.append({
@@ -281,17 +303,33 @@ def render(s: dict) -> str:
 def write_outputs(out: Path, result: dict, ld: dict) -> None:
     sents = analyze(result["order"], result["files"], ld)
     md = ["# Transcript", "",
-          "⟨…⟩ filler candidate · ↻ possible retake (usually keep the later take) · ⚠ low confidence", ""]
+          "⟨…⟩ filler candidate · ↻ possible retake (usually keep the later take) · ⚠ low confidence · "
+          "S… a stretch without speech: action or a meaningful pause? look at the contact sheets; "
+          "keep it like a line (--keep …,S2) or protect it", ""]
+    silences: list[dict] = []
+
+    def gap(name: str, a: float, b: float) -> None:
+        if b - a >= SILENT_ITEM_S:
+            sid = f"S{len(silences) + 1}"
+            silences.append({"id": sid, "file": name, "start": round(a, 3), "end": round(b, 3)})
+            md.append(f"{sid} [{tc(a)}–{tc(b)}] (no speech, {b - a:.1f} s)")
+        elif b - a >= PAUSE_LINE_S:
+            md.append(f"   [{tc(a)}–{tc(b)}] (pause {b - a:.1f} s)")
+
     prev_file, prev_end = None, 0.0
     for s in sents:
         if s["file"] != prev_file:
+            if prev_file is not None:
+                gap(prev_file, prev_end, float(result["files"][prev_file].get("duration") or prev_end))
             md += ([""] if prev_file else []) + [f"## {s['file']}", ""]
             prev_file, prev_end = s["file"], 0.0
-        if s["start"] - prev_end >= PAUSE_LINE_S:
-            md.append(f"   [{tc(prev_end)}–{tc(s['start'])}] (pause {s['start'] - prev_end:.1f} s)")
+        gap(s["file"], prev_end, s["start"])
         md.append(render(s))
         prev_end = s["end"]
+    if prev_file is not None:
+        gap(prev_file, prev_end, float(result["files"][prev_file].get("duration") or prev_end))
     (out / "transcript.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    result["silences"] = silences
     result["sentences"] = [{k: v for k, v in s.items() if k not in ("words", "tokens", "_spans")} for s in sents]
     (out / "transcript.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
 

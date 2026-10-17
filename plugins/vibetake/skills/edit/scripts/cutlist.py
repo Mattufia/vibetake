@@ -4,8 +4,16 @@
 # ///
 """From transcript lines to an edit decision list (02-work/edl.json).
 
-    uv run cutlist.py --keep auto [--fillers drop|keep] [--format vertical|horizontal|square|source]
-    uv run cutlist.py --keep "L9,L2-L7,L12"      # explicit lines, in this order (L9 first = cold open)
+    uv run cutlist.py --keep auto [--fillers drop|keep] [--pace tight|normal|relaxed|natural]
+                      [--format vertical|horizontal|square|source]
+    uv run cutlist.py --keep "L9,L2-L7,S2,L12"   # explicit lines (and silent stretches), in this order
+    uv run cutlist.py --protect S1 --why "suspense walk"   # never cut this, on every rebuild
+    uv run cutlist.py --protect L3 --why "the reaction is the joke"
+    uv run cutlist.py --protect "0:03.4-0:07.0" --why "…"  # a time range (file@range with several files)
+    uv run cutlist.py --unprotect P2 | --unprotect all | --list-protected
+
+Re-running it reuses the last run's settings (format, pace, fillers, keep) unless
+given again, so a rebuild for a change doesn't undo earlier choices.
 
 --keep auto keeps every line that isn't marked as a retake. The script turns the kept
 lines into cut points: word-accurate, without the dropped fillers, long pauses
@@ -19,7 +27,13 @@ pauses heard are the ones intended. Each segment records which words it holds. T
     uv run render.py            # renders 02-work/edl.json
 
 edl.json is the source of truth of the edit: change it (or re-run this) and render
-again. Segments: source, in, out (seconds in the source), lines, note.
+again. Segments: source, in, out (seconds in the source), lines, words, note.
+
+Protected ranges (02-work/protected.json) are what the user asked to keep: every
+rebuild includes them whole — words, fillers, silences and all — over any automatic
+rule. S1, S2… are the stretches without speech listed in transcript.md (action, a
+look, a walk, a dramatic pause): --keep can name them like lines; --pace natural keeps
+every pause and silent stretch next to the kept lines as recorded (acted scenes).
 """
 from __future__ import annotations
 
@@ -40,7 +54,11 @@ SNAP_S = 0.04
 MIN_SEGMENT_S = 0.25
 # Pause at a join, by what ends the phrase before it (seconds, at normal pace).
 GAPS = {"sentence": 0.40, "comma": 0.25, "word": 0.15}
-PACE = {"tight": (0.75, 0.30), "normal": (1.0, 0.45), "relaxed": (1.35, 0.80)}  # (gap scale, max pause)
+PACE = {"tight": (0.75, 0.30), "normal": (1.0, 0.45), "relaxed": (1.35, 0.80),   # (gap scale, max pause)
+        "natural": (1.0, float("inf"))}                     # pauses as recorded: acted scenes
+DEFAULTS = {"keep": "auto", "fillers": "drop", "pace": "normal", "format": "source", "size": None,
+            "max_pause": None}
+PROTECTED = Path("02-work/protected.json")
 TAIL_S = 0.05          # a word's sound lingers past its timestamp; never start inside it
 START_LEAD_S = 0.10    # before the very first word
 END_TAIL_S = 0.35      # after the very last word
@@ -55,11 +73,19 @@ def join_kind(last_word: str, follows: bool) -> str:
     return "comma" if w.endswith((",", ";", ":")) else "word"
 
 
-def parse_keep(spec: str, sentences: list[dict]) -> list[int]:
+def parse_keep(spec: str, sentences: list[dict], silences: list[dict] | None = None) -> tuple[list[int], list[str]]:
+    """Lines to keep, in order, and the silent stretches (S…) named among them."""
     if spec == "auto":
-        return [s["line"] for s in sentences if not s.get("retake_of")]
+        return [s["line"] for s in sentences if not s.get("retake_of")], []
     lines: list[int] = []
+    sil: list[str] = []
+    known_s = {x["id"].upper() for x in silences or []}
     for part in spec.replace(" ", "").split(","):
+        if re.fullmatch(r"S\d+", part, re.I):
+            if part.upper() not in known_s:
+                die(f"{part} isn't in the transcript's silent stretches ({', '.join(sorted(known_s)) or 'none'})")
+            sil.append(part.upper())
+            continue
         m = re.fullmatch(r"L?(\d+)(?:-L?(\d+))?", part, re.I)
         if not m:
             die(f"can't read '{part}' (use L3, L3-L7, …)")
@@ -69,7 +95,7 @@ def parse_keep(spec: str, sentences: list[dict]) -> list[int]:
     missing = [n for n in lines if n not in known]
     if missing:
         die(f"lines not in the transcript: {missing}")
-    return lines
+    return lines, sil
 
 
 def quiet_db(path: str, track: int) -> np.ndarray:
@@ -123,26 +149,137 @@ def valley(db: np.ndarray, gap_a: float, gap_b: float) -> tuple[float, float] | 
     return max(found, key=score)
 
 
+def seconds(t: str) -> float:
+    parts = [float(x) for x in t.strip().split(":")]
+    return sum(x * 60 ** i for i, x in enumerate(reversed(parts)))
+
+
+def load_protected() -> dict:
+    return json.loads(PROTECTED.read_text(encoding="utf-8")) if PROTECTED.exists() else {"ranges": []}
+
+
+def save_protected(data: dict) -> None:
+    PROTECTED.parent.mkdir(parents=True, exist_ok=True)
+    PROTECTED.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def resolve_target(spec: str, tr: dict) -> tuple[str, float, float]:
+    """L3 / S1 / 0:03.4-0:07.0 / file@0:03.4-0:07.0 → (file, start, end) in the source."""
+    m = re.fullmatch(r"L(\d+)", spec.strip(), re.I)
+    if m:
+        s = next((x for x in tr["sentences"] if x["line"] == int(m.group(1))), None) or die(f"no line {spec}")
+        return s["file"], s["start"], s["end"]
+    if re.fullmatch(r"S\d+", spec.strip(), re.I):
+        x = next((x for x in tr.get("silences", []) if x["id"].upper() == spec.strip().upper()), None) \
+            or die(f"no silent stretch {spec} (see transcript.md)")
+        return x["file"], x["start"], x["end"]
+    name, _, rng = spec.rpartition("@")
+    if not name:
+        if len(tr["files"]) != 1:
+            die("several files: write it as file@0:03.4-0:07.0")
+        name = next(iter(tr["files"]))
+    if name not in tr["files"]:
+        die(f"{name} isn't in the transcript")
+    a, _, b = rng.partition("-")
+    if not b:
+        die(f"can't read the range '{rng}' (use 0:03.4-0:07.0)")
+    return name, seconds(a), seconds(b)
+
+
+def apply_protection(segments: list[dict], ranges: list[dict], srcs: dict) -> list[str]:
+    """Make every protected source range part of the edit, whole: extend the segments of
+    that file that touch it (merging them), or add it as its own segment in source order."""
+    notes = []
+    for r in ranges:
+        name, a, b = r["file"], r["start"], r["end"]
+        touch = [k for k, sg in enumerate(segments) if sg["name"] == name and sg["in"] <= b + 0.3
+                 and sg["out"] >= a - 0.3]
+        if touch:
+            k0 = touch[0]
+            sg = segments[k0]
+            sg["in"] = min([sg["in"], a] + [segments[k]["in"] for k in touch])
+            sg["out"] = max([sg["out"], b] + [segments[k]["out"] for k in touch])
+            sg["lines"] = sorted({n for k in touch for n in segments[k]["lines"]})
+            for k in reversed(touch[1:]):
+                del segments[k]
+        else:
+            new = {"source": srcs[name], "name": name, "in": a, "out": b, "lines": []}
+            before = [k for k, sg in enumerate(segments) if sg["name"] == name and sg["out"] <= a]
+            after = [k for k, sg in enumerate(segments) if sg["name"] == name and sg["in"] >= b]
+            pos = before[-1] + 1 if before else (after[0] if after else len(segments))
+            segments.insert(pos, new)
+        notes.append(f"{r.get('id', '')} {r.get('what', '')} kept whole ({tc(a)}–{tc(b)}){': ' + r['why'] if r.get('why') else ''}".strip())
+    # Neighbors from the same file that now touch or overlap become one segment.
+    k = 0
+    while k + 1 < len(segments):
+        x, y = segments[k], segments[k + 1]
+        if x["name"] == y["name"] and y["in"] <= x["out"] + 0.05 and y["out"] >= x["in"]:
+            x["in"], x["out"] = min(x["in"], y["in"]), max(x["out"], y["out"])
+            x["lines"] = sorted(set(x["lines"]) | set(y["lines"]))
+            del segments[k + 1]
+        else:
+            k += 1
+    return notes
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--keep", default="auto", help='"auto" or lines like "L9,L2-L7"')
-    ap.add_argument("--fillers", choices=("drop", "keep"), default="drop")
-    ap.add_argument("--pace", choices=tuple(PACE), default="normal",
-                    help="scales the pauses at the joins and the longest pause kept inside a phrase")
+    ap.add_argument("--keep", help='"auto" or lines like "L9,L2-L7,S2"')
+    ap.add_argument("--fillers", choices=("drop", "keep"))
+    ap.add_argument("--pace", choices=tuple(PACE),
+                    help="scales the pauses at the joins and the longest pause kept inside a phrase; "
+                         "natural keeps them as recorded")
     ap.add_argument("--max-pause", type=float, help="override: longer pauses inside a phrase are cut")
-    ap.add_argument("--format", choices=(*FORMATS, "source"), default="source")
+    ap.add_argument("--format", choices=(*FORMATS, "source"))
     ap.add_argument("--size", help="explicit WxH, overrides --format")
+    ap.add_argument("--protect", action="append", default=[], help="L3, S1 or a time range: never cut it")
+    ap.add_argument("--why", help="why it's protected (what the user said)")
+    ap.add_argument("--unprotect", help="a protection id (P2) or 'all'")
+    ap.add_argument("--list-protected", action="store_true")
     ap.add_argument("--ingest", default="01-ingest")
     ap.add_argument("--out", default="02-work/edl.json")
     args = ap.parse_args()
 
     ingest = Path(args.ingest)
     tr = json.loads((ingest / "transcript.json").read_text(encoding="utf-8"))
+
+    # Protections: what the user asked to keep, stored apart so every rebuild honors it.
+    prot = load_protected()
+    if args.unprotect:
+        before = len(prot["ranges"])
+        prot["ranges"] = [] if args.unprotect == "all" else [r for r in prot["ranges"]
+                                                              if r["id"].upper() != args.unprotect.upper()]
+        save_protected(prot)
+        print(f"removed {before - len(prot['ranges'])} protection(s)")
+    for spec in args.protect:
+        name, a, b = resolve_target(spec, tr)
+        n = max([int(r["id"][1:]) for r in prot["ranges"]] + [0]) + 1
+        prot["ranges"].append({"id": f"P{n}", "what": spec, "file": name, "start": round(a, 3), "end": round(b, 3),
+                               "why": args.why or ""})
+        save_protected(prot)
+        print(f"protected P{n}: {spec} ({name} {tc(a)}–{tc(b)}){' — ' + args.why if args.why else ''}")
+    if args.list_protected:
+        for r in prot["ranges"]:
+            print(f"{r['id']}  {r['what']}  {r['file']} {tc(r['start'])}–{tc(r['end'])}  {r.get('why', '')}")
+        if not prot["ranges"]:
+            print("nothing protected")
+        return
+
+    # A rebuild reuses the last run's choices unless they're given again.
+    prev = {}
+    if Path(args.out).exists():
+        try:
+            prev = json.loads(Path(args.out).read_text(encoding="utf-8")).get("params", {})
+        except ValueError:
+            prev = {}
+    for k, v in DEFAULTS.items():
+        if getattr(args, k) is None:
+            setattr(args, k, prev.get(k, v))
     material = {}
     if (ingest / "material.json").exists():
         material = {m["name"]: m for m in json.loads((ingest / "material.json").read_text(encoding="utf-8"))["files"]}
     sents = {s["line"]: s for s in tr["sentences"]}
-    keep = parse_keep(args.keep, tr["sentences"])
+    keep, keep_sil = parse_keep(args.keep, tr["sentences"], tr.get("silences"))
     scale, default_pause = PACE[args.pace]
     max_pause = args.max_pause if args.max_pause is not None else default_pause
 
@@ -244,6 +381,42 @@ def main() -> None:
         segments.append({"source": src, "name": name, "in": t_in, "out": t_out,
                          "lines": sorted({n for n, _ in run}), "words": [run[0][1]["_i"], run[-1][1]["_i"]],
                          "text": "".join(w["word"] for _, w in run).strip()})
+    # Silent stretches to keep: the ones named in --keep, and with --pace natural every one
+    # next to a kept line (the walk before the answer, the look after the line).
+    kept_lines = set(keep)
+    sil_keep = list(keep_sil)
+    if args.pace == "natural":
+        by_file = {}
+        for x in tr["sentences"]:
+            by_file.setdefault(x["file"], []).append(x)
+        for x in tr.get("silences", []):
+            ls = by_file.get(x["file"], [])
+            prev_l = max((y for y in ls if y["end"] <= x["start"] + 1e-3), key=lambda y: y["end"], default=None)
+            next_l = min((y for y in ls if y["start"] >= x["end"] - 1e-3), key=lambda y: y["start"], default=None)
+            if (prev_l and prev_l["line"] in kept_lines) or (next_l and next_l["line"] in kept_lines):
+                if x["id"] not in sil_keep:
+                    sil_keep.append(x["id"])
+    sil_by_id = {x["id"]: x for x in tr.get("silences", [])}
+    ranges = [{"id": "", "what": sid, "file": sil_by_id[sid]["file"], "start": sil_by_id[sid]["start"],
+               "end": sil_by_id[sid]["end"]} for sid in sil_keep]
+    ranges += [{**r, "what": r["what"]} for r in prot["ranges"]]
+    for r in ranges:
+        srcs.setdefault(r["file"], (material.get(r["file"]) or {}).get("file") or die(f"no source for {r['file']}"))
+    notes = apply_protection(segments, ranges, srcs)
+    for sg in segments:
+        fr = (material.get(sg["name"]) or {}).get("fps")
+        if fr:
+            sg["in"], sg["out"] = (round(round(t * fr) / fr, 4) for t in (sg["in"], sg["out"]))
+        ws = words.get(sg["name"], [])
+        inside = [w for w in ws if sg["in"] <= (w["start"] + w["end"]) / 2 <= sg["out"]]
+        if inside:
+            sg["words"] = [inside[0]["_i"], inside[-1]["_i"]]
+            sg["text"] = "".join(w["word"] for w in inside).strip()
+            sg["lines"] = sorted({x["line"] for x in tr["sentences"] if x["file"] == sg["name"]
+                                  and x["start"] < sg["out"] and x["end"] > sg["in"]})
+        else:
+            sg.pop("words", None)
+            sg["text"] = "(no speech)"
     # A first line that comes later in the material is a cold open (hook).
     if segments and len(keep) > 1 and keep[0] > min(keep[1:]):
         segments[0]["role"] = "hook"
@@ -263,11 +436,32 @@ def main() -> None:
 
     total_src = sum(f["duration"] for f in tr["files"].values())
     total = sum(s["out"] - s["in"] for s in segments)
-    dropped_lines = [s["line"] for s in tr["sentences"] if s["line"] not in keep]
-    print(f"{len(segments)} segments · {tc(total_src)} of material → {tc(total)} · "
-          f"{dropped_fillers} filler words out · lines left out: {dropped_lines or 'none'}")
+    dropped_lines = [s["line"] for s in tr["sentences"] if s["line"] not in keep and not any(
+        sg["name"] == s["file"] and sg["in"] <= s["start"] and sg["out"] >= s["end"] for sg in segments)]
+    print(f"{len(segments)} segments · {tc(total_src)} of material → {tc(total)} · pace {args.pace} · "
+          f"fillers {args.fillers} · lines left out: {dropped_lines or 'none'}")
     for s in segments:
         print(f"  [{tc(s['in'])}–{tc(s['out'])}] {s['name']}  L{','.join(map(str, s['lines']))}  {s['text'][:70]}")
+    for n in notes:
+        print("  kept:", n)
+    # What the edit leaves out, so it can be checked and said in the delivery.
+    out_fill = [(w["start"], w["word"].strip()) for name, ws in words.items() for w in ws
+                if not any(sg["name"] == name and sg["in"] <= (w["start"] + w["end"]) / 2 <= sg["out"]
+                           for sg in segments) and any(
+                    x["file"] == name and x["line"] in kept_lines and any(
+                        f[0] <= w["start"] + 1e-3 and w["end"] <= f[1] + 1e-3 for f in x.get("fillers", []))
+                    for x in tr["sentences"])]
+    if out_fill:
+        print("  fillers out:", ", ".join(f"«{t}» {tc(a)}" for a, t in out_fill))
+    for x in tr.get("silences", []):
+        cov = sum(max(0.0, min(sg["out"], x["end"]) - max(sg["in"], x["start"]))
+                  for sg in segments if sg["name"] == x["file"])
+        if 0 < cov < (x["end"] - x["start"]) - 0.2 or (cov == 0 and any(
+                sg["name"] == x["file"] and sg["in"] < x["start"] for sg in segments) and any(
+                sg["name"] == x["file"] and sg["out"] > x["end"] for sg in segments)):
+            print(f"  {x['id']} (no speech, {x['end'] - x['start']:.1f} s at {tc(x['start'])}) shortened to "
+                  f"{cov:.1f} s — if it's action or a meaningful pause, keep it: --keep …,{x['id']} or --protect "
+                  f"{x['id']}")
     print(f"edl → {out}")
 
 

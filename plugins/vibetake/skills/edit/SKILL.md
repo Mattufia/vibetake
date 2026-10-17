@@ -83,10 +83,12 @@ progress, and skips what's already done if run again (`--force` redoes it). Then
    recording order. It's verbatim, so fillers are there to be cut. Marks are
    suggestions to judge with context, not orders:
    - `⟨…⟩` filler candidate ("Bueno," at the start is a filler; "a good video"
-     isn't).
+     isn't). A reaction — "¡Ah!", an "Ah" answering a question — isn't marked.
    - `↻ retake → L12` this line is an abandoned or repeated take of line 12,
      possibly across files. Keep the later take unless it's clearly worse.
    - `⚠ low confidence` check that text by ear before it goes into subtitles.
+   - `S2 … (no speech)` a stretch without words: look at its sheets — action, a
+     walk, a look, a dramatic pause are part of the video, not dead air.
 
    Cuts use the word timestamps in `transcript.json` (already trimmed to where the
    sound is). **If a name, brand or term comes out wrong, add it to the glossary
@@ -128,7 +130,7 @@ of weight:
 3. **Context**: duration, orientation, file names.
 
 Types: `ad`, `talking-head`, `tutorial`, `vlog`, `podcast-interview`,
-`testimonial`, `music-montage`, `corporate`. **What each covers and its typical
+`testimonial`, `music-montage`, `corporate`, `narrative` (acted scenes). **What each covers and its typical
 signals: `${CLAUDE_SKILL_DIR}/references/types.md`** — read it to classify.
 
 The result is one line: **type + confidence + alternative**. If nothing fits, use
@@ -212,8 +214,12 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   filler came out mid-phrase. That air is taken from clean silence (mostly after
   the previous phrase), never from the tail of a word that was dropped.
   `--pace tight|normal|relaxed` scales it all (feed/ad: tight · testimonial:
-  relaxed). If a join still feels rushed or slow, change the pace or edit that
-  segment's `in`/`out`.
+  relaxed); **`natural`** keeps pauses and silent stretches as recorded (acted
+  scenes). `--keep` takes `S2` like a line. It reports every silent stretch it
+  shortened and every filler it took out: check them, and say them in the delivery.
+- **What the user asks to keep is protected**: `cutlist.py --protect S1|L3|0:03-0:07
+  --why "…"` → every rebuild keeps it whole, over any automatic rule. A rebuild
+  reuses the last run's settings. Note each protection in `project.md`.
 - **Framing (`reframe.py`): the simplest one that works, per segment.** Same
   aspect as the output → untouched. The person barely moves (or a gimbal or
   tracking camera already kept them centered) → **one fixed crop** for the
@@ -232,12 +238,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   (`--bump`, +6%, settles in ~0.15 s) and pushes in slowly while it lasts
   (`--drift`, +3%). `--punch off` disables all of it (testimonial, corporate,
   screen recordings); `--bump 0 --drift 0` keeps only the alternation.
-- **Hook (feed)**: `hook.py` ranks lines that could open the video (short, makes
-  sense alone, a question, a promise, a conflict, a number, talks to "you") into
-  `02-work/hooks.md`. It only shortlists: read them in context and choose. Put it
-  first with `--keep "L9,L1-L12"` (also kept in place, as the payoff) or
-  `--keep "L9,L1-L8,L10-L12"` (moved). The cold open gets the closer shot; the
-  story starts wide.
+- **Hook (feed)**: `hook.py` shortlists lines that could open the video into
+  `02-work/hooks.md`; read them in context and choose. First with `--keep
+  "L9,L1-L12"` (also kept in place) or `"L9,L1-L8,L10-L12"` (moved).
 - **B-roll**: own material first (ingest flags candidates). `broll.py list`
   catalogs them; describe each from its contact sheets; `broll.py place` anchors
   one to a word (`--line L5 --word material`) or centers it on a cut (`--cut 3`);
@@ -250,12 +253,10 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   `02-work/color/grade.json`, framing to the output size, constant frame rate,
   12 ms audio fades so cuts never click, cuts on the source's frame grid so sync
   never drifts. It reports expected vs actual picture and sound durations.
-- **Check the preview** (stills of it, and the cuts around retakes) before the
-  master.
+- **Check the preview** (stills, the cuts around retakes) before the master.
 
-- **Cleanup follows the type profile**: fillers and retakes come out fully in a
-  talking head or an ad, lightly in a vlog, and almost not at all in a
-  testimonial, where hesitation carries emotion. Retakes: keep the last good take.
+- **Cleanup follows the type profile**: full in a talking head, light in a vlog,
+  almost none in a testimonial, none inside an acted scene.
 - **J/L cuts**: the audio comes in before or carries on after the picture. It's
   what makes the cut go unnoticed.
 
