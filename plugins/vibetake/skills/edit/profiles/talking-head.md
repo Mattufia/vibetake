@@ -15,3 +15,4 @@ Opinion, educational or explainer content spoken to camera by one person.
   carry meaning.
 - **Color**: Full is usually the recommendation: skin is what's judged. `natural` look at most.
 - **Pace**: `cutlist.py --pace tight`.
+- **B-roll**: 15–35% of the runtime, mostly covering cuts and illustrating what is named.

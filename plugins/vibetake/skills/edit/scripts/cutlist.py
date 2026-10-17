@@ -184,6 +184,9 @@ def main() -> None:
         segments.append({"source": src, "name": name, "in": t_in, "out": t_out,
                          "lines": sorted({n for n, _ in run}),
                          "text": "".join(w["word"] for _, w in run).strip()})
+    # A first line that comes later in the material is a cold open (hook).
+    if segments and len(keep) > 1 and keep[0] > min(keep[1:]):
+        segments[0]["role"] = "hook"
 
     first_src = material.get(segments[0]["name"], {})
     if args.size:

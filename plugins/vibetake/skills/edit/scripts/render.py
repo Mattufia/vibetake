@@ -28,6 +28,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import Log, die, ffmpeg_progress, ffprobe, filter_path, run, tc, tool  # noqa: E402
+from _timeline import resolve_broll  # noqa: E402
 
 FADE_S = 0.012
 CHUNK = 40
@@ -118,8 +119,30 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, pr
     return v + ";" + a, dur
 
 
+def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade: dict) -> tuple[list, list, str]:
+    """Inputs and filters that lay each b-roll over the edit at its timeline position:
+    framed to the output, graded like its source, with a slow 4% push-in. The edit's
+    sound keeps playing underneath."""
+    W, H, fps = out["width"], out["height"], out["fps"]
+    inputs, graphs, cur = [], [], base
+    for j, b in enumerate(items):
+        k = first_input + j
+        inputs += ["-ss", f"{b['in']:.4f}", "-t", f"{b['dur'] + 0.3:.4f}", "-i", b["source"]]
+        g = grade.get(b["clip"]) or {}
+        chain = [x for x in (g.get("pre"), f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
+        n = frames(b["dur"], fps)
+        chain += [f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'", f"scale={W}:{H}", "setsar=1", f"fps={fps}",
+                  f"zoompan=z='1+0.04*on/{n}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps={fps}",
+                  f"trim=end_frame={n}", f"setpts=PTS-STARTPTS+{b['at']:.4f}/TB", "format=yuv420p"]
+        graphs.append(f"[{k}:v:0]{','.join(chain)}[b{j}]")
+        nxt = f"o{j}"
+        graphs.append(f"[{cur}][b{j}]overlay=eof_action=pass:repeatlast=0[{nxt}]")
+        cur = nxt
+    return inputs, graphs, cur
+
+
 def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
-                 preview: bool, label: str) -> float:
+                 preview: bool, label: str, overlays: list[dict] | None = None) -> float:
     inputs, graphs, total = [], [], 0.0
     with tempfile.TemporaryDirectory(prefix="vibetake-render-") as tmp:
         workdir = Path(tmp)
@@ -132,9 +155,13 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
             graphs.append(gph)
             total += d
         joined = "".join(f"[v{k}][a{k}]" for k in range(len(segs)))
+        graphs.append(f"{joined}concat=n={len(segs)}:v=1:a=1[vc][a]")
+        b_inputs, b_graphs, last = broll_graph(len(segs), "vc", overlays or [], out, grade)
+        inputs += b_inputs
+        graphs += b_graphs + [f"[{last}]null[v]"]
         script = workdir / "graph.txt"
         # Long graphs overflow the command line, so the graph goes in a file.
-        script.write_text(";".join(graphs) + f";{joined}concat=n={len(segs)}:v=1:a=1[v][a]", encoding="utf-8")
+        script.write_text(";".join(graphs), encoding="utf-8")
         audio = ["-c:a", "pcm_s16le"] if dst.suffix == ".mkv" else ["-c:a", "aac", "-b:a", "320k"]
         ffmpeg_progress([*inputs, "-/filter_complex", str(script), "-map", "[v]", "-map", "[a]",
                          *enc, "-pix_fmt", "yuv420p", *TAGS, *audio, "-ar", "48000",
@@ -182,8 +209,14 @@ def main() -> None:
     log(f"rendering {len(segs)} segments → {dst} ({out['width']}×{out['height']} @ {out['fps']} fps, "
         f"{enc_name}, color on {graded}/{len(segs)} segments)")
 
+    overlays, warnings = resolve_broll(segs, out["fps"], edl.get("broll", []))
+    for w in warnings:
+        log(f"WARNING: {w}")
+    if overlays:
+        log(f"b-roll: {len(overlays)} clip(s) over {sum(b['dur'] for b in overlays):.1f} s")
+
     if len(segs) <= CHUNK:
-        total = render_chunk(segs, out, grade, enc, dst, log, args.preview, "render")
+        total = render_chunk(segs, out, grade, enc, dst, log, args.preview, "render", overlays)
     else:
         work = Path("02-work") / "render"
         work.mkdir(parents=True, exist_ok=True)
@@ -196,9 +229,12 @@ def main() -> None:
             parts.append(part)
         lst = work / "parts.txt"
         lst.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
-        ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *enc, "-pix_fmt", "yuv420p", *TAGS,
-                         "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", str(dst)], total, "final encode",
-                        log)
+        b_inputs, b_graphs, last = broll_graph(1, "0:v", overlays, out, grade)
+        overlay_args = (["-filter_complex", ";".join(b_graphs + [f"[{last}]null[v]"]), "-map", "[v]", "-map", "0:a"]
+                        if overlays else [])
+        ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *b_inputs, *overlay_args, *enc,
+                         "-pix_fmt", "yuv420p", *TAGS, "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart",
+                         str(dst)], total, "final encode", log)
         for p in parts:
             p.unlink(missing_ok=True)
 

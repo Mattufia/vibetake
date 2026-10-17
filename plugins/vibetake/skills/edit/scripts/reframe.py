@@ -114,8 +114,12 @@ def main() -> None:
     zooms, prev = [], None
     for s in segs:
         z = 1.0
-        if args.punch == "auto" and prev is not None and prev["name"] == s["name"] and s["in"] - prev["out"] > 0.05:
+        if s.get("role") == "hook" and args.punch == "auto":
+            z = args.zoom                    # the cold open gets the closer shot: it's the punch line
+        elif args.punch == "auto" and prev is not None and prev["name"] == s["name"] and s["in"] - prev["out"] > 0.05:
             z = args.zoom if zooms[-1] == 1.0 else 1.0
+        elif prev is not None and prev.get("role") == "hook":
+            z = 1.0                          # back to the wide shot when the story starts
         zooms.append(z)
         prev = s
 

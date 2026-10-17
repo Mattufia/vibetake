@@ -35,6 +35,7 @@ uv run tests/test_transcribe.py   # retakes, fillers, word timing (needs the Whi
 uv run tests/test_grade.py        # color: cast correction, log path, looks, creative
 uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
 uv run tests/test_reframe.py      # camera operator: holds, eases, cuts; rendered crop follows; punch-ins
+uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts; hook ranking
 ```
 
 Generates synthetic clips for each ingest trap (VFR, HDR, rotation, two audio

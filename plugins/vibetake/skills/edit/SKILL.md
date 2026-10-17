@@ -236,6 +236,18 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   between 1.0 and `--zoom` (1.12 by default), so the jump reads as a cut to a
   closer shot. A face that already fills the frame gets half the punch-in.
   `--punch off` when the type doesn't want them (testimonial, corporate).
+- **Hook (feed)**: `hook.py` ranks lines that could open the video (short, makes
+  sense alone, a question, a promise, a conflict, a number, talks to "you") into
+  `02-work/hooks.md`. It only shortlists: read them in context and choose. Put it
+  first with `--keep "L9,L1-L12"` (also kept in place, as the payoff) or
+  `--keep "L9,L1-L8,L10-L12"` (moved). The cold open gets the closer shot; the
+  story starts wide.
+- **B-roll**: own material first (ingest flags candidates). `broll.py list`
+  catalogs them; describe each from its contact sheets; `broll.py place` anchors
+  one to a word (`--line L5 --word material`) or centers it on a cut (`--cut 3`);
+  `render.py` lays it over the edit with the speech underneath. Rules (what to
+  illustrate, length, coverage, never over the hook):
+  **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
 - Edit `edl.json` by hand for anything finer (trim a segment, move one, change a
   segment's `frame.zoom`) and re-render.
 - `render.py` works from the **original files**: color from

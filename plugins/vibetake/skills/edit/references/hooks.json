@@ -1,0 +1,170 @@
+{
+  "_doc": "Words and patterns that often make a line work as a hook, per language (for hook.py). They only rank candidates; the model chooses. Add a language by copying an entry. continuation: words that, at the start of a line, mean it depends on what came before.",
+  "es": {
+    "promise": [
+      "cómo",
+      "te voy a mostrar",
+      "les voy a mostrar",
+      "aprendé",
+      "aprende",
+      "descubrí",
+      "descubre",
+      "secreto",
+      "truco",
+      "la forma",
+      "el método",
+      "paso a paso"
+    ],
+    "conflict": [
+      "error",
+      "errores",
+      "nunca",
+      "deja de",
+      "dejá de",
+      "no hagas",
+      "problema",
+      "mentira",
+      "nadie",
+      "todos",
+      "peor",
+      "mejor",
+      "cambió",
+      "arruina"
+    ],
+    "curiosity": [
+      "por qué",
+      "qué pasa",
+      "lo que nadie",
+      "no vas a creer",
+      "así",
+      "resulta que",
+      "la verdad"
+    ],
+    "you": [
+      "vos",
+      "tú",
+      "te",
+      "tu",
+      "tus",
+      "ustedes",
+      "les"
+    ],
+    "continuation": [
+      "y",
+      "pero",
+      "entonces",
+      "que",
+      "porque",
+      "o",
+      "además",
+      "también",
+      "eso",
+      "esto"
+    ]
+  },
+  "en": {
+    "promise": [
+      "how to",
+      "i'll show you",
+      "let me show you",
+      "learn",
+      "secret",
+      "trick",
+      "the way",
+      "step by step"
+    ],
+    "conflict": [
+      "mistake",
+      "mistakes",
+      "never",
+      "stop",
+      "don't",
+      "problem",
+      "lie",
+      "nobody",
+      "everyone",
+      "worst",
+      "best",
+      "changed",
+      "ruins"
+    ],
+    "curiosity": [
+      "why",
+      "what happens",
+      "nobody tells you",
+      "you won't believe",
+      "turns out",
+      "the truth"
+    ],
+    "you": [
+      "you",
+      "your",
+      "you're"
+    ],
+    "continuation": [
+      "and",
+      "but",
+      "so",
+      "because",
+      "or",
+      "also",
+      "that",
+      "this",
+      "it"
+    ]
+  },
+  "pt": {
+    "promise": [
+      "como",
+      "vou te mostrar",
+      "vou mostrar",
+      "aprenda",
+      "descubra",
+      "segredo",
+      "truque",
+      "o jeito",
+      "passo a passo"
+    ],
+    "conflict": [
+      "erro",
+      "erros",
+      "nunca",
+      "pare de",
+      "não faça",
+      "problema",
+      "mentira",
+      "ninguém",
+      "todo mundo",
+      "pior",
+      "melhor",
+      "mudou",
+      "estraga"
+    ],
+    "curiosity": [
+      "por que",
+      "o que acontece",
+      "ninguém te conta",
+      "você não vai acreditar",
+      "acontece que",
+      "a verdade"
+    ],
+    "you": [
+      "você",
+      "vocês",
+      "te",
+      "seu",
+      "sua"
+    ],
+    "continuation": [
+      "e",
+      "mas",
+      "então",
+      "que",
+      "porque",
+      "ou",
+      "também",
+      "isso",
+      "isto"
+    ]
+  }
+}

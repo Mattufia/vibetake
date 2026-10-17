@@ -449,6 +449,8 @@ def write_report(out: Path, metas: list, externals: list, transcript_note: str |
                             f"{f['max_faces']} faces)" if f.get("median_face_height") else ""))
         if sh:
             parts.append(f"{sh['shot_changes_per_min']} shot changes/min")
+        if m.get("broll_candidate"):
+            parts.append("→ B-ROLL CANDIDATE")
         lines.append("- signals: " + " · ".join(parts))
         for a in m.get("audio", []):
             lines.append(f"- audio track {a['index'] + 1}: {a['integrated_lufs']} LUFS · peak "
@@ -620,6 +622,14 @@ def main() -> None:
         else:
             note = f"FAILED — see {out / 'transcribe.log'}"
             log(f"transcription failed, see {out / 'transcribe.log'}")
+
+    # B-roll candidates: little speech, and no face talking to camera.
+    for m in videos:
+        speech = m.get("speech", {}).get("speech_pct")
+        f = m.get("faces", {})
+        talking_face = f.get("pct_with_face", 0) > 50 and (f.get("median_face_height") or 0) > 0.12
+        if (speech is not None and speech < 25 and not talking_face) or (speech is None and not talking_face):
+            m["broll_candidate"] = True
 
     report = write_report(out, metas, ext_report, note)
     log(f"ingest finished → {report}")
