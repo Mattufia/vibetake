@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import Log, die, ffmpeg_progress, ffprobe, filter_path, run, tc, tool  # noqa: E402
 from _timeline import resolve_broll, total as timeline_total  # noqa: E402
 from audio import BUS, TARGETS, master, music_graph  # noqa: E402
+from sfx import resolve as resolve_sfx, sfx_graph  # noqa: E402
 
 FADE_S = 0.012
 CHUNK = 40
@@ -178,19 +179,34 @@ def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade
 
 
 def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: dict) -> tuple[list, list]:
-    """What goes over the whole edit: b-roll, then subtitles on top of everything; the
-    voice bus (gentle compression across cuts), then music ducked under it."""
+    """What goes over the whole edit: b-roll, the graphics layer, then subtitles on top of
+    everything; the voice bus (gentle compression across cuts), music ducked under it,
+    then the sound effects."""
     b_inputs, graphs, v_last = broll_graph(first_input, v, fin["overlays"], out, grade)
+    nxt_input = first_input + len(fin["overlays"])
+    g_inputs = []
+    if fin.get("graphics"):
+        gpath = Path(fin["graphics"])
+        # VP9 keeps its alpha only through the libvpx decoder; ProRes 4444 / PNG MOV need nothing.
+        g_inputs = (["-c:v", "libvpx-vp9"] if gpath.suffix.lower() == ".webm" else []) + ["-i", str(gpath)]
+        graphs.append(f"[{nxt_input}:v:0]format=yuva420p,scale={out['width']}:{out['height']},"
+                      f"fps={out['fps']},setpts=PTS-STARTPTS[gfx]")
+        graphs.append(f"[{v_last}][gfx]overlay=eof_action=pass:repeatlast=0:format=auto[vg]")
+        v_last, nxt_input = "vg", nxt_input + 1
     if fin.get("subs"):
         fonts = f":fontsdir='{filter_path(fin['fontsdir'])}'" if fin.get("fontsdir") else ""
         graphs.append(f"[{v_last}]subtitles=filename='{filter_path(fin['subs'])}'{fonts}[vs]")
         v_last = "vs"
     graphs.append(f"[{v_last}]null[v]")
     graphs.append(f"[{a}]{BUS}[voice]")
-    m_inputs, m_graphs, a_last = music_graph(first_input + len(fin["overlays"]), "voice", fin["music"],
-                                             fin["total"])
-    graphs += m_graphs + [f"[{a_last}]anull[a]"]
-    return b_inputs + m_inputs, graphs
+    m_inputs, m_graphs, a_last = music_graph(nxt_input, "voice", fin["music"], fin["total"])
+    graphs += m_graphs
+    s_inputs, s_graphs, bus = sfx_graph(nxt_input + len(fin["music"]), fin.get("sfx", []), fin["total"])
+    if bus:
+        graphs += s_graphs + [f"[{a_last}][{bus}]amix=inputs=2:normalize=0:duration=first[withsfx]"]
+        a_last = "withsfx"
+    graphs.append(f"[{a_last}]anull[a]")
+    return b_inputs + g_inputs + m_inputs + s_inputs, graphs
 
 
 def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
@@ -250,6 +266,10 @@ def main() -> None:
     ap.add_argument("--subs", default="02-work/subs.ass", help="burned-in subtitles (subtitles.py)")
     ap.add_argument("--no-subs", action="store_true")
     ap.add_argument("--fontsdir", help="folder with the subtitle font, if it isn't installed")
+    ap.add_argument("--graphics", help="graphics layer with alpha, as long as the edit "
+                                       "(default: 02-work/graphics.mov or .webm if present)")
+    ap.add_argument("--no-graphics", action="store_true")
+    ap.add_argument("--no-sfx", action="store_true")
     args = ap.parse_args()
 
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
@@ -295,9 +315,20 @@ def main() -> None:
     if not args.raw_audio and Path(args.clean).exists():
         clean = json.loads(Path(args.clean).read_text(encoding="utf-8"))
     subs = None if args.no_subs else Path(args.subs)
+    graphics = None
+    if not args.no_graphics:
+        graphics = Path(args.graphics) if args.graphics else next(
+            (p for p in (Path("02-work/graphics.mov"), Path("02-work/graphics.webm")) if p.exists()), None)
+        if graphics and not graphics.exists():
+            die(f"{graphics} doesn't exist")
+    sfx, sfx_warn = ([], []) if args.no_sfx else resolve_sfx(segs, out["fps"], edl.get("sfx", []))
+    for w in sfx_warn:
+        log(f"WARNING: {w}")
     fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
-           "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir}
-    log(f"audio: {'cleaned' if clean else 'original'} · music: {len(fin['music'])} · "
+           "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
+           "graphics": graphics, "sfx": sfx}
+    log(f"audio: {'cleaned' if clean else 'original'} · music: {len(fin['music'])} · sfx: {len(sfx)} · "
+        f"graphics: {graphics.name if graphics else 'none'} · "
         f"subtitles: {'burned-in' if fin['subs'] else 'none'} · loudness: {args.loudness}")
 
     pre = dst.with_name(dst.stem + ".premaster" + dst.suffix)

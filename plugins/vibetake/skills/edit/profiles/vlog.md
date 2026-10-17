@@ -10,7 +10,7 @@ Day in the life, travel, behind the scenes.
   personality.
 - **Music**: changes by scene or location; ambient sound kept under it.
 - **Subtitles**: depends on destination; ambient-heavy audio often needs them.
-- **Graphics**: location titles, light and in the creator's style.
+- **Graphics**: dynamic but light, in the creator's style: location titles, a few keywords, whooshes on location changes.
 - **Stabilize** handheld shots that need it.
 - **Traps**: sponsor segments get the `ad` treatment (see mixed material).
 - **Color**: Basic (matching across locations so it feels like one day); a look only if the creator has a style.

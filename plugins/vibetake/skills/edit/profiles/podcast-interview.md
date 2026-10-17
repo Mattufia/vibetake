@@ -11,7 +11,7 @@ Conversations with two or more voices: podcasts, interviews, panels.
   are allowed.
 - **Music**: intro/outro only; none under the conversation.
 - **Subtitles**: `.srt` for the full episode; burned-in for clips.
-- **Graphics**: lower thirds with name and role the first time each person speaks.
+- **Graphics**: measured level; lower thirds with name and role the first time each person speaks; clips cut for a feed go dynamic like `talking-head`.
 - **Traps**: crosstalk — don't cut one voice in the middle of another's sentence;
   levels per voice must match.
 - **Color**: Basic: matching the cameras is the priority (two angles that don't match are very visible); Full if skin is off.

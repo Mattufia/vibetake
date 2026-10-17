@@ -331,8 +331,10 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   | `social` (TikTok, Reels, Shorts, YouTube) | −14 LUFS | −1 dBTP |
   | `podcast` | −16 LUFS | −1 dBTP |
   | `broadcast-eu` / `broadcast-us` (TV ads: confirm with the station) | −23 / −24 | −2 dBTP |
-- **The voice rules.** Music never competes with it; SFX (when added) leveled by
-  loudness ~8–12 dB below it.
+- **The voice rules.** Music never competes with it (a gentle dip around 3 kHz
+  leaves room for speech); sound effects (`sfx.py`, section 7) sit ~10 dB below it.
+- **Start the music where it has energy** (`--start`), not on a slow intro, and
+  fade it out at the end.
 - **Music source**: for quick, informal videos, a bed synthesized to the exact
   length (`musicgen.py`, no licenses; it sounds synthetic up close, fine ducked
   under the voice). For scripted, brand or music-driven videos, a real track (the
@@ -372,10 +374,28 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 
 ## 7. Graphics over the video
 
-**Remotion renders only the graphics layer, with an alpha channel** (ProRes 4444
-or WebM VP9); ffmpeg overlays it on the edit. Cards, lower thirds, titles, logos,
-punchlines. It renders in minutes instead of an hour and remains a reusable
-template.
+**How much graphics and sound design is set by the video**: dynamic for feed
+videos (every idea gets its visual and its sound), measured for long or
+informative ones, minimal for testimonials, interviews and formal pieces. The
+profile names the level; the request overrides it.
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py cues        # words, cuts, face, safe zone → 02-work/cues.json
+uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word ventas
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --off hook  # the hook is already a graphic
+```
+
+- **Elements enter on the frame of the word that names them**, one at a time;
+  keywords, not sentences; a graphic per kind of idea (numbers → counter,
+  steps → flow, yes/no → ✓/✕, close → call to action).
+- **Face, graphics and captions each keep their own band**, inside the safe zone.
+- **Each visual event can have its sound** (whoosh on a scene change, pop on an
+  entry, hit on a punchline, riser into a reveal), anchored to the same word.
+- **Remotion renders only the graphics layer, with alpha**, from `cues.json`, to
+  `02-work/graphics.mov`; `render.py` lays it over b-roll and under subtitles. Never
+  the footage through Remotion.
+- The full method (levels, idea → graphic table, hook, animation, layout, render
+  command, sound levels): **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
 
 New Remotion project:
 `npx remotion add @remotion/transitions @remotion/google-fonts @remotion/lottie @remotion/three`
@@ -387,17 +407,9 @@ for approval.
 
 ## 8. Generating video from scratch (no filmed material)
 
-Pure motion graphics — an animated reel, a card, a visual explainer:
-
-- **Canvas + ffmpeg, not Remotion.** An HTML page with a deterministic `frame(t)`
-  function, a headless browser over CDP, and ffmpeg encoding according to the
-  master rule (section 9), with `-pix_fmt yuv420p -movflags +faststart`. Average
-  2–3 temporal subsamples per frame for real motion blur. It's faster to render
-  and simpler to reason about than the same thing in Remotion.
-- **Remotion from scratch only if** there's a series (the same mold with different
-  data) or the user will touch it in Studio.
-- Synthesized audio (hits, dings, backing music): float32 WAV at 48 kHz, mixed
-  separately.
+Pure motion graphics (an animated reel, a card, a visual explainer): canvas +
+ffmpeg rather than Remotion, unless it's a series or the user will edit it in
+Studio. **`${CLAUDE_SKILL_DIR}/references/from-scratch.md`**.
 
 ## 9. GPU
 

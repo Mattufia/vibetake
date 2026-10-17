@@ -152,6 +152,7 @@ def music_graph(first_input: int, voice: str, items: list[dict], total: float) -
         dur = max(total - mu["at"], 0.1)
         fo = min(mu["fade_out"], dur / 2)
         graphs.append(f"[{k}:a:0]aformat=sample_rates=48000:channel_layouts=stereo,volume={mu['gain_db']:.2f}dB,"
+                      "equalizer=f=3000:t=q:w=1:g=-3,"
                       f"atrim=duration={dur:.3f},asetpts=PTS-STARTPTS,afade=t=in:d={mu['fade_in']},"
                       f"afade=t=out:st={dur - fo:.3f}:d={fo:.3f},adelay=delays={int(mu['at'] * 1000)}:all=1[m{j}]")
         beds.append(f"[m{j}]")

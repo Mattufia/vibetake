@@ -8,7 +8,7 @@ Brand ads, UGC ads, product promos.
 - **Cleanup**: full — fillers, retakes, long breaths.
 - **Music**: energetic; cut on the hits.
 - **Subtitles**: burned-in by default (in a feed it starts muted) + `.srt`.
-- **Graphics**: price, offer and CTA as cards; brand logo.
+- **Graphics**: dynamic level (`references/graphics.md`): the hook as a headline graphic, price, offer and CTA as cards; brand logo. Sound effects on every visual event.
 - **Extra deliverables**: the main version **plus one alternative-hook version**
   (only the first 2–3 s change; the rest is reused). Offer the rest in one line
   of the delivery: 6/15/30 s cuts and 4:5, 1:1, 16:9. If the request says it's

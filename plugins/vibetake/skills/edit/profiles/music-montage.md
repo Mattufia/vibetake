@@ -8,7 +8,7 @@ Events, aftermovies, real estate, places and products with little or no speech.
 - **Cleanup**: shot selection instead — drop blown, shaky or repeated takes.
 - **Music**: it's the backbone; choose it first. Ambient sound only as accents.
 - **Subtitles**: usually none; text only as titles or info cards.
-- **Graphics**: event name/date, location, prices or features (real estate) as
+- **Graphics**: minimal level — the music is the sound design, no effects over it; event name/date, location, prices or features (real estate) as
   clean cards.
 - **Picture**: stabilize, match color between clips; this type is judged on looks.
 - **Traps**: a cut that misses the beat is very noticeable; check sync after any

@@ -166,6 +166,9 @@ def main() -> None:
     ap.add_argument("--srt", default="03-delivery/edit.srt")
     ap.add_argument("--ass", default="02-work/subs.ass")
     ap.add_argument("--no-burn", action="store_true", help="only the .srt (removes the burned-in file)")
+    ap.add_argument("--off", default="", help="no burned-in captions here: 'hook' and/or timeline ranges "
+                                              "'12.5-15' (where a graphic already shows the words); "
+                                              "the .srt keeps everything")
     args = ap.parse_args()
 
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
@@ -206,11 +209,22 @@ def main() -> None:
         blocks = groups(words, 3, 16 if vertical else 28)
     else:
         blocks = groups(words, 12, 42)
-    events, clashes = [], 0
+    off = []
+    for part in filter(None, (p.strip() for p in args.off.split(","))):
+        if part == "hook":
+            off += [(t0[k], t0[k] + s["out"] - s["in"]) for k, s in enumerate(edl["segments"])
+                    if s.get("role") == "hook"]
+        else:
+            a, _, b = part.partition("-")
+            off.append((float(a), float(b)))
+    events, clashes, skipped = [], 0, 0
     for gi, g in enumerate(blocks):
         start = g[0]["t"]
         nxt = blocks[gi + 1][0]["t"] if gi + 1 < len(blocks) else g[-1]["end"] + 0.5
         end = min(g[-1]["end"] + 0.3, nxt)                    # hold briefly, never overlap the next
+        if any(a - 1e-3 <= (start + g[-1]["end"]) / 2 <= b + 1e-3 for a, b in off):
+            skipped += 1
+            continue
         lines = 1 if args.style == "highlight" else len(wrap(" ".join(w["text"] for w in g), 42))
         half = fs * 1.25 * lines / 2 / H
         y, clash = place(face_band((start + end) / 2, edl, t0, faces, material, broll), default, half, safe)
@@ -243,7 +257,8 @@ def main() -> None:
     ass.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
     review = [c["text"] for c in cues if re.search(r"\d|(?<=\s)[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+", c["text"])]
-    print(f"{len(cues)} captions → {srt} · {len(blocks)} burned-in groups ({args.style}) → {ass}")
+    print(f"{len(cues)} captions → {srt} · {len(blocks) - skipped} burned-in groups ({args.style}) → {ass}"
+          + (f" · {skipped} left out (--off)" if skipped else ""))
     if clashes:
         print(f"WARNING: {clashes} group(s) couldn't avoid the face inside the safe zone (left low)")
     if review:
