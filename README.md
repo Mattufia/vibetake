@@ -34,6 +34,7 @@ uv run tests/test_ingest.py       # ingest traps, synthetic clips
 uv run tests/test_transcribe.py   # retakes, fillers, word timing (needs the Whisper model)
 uv run tests/test_grade.py        # color: cast correction, log path, looks, creative
 uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
+uv run tests/test_reframe.py      # camera operator: holds, eases, cuts; rendered crop follows; punch-ins
 ```
 
 Generates synthetic clips for each ingest trap (VFR, HDR, rotation, two audio

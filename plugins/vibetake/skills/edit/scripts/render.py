@@ -1,5 +1,6 @@
 # /// script
 # requires-python = ">=3.10,<3.14"
+# dependencies = ["numpy>=1.26"]
 # ///
 """Render an edit decision list from the original files.
 
@@ -19,10 +20,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import sys
 import tempfile
 from pathlib import Path
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import Log, die, ffmpeg_progress, ffprobe, filter_path, run, tc, tool  # noqa: E402
@@ -60,7 +62,39 @@ def frames(t: float, fps: float) -> int:
     return max(1, round(t * fps))
 
 
-def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, preview: bool) -> tuple[str, str]:
+def display_dims(probe: dict) -> tuple[int, int]:
+    v = next(s for s in probe["streams"] if s.get("codec_type") == "video")
+    rot = next((int(round(float(sd["rotation"]))) for sd in v.get("side_data_list", []) or [] if "rotation" in sd), 0)
+    return (v["height"], v["width"]) if abs(rot) % 180 == 90 else (v["width"], v["height"])
+
+
+def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path) -> str:
+    """Crop for the segment: the operator path from reframe.py, sent frame by frame to the
+    crop filter; or a plain center crop to the output aspect when there's no framing."""
+    fr = seg.get("frame")
+    if not fr:
+        return ""
+    sw, sh = display_dims(seg["_probe"])
+    cw, ch = round(fr["crop"][0] * sw / 2) * 2, round(fr["crop"][1] * sh / 2) * 2
+    keys = fr["keys"] or [[0, 0.5, 0.5]]
+    kt = [k_[0] for k_ in keys]
+    lines, x0, y0 = [], None, None
+    for i in range(frames(dur, fps) + 1):
+        t = i / fps
+        cx = float(np.interp(t, kt, [k_[1] for k_ in keys]))
+        cy = float(np.interp(t, kt, [k_[2] for k_ in keys]))
+        x = int(min(max(cx * sw - cw / 2, 0), sw - cw))
+        y = int(min(max(cy * sh - ch / 2, 0), sh - ch))
+        if x0 is None:
+            x0, y0 = x, y
+        lines.append(f"{t:.4f} crop@rf{k} x {x}, crop@rf{k} y {y};")
+    cmd = workdir / f"frame_{k:03d}.cmd"
+    cmd.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return f"sendcmd=f='{filter_path(cmd)}',crop@rf{k}=w={cw}:h={ch}:x={x0}:y={y0}"
+
+
+def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, preview: bool,
+                  workdir: Path) -> tuple[str, str]:
     W, H, fps = out["width"], out["height"], out["fps"]
     dur = frames(seg["out"] - seg["in"], fps) / fps
     g = grade.get(seg.get("name", Path(seg["source"]).name)) or {}
@@ -69,9 +103,9 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, pr
         chain.append(g["pre"])
     if g.get("lut"):
         chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
-    # Fill the output frame: center crop to its aspect (the reframing stage refines this).
-    chain += [f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'",
-              f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1",
+    # Framing from reframe.py, or a plain center crop to the output aspect.
+    chain.append(framing(k, seg, dur, fps, workdir) or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
+    chain += [f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1",
               f"fps={fps}", f"tpad=stop_mode=clone:stop_duration=0.2,trim=duration={dur:.6f}",
               "setpts=PTS-STARTPTS", "format=yuv420p"]
     v = f"[{k}:v:0]{','.join(chain)}[v{k}]"
@@ -87,28 +121,25 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, pr
 def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
                  preview: bool, label: str) -> float:
     inputs, graphs, total = [], [], 0.0
-    for k, s in enumerate(segs):
-        fps = out["fps"]
-        dur = frames(s["out"] - s["in"], fps) / fps
-        inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
-        has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
-        gph, d = segment_graph(k, s, out, grade, has_audio, preview)
-        graphs.append(gph)
-        total += d
-    joined = "".join(f"[v{k}][a{k}]" for k in range(len(segs)))
-    fc = ";".join(graphs) + f";{joined}concat=n={len(segs)}:v=1:a=1[v][a]"
-    fd, name = tempfile.mkstemp(suffix=".txt")
-    os.close(fd)
-    script = Path(name)
-    script.write_text(fc, encoding="utf-8")          # long graphs overflow the command line otherwise
-    audio = ["-c:a", "pcm_s16le"] if dst.suffix == ".mkv" else ["-c:a", "aac", "-b:a", "320k"]
-    try:
+    with tempfile.TemporaryDirectory(prefix="vibetake-render-") as tmp:
+        workdir = Path(tmp)
+        for k, s in enumerate(segs):
+            fps = out["fps"]
+            dur = frames(s["out"] - s["in"], fps) / fps
+            inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
+            has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
+            gph, d = segment_graph(k, s, out, grade, has_audio, preview, workdir)
+            graphs.append(gph)
+            total += d
+        joined = "".join(f"[v{k}][a{k}]" for k in range(len(segs)))
+        script = workdir / "graph.txt"
+        # Long graphs overflow the command line, so the graph goes in a file.
+        script.write_text(";".join(graphs) + f";{joined}concat=n={len(segs)}:v=1:a=1[v][a]", encoding="utf-8")
+        audio = ["-c:a", "pcm_s16le"] if dst.suffix == ".mkv" else ["-c:a", "aac", "-b:a", "320k"]
         ffmpeg_progress([*inputs, "-/filter_complex", str(script), "-map", "[v]", "-map", "[a]",
                          *enc, "-pix_fmt", "yuv420p", *TAGS, *audio, "-ar", "48000",
                          *(["-movflags", "+faststart"] if dst.suffix == ".mp4" else []), str(dst)],
                         total, label, log)
-    finally:
-        script.unlink(missing_ok=True)
     return total
 
 

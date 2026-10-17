@@ -13,3 +13,4 @@ A customer or real person talking about their experience.
 - **Traps**: never change the meaning of what the person said by cutting;
   claims and numbers they mention are checked against the request.
 - **Color**: Full (skin first), natural and slightly warm; never a stylized look.
+- **Framing**: `reframe.py --punch off`; hide cuts with b-roll or keep them, never a visible zoom on someone telling their story.

@@ -99,23 +99,10 @@ progress, and skips what's already done if run again (`--force` redoes it). Then
    To recompute only the marks: `transcribe.py --rebuild-md --lang <code>`.
    Filler words per language live in `${CLAUDE_SKILL_DIR}/references/fillers.json`.
 
-What the script already handles, so it isn't redone by hand:
-
-- **VFR** → CFR copy in `01-ingest/normalized/` (otherwise the cuts drift).
-- **HDR** (HLG/PQ, typical of phones) → SDR Rec.709 copy, tone-mapped with
-  reference white mapped to SDR white and gamut mapping. Edit decisions use the
-  copy; **any color grade renders from the original**.
-- **Rotation** metadata → real orientation reported.
-- **Several audio tracks** → level and noise per track, suggested best track. If
-  it isn't track 1, redo the transcript:
-  `uv run ${CLAUDE_SKILL_DIR}/scripts/transcribe.py <file> --lang <code> --track <n>`.
-- **Audio recorded separately** (audio-only files in the folder) → offset to
-  place it on the video timeline.
-- **Possible log footage** → flagged from metadata or from a flat image. Confirm
-  it on the contact sheets, then read
-  `${CLAUDE_SKILL_DIR}/references/log-formats.md` for the conversion.
-- Faces every 0.5 s in `01-ingest/faces.json` (boxes 0–1): use them to place
-  subtitles and overlays and to reframe.
+The script already handles VFR, HDR, rotation, several audio tracks, audio
+recorded separately and possible log footage, and records faces every 0.5 s.
+**When `material.md` shows a warning, read `${CLAUDE_SKILL_DIR}/references/ingest.md`**
+for what each one means and what to do.
 
 **If the scripts can't run** (no uv, no Python), do the same by hand with
 ffprobe/ffmpeg and say so: probe, VFR/HDR checks, scene-change stills plus a
@@ -222,6 +209,7 @@ X") is an edit to that list and a new render, never a redo.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/cutlist.py --keep auto --format vertical   # or --keep "L9,L2-L7"
+uv run ${CLAUDE_SKILL_DIR}/scripts/reframe.py                                # framing + punch-ins
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --preview                       # 540p, seconds
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # master → 03-delivery/
 ```
@@ -233,7 +221,19 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   pauses longer than `--max-pause` shortened (tight 0.3 · default 0.45 ·
   breathing 0.8), a margin around each phrase, and every cut moved to the
   quietest moment within ±80 ms, never into a dropped word.
-- Edit `edl.json` by hand for anything finer (trim a segment, move one).
+- **Framing (`reframe.py`), like a camera operator, not a tracker**: the crop
+  holds still while the face stays in a dead zone, pans with eased acceleration
+  and a speed limit when it leaves it, and cuts straight to the new framing if
+  the face would leave the crop. When there's room, the face sits at ~40% from
+  the top; the top of the head is never cut (headroom from the face size). It
+  warns when a crop is smaller than the output (a 1080p horizontal source cut to
+  vertical is upscaled ~1.8×: softer image — say so).
+- **Punch-ins**: at every jump cut within the same take the zoom alternates
+  between 1.0 and `--zoom` (1.12 by default), so the jump reads as a cut to a
+  closer shot. A face that already fills the frame gets half the punch-in.
+  `--punch off` when the type doesn't want them (testimonial, corporate).
+- Edit `edl.json` by hand for anything finer (trim a segment, move one, change a
+  segment's `frame.zoom`) and re-render.
 - `render.py` works from the **original files**: color from
   `02-work/color/grade.json`, framing to the output size, constant frame rate,
   12 ms audio fades so cuts never click, cuts on the source's frame grid so sync
@@ -249,8 +249,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   testimonial, where hesitation carries emotion. Retakes: keep the last good take.
 - **J/L cuts**: the audio comes in before or carries on after the picture. It's
   what makes the cut go unnoticed.
-- Talking-head jump cut: cover it with a punch-in (10–15% reframe) or b-roll.
-  Never leave it raw.
+- Talking-head jump cut: cover it with a punch-in (automatic, see above) or
+  b-roll. Never leave it raw.
 - ffmpeg does the cutting. **Don't send the footage through Remotion**:
   re-encoding hours of camera footage through a browser is a waste of time.
 
@@ -275,29 +275,19 @@ previews so the user can compare, and give the folders in the question's context
 line (the options themselves can only show text). "Your call" → the recommended.
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py propose            # before the question
-uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none
-       [--look cinematic --intensity 60] [--input-lut <format>.cube]
-       [--creative-lut <user>.cube] [--reference <image>]       # after the answer
-uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py preview
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py propose                      # before the question
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # after the answer
 ```
 
-- `analyze` (also run by `propose` and `build`) → `02-work/color/color.md`:
-  exposure, the cast of what should be neutral, skin hue against the skin line,
-  verdict.
-- `build` bakes everything into **one .cube per file** and writes `grade.json`
-  (which pre-filter and LUT each file gets at render). It re-measures through the
-  grade and prints the cast and exposure before → after.
-- `preview` → before/after sheets with waveform and vectorscope. **Look at them
-  before rendering**: natural skin, no crushed blacks or burnt whites the
-  original didn't have, the look at a sensible strength.
-- **Order: input transform → correction → look → Rec.709.** Log: correction in
-  log, before the format's official LUT (`references/log-formats.md`). HDR: tone
-  mapping as a pre-filter, then the LUT. **Render from the original file**, never
-  from the normalized copy.
+- **Order: input transform → correction → look → Rec.709**, all baked into one
+  .cube per file that `render.py` applies to the **original** file.
+- **Look at the before/after previews before rendering**: natural skin, no
+  crushed blacks or burnt whites the original didn't have, a look at a sensible
+  strength.
 - **Graphics and subtitles go on top after the grade**, or brand colors shift.
-- A look the user liked can also be delivered as a .cube for their editor:
-  `grade.py look --look cinematic --intensity 60 --file 03-delivery/<name>.cube`.
+- Commands, options (looks, log LUTs, the user's LUT, reference image, look-only
+  .cube export) and what each measurement means:
+  **`${CLAUDE_SKILL_DIR}/references/color.md`**.
 
 ## 5. Voice, music and SFX
 

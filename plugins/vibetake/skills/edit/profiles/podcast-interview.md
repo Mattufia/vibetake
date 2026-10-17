@@ -15,3 +15,4 @@ Conversations with two or more voices: podcasts, interviews, panels.
 - **Traps**: crosstalk — don't cut one voice in the middle of another's sentence;
   levels per voice must match.
 - **Color**: Basic: matching the cameras is the priority (two angles that don't match are very visible); Full if skin is off.
+- **Framing**: the operator follows the main face; with two people in one shot, keep both in frame rather than following one (multicam angle choice comes later).

@@ -13,3 +13,4 @@ Company presentations, institutional videos, internal communication.
 - **Traps**: names, roles and figures are checked letter by letter; nothing
   off-brand on screen.
 - **Color**: Basic or Full, natural; brand colors in frame (logos, uniforms, products) must stay accurate; no stylized looks unless the brand asks.
+- **Framing**: `reframe.py --punch off` for executives and formal speakers; cover cuts with b-roll.
