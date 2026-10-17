@@ -1,0 +1,184 @@
+# /// script
+# requires-python = ">=3.10,<3.14"
+# ///
+"""Render an edit decision list from the original files.
+
+    uv run render.py [02-work/edl.json] [--out 03-delivery/edit.mp4] [--preview] [--no-grade]
+
+Per segment: seek into the original, color (HDR pre-filter + the file's LUT from
+02-work/color/grade.json), frame to the output size, constant frame rate, and a
+12 ms audio fade at each edge so cuts never click. Segments are joined in one pass
+(in chunks for long edits). Every segment is cut to a whole number of frames for
+both picture and sound, so sync never drifts.
+
+Master: hardware encoder at constant quality with its best preset when it works,
+x264 slow/CRF 17 otherwise. --preview: small and fast, for checking the edit.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import Log, die, ffmpeg_progress, ffprobe, filter_path, run, tc, tool  # noqa: E402
+
+FADE_S = 0.012
+CHUNK = 40
+MASTER = [
+    ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "18", "-b:v", "0",
+                    "-profile:v", "high"]),
+    ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-q:v", "70", "-profile:v", "high"]),
+    ("h264_qsv", ["-c:v", "h264_qsv", "-global_quality", "18", "-profile:v", "high"]),
+    ("h264_amf", ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "18", "-qp_p", "18"]),
+    ("libx264", ["-c:v", "libx264", "-preset", "slow", "-crf", "17", "-profile:v", "high"]),
+]
+PREVIEW = [
+    ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p1", "-cq", "28"]),
+    ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-q:v", "45"]),
+    ("libx264", ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]),
+]
+INTERMEDIATE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "8", "-pix_fmt", "yuv420p"]
+TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
+
+
+def pick(candidates: list) -> tuple[str, list[str]]:
+    """First encoder that really works on this machine (a GPU doesn't guarantee its encoder does)."""
+    for name, a in candidates:
+        p = run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:d=0.5",
+                 *a, "-pix_fmt", "yuv420p", "-f", "null", "-"], check=False)
+        if p.returncode == 0:
+            return name, a
+    return candidates[-1]
+
+
+def frames(t: float, fps: float) -> int:
+    return max(1, round(t * fps))
+
+
+def segment_graph(k: int, seg: dict, out: dict, grade: dict, has_audio: bool, preview: bool) -> tuple[str, str]:
+    W, H, fps = out["width"], out["height"], out["fps"]
+    dur = frames(seg["out"] - seg["in"], fps) / fps
+    g = grade.get(seg.get("name", Path(seg["source"]).name)) or {}
+    chain = []
+    if g.get("pre"):
+        chain.append(g["pre"])
+    if g.get("lut"):
+        chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
+    # Fill the output frame: center crop to its aspect (the reframing stage refines this).
+    chain += [f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'",
+              f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1",
+              f"fps={fps}", f"tpad=stop_mode=clone:stop_duration=0.2,trim=duration={dur:.6f}",
+              "setpts=PTS-STARTPTS", "format=yuv420p"]
+    v = f"[{k}:v:0]{','.join(chain)}[v{k}]"
+    if has_audio:
+        a = (f"[{k}:a:{seg.get('track', 0)}]aformat=sample_rates=48000:channel_layouts=stereo,"
+             f"apad,atrim=duration={dur:.6f},asetpts=PTS-STARTPTS,"
+             f"afade=t=in:d={FADE_S},afade=t=out:st={max(dur - FADE_S, 0):.6f}:d={FADE_S}[a{k}]")
+    else:
+        a = f"anullsrc=r=48000:cl=stereo,atrim=duration={dur:.6f}[a{k}]"
+    return v + ";" + a, dur
+
+
+def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
+                 preview: bool, label: str) -> float:
+    inputs, graphs, total = [], [], 0.0
+    for k, s in enumerate(segs):
+        fps = out["fps"]
+        dur = frames(s["out"] - s["in"], fps) / fps
+        inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
+        has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
+        gph, d = segment_graph(k, s, out, grade, has_audio, preview)
+        graphs.append(gph)
+        total += d
+    joined = "".join(f"[v{k}][a{k}]" for k in range(len(segs)))
+    fc = ";".join(graphs) + f";{joined}concat=n={len(segs)}:v=1:a=1[v][a]"
+    fd, name = tempfile.mkstemp(suffix=".txt")
+    os.close(fd)
+    script = Path(name)
+    script.write_text(fc, encoding="utf-8")          # long graphs overflow the command line otherwise
+    audio = ["-c:a", "pcm_s16le"] if dst.suffix == ".mkv" else ["-c:a", "aac", "-b:a", "320k"]
+    try:
+        ffmpeg_progress([*inputs, "-/filter_complex", str(script), "-map", "[v]", "-map", "[a]",
+                         *enc, "-pix_fmt", "yuv420p", *TAGS, *audio, "-ar", "48000",
+                         *(["-movflags", "+faststart"] if dst.suffix == ".mp4" else []), str(dst)],
+                        total, label, log)
+    finally:
+        script.unlink(missing_ok=True)
+    return total
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("edl", nargs="?", default="02-work/edl.json")
+    ap.add_argument("--out")
+    ap.add_argument("--grade", default="02-work/color/grade.json")
+    ap.add_argument("--no-grade", action="store_true")
+    ap.add_argument("--preview", action="store_true", help="small, fast render to check the edit")
+    args = ap.parse_args()
+
+    edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
+    segs = edl["segments"]
+    if not segs:
+        die("the edit has no segments")
+    out = dict(edl["output"])
+    if args.preview:
+        scale = min(1.0, 540 / min(out["width"], out["height"]))
+        out["width"], out["height"] = (int(out["width"] * scale) // 2 * 2, int(out["height"] * scale) // 2 * 2)
+    grade = {}
+    if not args.no_grade and Path(args.grade).exists():
+        grade = json.loads(Path(args.grade).read_text(encoding="utf-8"))
+    probes = {}
+    for s in segs:
+        s["_probe"] = probes.setdefault(s["source"], ffprobe(Path(s["source"])))
+        # Cut on the source's frame grid, for picture and sound alike: a cut between two
+        # frames would start the picture on the next frame but the sound right away.
+        v = next((st for st in s["_probe"]["streams"] if st.get("codec_type") == "video"), {})
+        n, d = (v.get("avg_frame_rate") or "0/0").split("/")
+        src_fps = float(n) / float(d) if float(d) else 0
+        if src_fps:
+            s["in"] = round(s["in"] * src_fps) / src_fps
+            s["out"] = round(s["out"] * src_fps) / src_fps
+    dst = Path(args.out or ("02-work/preview.mp4" if args.preview else "03-delivery/edit.mp4"))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    log = Log(Path("02-work") / "render.log")
+    enc_name, enc = pick(PREVIEW if args.preview else MASTER)
+    graded = sum(1 for s in segs if grade.get(s.get("name", Path(s["source"]).name), {}).get("lut"))
+    log(f"rendering {len(segs)} segments → {dst} ({out['width']}×{out['height']} @ {out['fps']} fps, "
+        f"{enc_name}, color on {graded}/{len(segs)} segments)")
+
+    if len(segs) <= CHUNK:
+        total = render_chunk(segs, out, grade, enc, dst, log, args.preview, "render")
+    else:
+        work = Path("02-work") / "render"
+        work.mkdir(parents=True, exist_ok=True)
+        parts, total = [], 0.0
+        n = math.ceil(len(segs) / CHUNK)
+        for i in range(n):
+            part = work / f"part_{i:03d}.mkv"
+            total += render_chunk(segs[i * CHUNK:(i + 1) * CHUNK], out, grade, INTERMEDIATE, part, log,
+                                  args.preview, f"chunk {i + 1}/{n}")
+            parts.append(part)
+        lst = work / "parts.txt"
+        lst.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
+        ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *enc, "-pix_fmt", "yuv420p", *TAGS,
+                         "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart", str(dst)], total, "final encode",
+                        log)
+        for p in parts:
+            p.unlink(missing_ok=True)
+
+    got = ffprobe(dst)
+    vd = float(next(s for s in got["streams"] if s["codec_type"] == "video").get("duration") or 0)
+    ad = float(next((s for s in got["streams"] if s["codec_type"] == "audio"), {}).get("duration") or 0)
+    log(f"done: {tc(total)} expected · video {tc(vd)} · audio {tc(ad)} · "
+        f"{dst.stat().st_size / 1e6:.1f} MB · encoded with {enc_name}")
+    if abs(vd - ad) > 1.5 / out["fps"]:
+        log(f"WARNING: picture and sound differ by {abs(vd - ad) * 1000:.0f} ms")
+
+
+if __name__ == "__main__":
+    main()

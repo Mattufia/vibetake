@@ -216,8 +216,33 @@ within that frame.
 
 ## 3. Editing
 
-- **Cut on the transcript, not on the waveform.** auto-editor as a first pass for
-  silences; then refine with the word timestamps.
+**The edit lives in `02-work/edl.json`**: which piece of which file, in what
+order, and why. Everything renders from it, so a change ("drop the part about
+X") is an edit to that list and a new render, never a redo.
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/cutlist.py --keep auto --format vertical   # or --keep "L9,L2-L7"
+uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --preview                       # 540p, seconds
+uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # master → 03-delivery/
+```
+
+- **Choose lines, not timestamps.** Decide on `transcript.md` which lines stay
+  and in what order (`--keep auto` = everything except marked retakes; an
+  explicit list can reorder, e.g. a cold open first). `cutlist.py` turns that into
+  word-accurate cuts: dropped fillers (`--fillers drop|keep`, per the profile),
+  pauses longer than `--max-pause` shortened (tight 0.3 · default 0.45 ·
+  breathing 0.8), a margin around each phrase, and every cut moved to the
+  quietest moment within ±80 ms, never into a dropped word.
+- Edit `edl.json` by hand for anything finer (trim a segment, move one).
+- `render.py` works from the **original files**: color from
+  `02-work/color/grade.json`, framing to the output size, constant frame rate,
+  12 ms audio fades so cuts never click, cuts on the source's frame grid so sync
+  never drifts. It reports expected vs actual picture and sound durations.
+- **Check the preview** (stills of it, and the cuts around retakes) before the
+  master.
+
+- **Cut on the transcript, not on the waveform.** The word timestamps are the
+  cut points; auto-editor isn't needed when there's a transcript.
 - Cut on the breath, never mid-word.
 - **Cleanup follows the type profile**: fillers and retakes come out fully in a
   talking head or an ad, lightly in a vlog, and almost not at all in a

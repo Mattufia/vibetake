@@ -1,0 +1,548 @@
+{
+ "files": {
+  "retakes_es.wav": {
+   "language": "es",
+   "model": "large-v3",
+   "track": 0,
+   "duration": 31.34,
+   "glossary": [],
+   "segments": [
+    {
+     "start": 0.11,
+     "end": 30.55,
+     "text": "Hoy les voy a mos... Hoy les voy a mostrar el error que todos cometen al editar. El primer paso es mirar el material antes de cortar. Después hay que cortar sobre la forma de, no, perdón. Después hay que cortar sobre la transcripción, no sobre la forma de onda. Bueno, eh. El último paso es revisar el audio. El último paso es revisar el audio antes de exportar.",
+     "avg_logprob": -0.046,
+     "no_speech_prob": 0.02,
+     "compression_ratio": 1.94,
+     "words": [
+      {
+       "start": 0.11,
+       "end": 0.16,
+       "word": " Hoy",
+       "probability": 0.952
+      },
+      {
+       "start": 0.16,
+       "end": 0.32,
+       "word": " les",
+       "probability": 0.999
+      },
+      {
+       "start": 0.32,
+       "end": 0.52,
+       "word": " voy",
+       "probability": 0.998
+      },
+      {
+       "start": 0.52,
+       "end": 0.64,
+       "word": " a",
+       "probability": 0.995
+      },
+      {
+       "start": 0.64,
+       "end": 0.94,
+       "word": " mos...",
+       "probability": 0.492
+      },
+      {
+       "start": 2.18,
+       "end": 2.21,
+       "word": " Hoy",
+       "probability": 0.966
+      },
+      {
+       "start": 2.21,
+       "end": 2.37,
+       "word": " les",
+       "probability": 1.0
+      },
+      {
+       "start": 2.37,
+       "end": 2.57,
+       "word": " voy",
+       "probability": 1.0
+      },
+      {
+       "start": 2.57,
+       "end": 2.69,
+       "word": " a",
+       "probability": 1.0
+      },
+      {
+       "start": 2.69,
+       "end": 2.97,
+       "word": " mostrar",
+       "probability": 1.0
+      },
+      {
+       "start": 2.97,
+       "end": 3.21,
+       "word": " el",
+       "probability": 1.0
+      },
+      {
+       "start": 3.21,
+       "end": 3.41,
+       "word": " error",
+       "probability": 1.0
+      },
+      {
+       "start": 3.41,
+       "end": 3.59,
+       "word": " que",
+       "probability": 1.0
+      },
+      {
+       "start": 3.59,
+       "end": 3.79,
+       "word": " todos",
+       "probability": 1.0
+      },
+      {
+       "start": 3.79,
+       "end": 4.29,
+       "word": " cometen",
+       "probability": 1.0
+      },
+      {
+       "start": 4.29,
+       "end": 4.45,
+       "word": " al",
+       "probability": 1.0
+      },
+      {
+       "start": 4.45,
+       "end": 4.77,
+       "word": " editar.",
+       "probability": 1.0
+      },
+      {
+       "start": 6.67,
+       "end": 6.71,
+       "word": " El",
+       "probability": 1.0
+      },
+      {
+       "start": 6.71,
+       "end": 6.95,
+       "word": " primer",
+       "probability": 1.0
+      },
+      {
+       "start": 6.95,
+       "end": 7.23,
+       "word": " paso",
+       "probability": 1.0
+      },
+      {
+       "start": 7.23,
+       "end": 7.43,
+       "word": " es",
+       "probability": 1.0
+      },
+      {
+       "start": 7.43,
+       "end": 7.75,
+       "word": " mirar",
+       "probability": 1.0
+      },
+      {
+       "start": 7.75,
+       "end": 7.83,
+       "word": " el",
+       "probability": 1.0
+      },
+      {
+       "start": 7.83,
+       "end": 8.09,
+       "word": " material",
+       "probability": 1.0
+      },
+      {
+       "start": 8.09,
+       "end": 8.45,
+       "word": " antes",
+       "probability": 1.0
+      },
+      {
+       "start": 8.45,
+       "end": 8.67,
+       "word": " de",
+       "probability": 1.0
+      },
+      {
+       "start": 8.67,
+       "end": 8.87,
+       "word": " cortar.",
+       "probability": 1.0
+      },
+      {
+       "start": 10.92,
+       "end": 11.09,
+       "word": " Después",
+       "probability": 1.0
+      },
+      {
+       "start": 11.09,
+       "end": 11.37,
+       "word": " hay",
+       "probability": 1.0
+      },
+      {
+       "start": 11.37,
+       "end": 11.53,
+       "word": " que",
+       "probability": 1.0
+      },
+      {
+       "start": 11.53,
+       "end": 11.77,
+       "word": " cortar",
+       "probability": 1.0
+      },
+      {
+       "start": 11.77,
+       "end": 12.09,
+       "word": " sobre",
+       "probability": 1.0
+      },
+      {
+       "start": 12.09,
+       "end": 12.27,
+       "word": " la",
+       "probability": 1.0
+      },
+      {
+       "start": 12.27,
+       "end": 12.53,
+       "word": " forma",
+       "probability": 1.0
+      },
+      {
+       "start": 12.53,
+       "end": 12.73,
+       "word": " de,",
+       "probability": 1.0
+      },
+      {
+       "start": 12.81,
+       "end": 13.31,
+       "word": " no,",
+       "probability": 0.999
+      },
+      {
+       "start": 13.43,
+       "end": 14.19,
+       "word": " perdón.",
+       "probability": 1.0
+      },
+      {
+       "start": 16.71,
+       "end": 16.89,
+       "word": " Después",
+       "probability": 1.0
+      },
+      {
+       "start": 16.89,
+       "end": 17.17,
+       "word": " hay",
+       "probability": 1.0
+      },
+      {
+       "start": 17.17,
+       "end": 17.33,
+       "word": " que",
+       "probability": 1.0
+      },
+      {
+       "start": 17.33,
+       "end": 17.57,
+       "word": " cortar",
+       "probability": 1.0
+      },
+      {
+       "start": 17.57,
+       "end": 17.89,
+       "word": " sobre",
+       "probability": 1.0
+      },
+      {
+       "start": 17.89,
+       "end": 18.07,
+       "word": " la",
+       "probability": 1.0
+      },
+      {
+       "start": 18.07,
+       "end": 18.79,
+       "word": " transcripción,",
+       "probability": 0.999
+      },
+      {
+       "start": 18.91,
+       "end": 19.41,
+       "word": " no",
+       "probability": 1.0
+      },
+      {
+       "start": 19.41,
+       "end": 19.65,
+       "word": " sobre",
+       "probability": 1.0
+      },
+      {
+       "start": 19.65,
+       "end": 19.81,
+       "word": " la",
+       "probability": 1.0
+      },
+      {
+       "start": 19.81,
+       "end": 20.13,
+       "word": " forma",
+       "probability": 1.0
+      },
+      {
+       "start": 20.13,
+       "end": 20.27,
+       "word": " de",
+       "probability": 1.0
+      },
+      {
+       "start": 20.27,
+       "end": 20.45,
+       "word": " onda.",
+       "probability": 0.995
+      },
+      {
+       "start": 22.42,
+       "end": 22.63,
+       "word": " Bueno,",
+       "probability": 0.999
+      },
+      {
+       "start": 23.21,
+       "end": 23.37,
+       "word": " eh.",
+       "probability": 0.727
+      },
+      {
+       "start": 24.18,
+       "end": 24.23,
+       "word": " El",
+       "probability": 1.0
+      },
+      {
+       "start": 24.23,
+       "end": 24.47,
+       "word": " último",
+       "probability": 1.0
+      },
+      {
+       "start": 24.47,
+       "end": 24.77,
+       "word": " paso",
+       "probability": 1.0
+      },
+      {
+       "start": 24.77,
+       "end": 24.95,
+       "word": " es",
+       "probability": 1.0
+      },
+      {
+       "start": 24.95,
+       "end": 25.35,
+       "word": " revisar",
+       "probability": 1.0
+      },
+      {
+       "start": 25.35,
+       "end": 25.47,
+       "word": " el",
+       "probability": 1.0
+      },
+      {
+       "start": 25.47,
+       "end": 25.67,
+       "word": " audio.",
+       "probability": 1.0
+      },
+      {
+       "start": 28.07,
+       "end": 28.11,
+       "word": " El",
+       "probability": 1.0
+      },
+      {
+       "start": 28.11,
+       "end": 28.37,
+       "word": " último",
+       "probability": 1.0
+      },
+      {
+       "start": 28.37,
+       "end": 28.65,
+       "word": " paso",
+       "probability": 1.0
+      },
+      {
+       "start": 28.65,
+       "end": 28.85,
+       "word": " es",
+       "probability": 1.0
+      },
+      {
+       "start": 28.85,
+       "end": 29.23,
+       "word": " revisar",
+       "probability": 1.0
+      },
+      {
+       "start": 29.23,
+       "end": 29.35,
+       "word": " el",
+       "probability": 1.0
+      },
+      {
+       "start": 29.35,
+       "end": 29.53,
+       "word": " audio",
+       "probability": 1.0
+      },
+      {
+       "start": 29.53,
+       "end": 29.81,
+       "word": " antes",
+       "probability": 1.0
+      },
+      {
+       "start": 29.81,
+       "end": 30.05,
+       "word": " de",
+       "probability": 1.0
+      },
+      {
+       "start": 30.05,
+       "end": 30.55,
+       "word": " exportar.",
+       "probability": 1.0
+      }
+     ]
+    }
+   ],
+   "device": "cuda float16"
+  }
+ },
+ "order": [
+  "retakes_es.wav"
+ ],
+ "sentences": [
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 0.11,
+   "end": 0.94,
+   "fillers": [],
+   "restart": false,
+   "low_confidence": false,
+   "line": 1,
+   "retake_of": 2
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 2.18,
+   "end": 4.77,
+   "fillers": [],
+   "restart": false,
+   "low_confidence": false,
+   "line": 2
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 6.67,
+   "end": 8.87,
+   "fillers": [],
+   "restart": false,
+   "low_confidence": false,
+   "line": 3
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 10.92,
+   "end": 14.19,
+   "fillers": [],
+   "restart": true,
+   "low_confidence": false,
+   "line": 4,
+   "retake_of": 5
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 16.71,
+   "end": 20.45,
+   "fillers": [],
+   "restart": false,
+   "low_confidence": false,
+   "line": 5
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 22.42,
+   "end": 22.63,
+   "fillers": [
+    [
+     22.42,
+     22.63,
+     "Bueno,"
+    ]
+   ],
+   "restart": false,
+   "low_confidence": false,
+   "line": 6
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 23.21,
+   "end": 23.37,
+   "fillers": [
+    [
+     23.21,
+     23.37,
+     "eh."
+    ]
+   ],
+   "restart": false,
+   "low_confidence": false,
+   "line": 7
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 24.18,
+   "end": 25.67,
+   "fillers": [],
+   "restart": false,
+   "low_confidence": false,
+   "line": 8,
+   "retake_of": 9
+  },
+  {
+   "file": "retakes_es.wav",
+   "file_index": 0,
+   "start": 28.07,
+   "end": 30.55,
+   "fillers": [],
+   "restart": false,
+   "low_confidence": false,
+   "line": 9
+  }
+ ]
+}
