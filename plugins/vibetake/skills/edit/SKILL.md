@@ -57,10 +57,11 @@ ingest.
 
 ## 1. Ingest: never edit blind
 
-Before touching filmed material, however trivial the request seems. Run, from the
-project folder:
+Before touching filmed material, however trivial the request seems. The user opens
+Claude Code in the folder where their files are: first tidy it, then ingest.
 
 ```
+uv run ${CLAUDE_SKILL_DIR}/scripts/organize.py      # loose footage → 00-raw/, logos/fonts/LUTs → brand/
 uv run ${CLAUDE_SKILL_DIR}/scripts/ingest.py 00-raw --lang <code> --glossary "<names, brands, terms>" --out 01-ingest
 ```
 
@@ -414,24 +415,22 @@ language explicitly.** Heavy GPU jobs one at a time. Details:
 
 ```
 project/
-  00-raw/          original material. Never touched, renamed or overwritten.
+  00-raw/          original material (organize.py moves it here). Never edited, renamed or overwritten.
+  brand/           logo, fonts, colors, LUTs, if the user has them.
   01-ingest/       transcript, stills, material data. Regenerable.
   02-work/         cuts, intermediates, graphics layer. Disposable.
   03-delivery/     video versions, .srt, covers, copy.
   project.md       what was decided and why.
 ```
 
-`00-raw` is untouchable: if something has to be normalized or converted, the
-result goes to `01-ingest`. `01` and `02` can be deleted entirely to recover
-disk without losing anything. `project.md` holds orientation, destination,
-subtitle decision, the transcription glossary, what was cut and why, the color
-correction and LUT used, where every piece of music, sound effect, stock clip and
-font comes from and under which license (the proof if a copyright claim comes),
-what was installed and what's pending, so work can resume without asking
-everything again.
+Conversions go to `01-ingest`; `01` and `02` can be deleted to recover disk.
+`project.md` holds destination, subtitle decision, glossary, what was cut and why,
+the color and LUT used, the source and license of every piece of music, effect,
+stock clip and font (the proof if a copyright claim comes), what was installed and
+what's pending — so work resumes without asking everything again.
 
-**If the project is already organized differently, adapt and don't reorganize
-it.** This structure is only created when starting from scratch.
+Say in one line what `organize.py` moved (it never overwrites; `--undo` puts it
+back). Footage given by path somewhere else is read where it is, not moved.
 
 ## 11. Delivery
 

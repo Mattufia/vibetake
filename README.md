@@ -32,20 +32,26 @@ up front, with a real transcription test on the GPU. The machine profile goes to
 
 ## Use: editing a video, step by step
 
-### 1. Make a project folder
+### 1. Put your files in a folder — as they are
 
-One folder per video, with the footage inside `00-raw/`:
+One folder per video, with everything loose inside: the clips, separate audio (a
+lavalier, a recorder), photos, and if you have them, the logo, fonts or a LUT. No
+need to sort anything: the first thing Vibetake does is tidy the folder itself.
 
 ```text
-my-video/
-  00-raw/        ← your clips, external audio, photos (never modified)
-  brand/         ← optional: logo (PNG with transparency), fonts, colors, a LUT
+my-video/                         my-video/
+  DJI_0001.MP4                      00-raw/     ← clips, audio, photos, card folders
+  DJI_0002.MP4          →           brand/      ← logo, fonts, LUTs
+  mic.wav                           01-ingest/  02-work/  03-delivery/
+  logo.png                          script.docx ← anything else stays where it was
+  script.docx
 ```
 
-Several clips are fine: they're ordered by recording time and treated as one
-sequence (a retake in the second clip of something said in the first is found too).
-Separate audio (a lavalier, a recorder) goes in `00-raw/` as well: it's synced
-automatically.
+It only moves files inside the same folder (instant, nothing is copied or
+re-encoded), never overwrites, and tells you what it moved. To put everything back
+as it was: ask "undo the organizing". Several clips are fine: they're ordered by
+recording time and treated as one sequence; separate audio is synced automatically.
+Add more files later and only the new ones are moved.
 
 ### 2. Open Claude Code in that folder and ask
 
@@ -149,6 +155,7 @@ uv run tests/test_graphics.py     # cue sheet, synthesized SFX on their word, gr
 uv run tests/test_cover.py        # covers per platform: head size, crop-safe layouts, no text on the face
 uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audio, listening check
 uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
+uv run tests/test_organize.py     # loose files → 00-raw/ and brand/, nothing overwritten, undo
 uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
 ```
 
