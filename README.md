@@ -36,7 +36,7 @@ uv run tests/test_grade.py        # color: cast correction, log path, looks, cre
 uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
 uv run tests/test_reframe.py      # camera operator: holds, eases, cuts; rendered crop follows; punch-ins
 uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts; hook ranking
-uv run tests/test_audio.py        # cleanup on the raw (noise, level, no delay), loudness per destination, ducking
+uv run tests/test_audio.py        # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
 uv run tests/test_subs.py         # .srt rules, word groups, face avoidance, burn-in
 ```
 

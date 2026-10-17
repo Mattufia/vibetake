@@ -112,6 +112,15 @@ def main() -> None:
     pause = tone_level(x, 48000, 60, 5.4, 6.0)         # the 1.5 s pause after it (release done)
     checks[f"music ducked while talking ({talking - pause:+.1f} dB vs the pause)"] = pause - talking >= 8
 
+    # Synthesized bed: exact length, no clipping, beats on the tempo grid.
+    run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--mood", "upbeat", "--duration", "12.34",
+        "--bpm", "120", "--out", "gen.wav")
+    g = pcm(tmp / "gen.wav", 48000)
+    beats = json.loads((tmp / "gen.beats.json").read_text())["beats"]
+    checks[f"musicgen: exact length ({len(g) / 48000:.3f} s)"] = abs(len(g) / 48000 - 12.34) < 0.001
+    checks["musicgen: no clipping"] = float(np.abs(g).max()) < 0.99
+    checks["musicgen: beats every 0.5 s at 120 bpm"] = bool(beats) and np.allclose(np.diff(beats), 0.5, atol=0.002)
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     shutil.rmtree(tmp, ignore_errors=True)

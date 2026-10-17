@@ -14,3 +14,4 @@ Events, aftermovies, real estate, places and products with little or no speech.
 - **Traps**: a cut that misses the beat is very noticeable; check sync after any
   re-encode.
 - **Color**: Basic plus a look is expected (this type is judged on looks): suggest `cinematic` as Custom unless the brief says otherwise.
+- **Music**: a real track (it is the backbone); cut on its beats (`musicgen.py` writes `.beats.json` for generated beds).

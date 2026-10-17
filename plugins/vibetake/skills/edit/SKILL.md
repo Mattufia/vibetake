@@ -327,8 +327,13 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   | `podcast` | −16 LUFS | −1 dBTP |
   | `broadcast-eu` / `broadcast-us` (TV ads: confirm with the station) | −23 / −24 | −2 dBTP |
 - **The voice rules.** Music never competes with it; SFX (when added) leveled by
-  loudness ~8–12 dB below it. Music source: the user's file for now (free
-  libraries: planned). Rights: never music the user can't publish (Content ID).
+  loudness ~8–12 dB below it.
+- **Music source**: for quick, informal videos, a bed synthesized to the exact
+  length (`musicgen.py`, no licenses; it sounds synthetic up close, fine ducked
+  under the voice). For scripted, brand or music-driven videos, a real track (the
+  user's, or downloaded by hand from libraries without attribution). Never music
+  the user can't publish. Options and licenses:
+  **`${CLAUDE_SKILL_DIR}/references/music.md`**.
 
 ## 6. Subtitles
 
