@@ -8,7 +8,7 @@
   - Right: 14% of the width (150 px) — like, comment, share, profile buttons.
   - Left: 6% of the width (60 px).
   - Resulting safe zone: x 6–86%, y 13–77% (x 60–940, y 250–1480 px).
-- For the Instagram grid preview, the hook/title also has to fit in the central 4:5 crop (central 70% of the height; 1080×1350 px).
+- For the Instagram profile grid, the hook/title also has to fit in the central 3:4 crop (central 75% of the height; 1080×1440 px). Instagram moved the grid from 4:5 to 3:4 in 2025; if it changes again, verify.
 - Text, subtitles, graphics and logos always inside the safe zone.
 - Don't cover the speaker's face: before placing subtitles or overlays, check stills of the video to see where the face is in each section (it changes with zooms and framing) and place elements in whatever part of the safe zone is free.
 - For other formats (4:5, 1:1, 16:9) these margins don't apply; check them separately.

@@ -70,28 +70,63 @@ def display_dims(probe: dict) -> tuple[int, int]:
     return (v["height"], v["width"]) if abs(rot) % 180 == 90 else (v["width"], v["height"])
 
 
+_DYNAMIC_CROP: bool | None = None
+
+
+def dynamic_crop_ok() -> bool:
+    """Whether this ffmpeg accepts a crop whose size changes mid-stream (impact zoom and drift).
+    Older builds refuse it; then the zoom stays at its base value."""
+    global _DYNAMIC_CROP
+    if _DYNAMIC_CROP is None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cmd = Path(tmp) / "c.cmd"
+            cmd.write_text("0.1 crop@t w 300, crop@t h 300;\n", encoding="utf-8")
+            p = run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:d=0.3",
+                     "-vf", f"sendcmd=f='{filter_path(cmd)}',crop@t=w=320:h=320,scale=180:180", "-f", "null", "-"],
+                    check=False)
+            _DYNAMIC_CROP = p.returncode == 0
+    return _DYNAMIC_CROP
+
+
+BUMP_S = 0.15        # the impact zoom settles in this time
+
+
+def zoom_at(t: float, dur: float, bump: float, drift: float) -> float:
+    """Extra zoom over the base: a short impact on entry (eases out) times a slow push-in."""
+    impact = bump * (1 - min(t / BUMP_S, 1)) ** 3 if bump else 0.0
+    return (1 + impact) * (1 + drift * min(t / dur, 1) if dur > 0 else 1)
+
+
 def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path) -> str:
-    """Crop for the segment: the operator path from reframe.py, sent frame by frame to the
-    crop filter; or a plain center crop to the output aspect when there's no framing."""
+    """Crop for the segment from reframe.py — fixed or the operator path, with the impact
+    zoom and drift — sent frame by frame to the crop filter; or a plain center crop to the
+    output aspect when there's no framing."""
     fr = seg.get("frame")
     if not fr:
         return ""
     sw, sh = display_dims(seg["_probe"])
-    cw, ch = round(fr["crop"][0] * sw / 2) * 2, round(fr["crop"][1] * sh / 2) * 2
+    bw, bh = fr["crop"][0] * sw, fr["crop"][1] * sh
     keys = fr["keys"] or [[0, 0.5, 0.5]]
     kt = [k_[0] for k_ in keys]
-    lines, x0, y0 = [], None, None
+    bump, drift = fr.get("bump", 0.0), fr.get("drift", 0.0)
+    sizing = bool(bump or drift) and dynamic_crop_ok()
+    lines, first = [], None
     for i in range(frames(dur, fps) + 1):
         t = i / fps
+        z = zoom_at(t, dur, bump, drift) if sizing else 1.0
+        cw, ch = max(2, round(bw / z / 2) * 2), max(2, round(bh / z / 2) * 2)
+        cw, ch = min(cw, sw // 2 * 2), min(ch, sh // 2 * 2)
         cx = float(np.interp(t, kt, [k_[1] for k_ in keys]))
         cy = float(np.interp(t, kt, [k_[2] for k_ in keys]))
         x = int(min(max(cx * sw - cw / 2, 0), sw - cw))
         y = int(min(max(cy * sh - ch / 2, 0), sh - ch))
-        if x0 is None:
-            x0, y0 = x, y
-        lines.append(f"{t:.4f} crop@rf{k} x {x}, crop@rf{k} y {y};")
+        if first is None:
+            first = (cw, ch, x, y)
+        size = f"crop@rf{k} w {cw}, crop@rf{k} h {ch}, " if sizing else ""
+        lines.append(f"{t:.4f} {size}crop@rf{k} x {x}, crop@rf{k} y {y};")
     cmd = workdir / f"frame_{k:03d}.cmd"
     cmd.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    cw, ch, x0, y0 = first
     return f"sendcmd=f='{filter_path(cmd)}',crop@rf{k}=w={cw}:h={ch}:x={x0}:y={y0}"
 
 
@@ -247,6 +282,10 @@ def main() -> None:
     log(f"rendering {len(segs)} segments → {dst} ({out['width']}×{out['height']} @ {out['fps']} fps, "
         f"{enc_name}, color on {graded}/{len(segs)} segments)")
 
+    if any((s.get("frame") or {}).get("bump") or (s.get("frame") or {}).get("drift") for s in segs) \
+            and not dynamic_crop_ok():
+        log("WARNING: this ffmpeg can't change the crop size mid-stream: impact zoom and drift skipped "
+            "(punch-ins still alternate). A recent ffmpeg build enables them.")
     overlays, warnings = resolve_broll(segs, out["fps"], edl.get("broll", []))
     for w in warnings:
         log(f"WARNING: {w}")

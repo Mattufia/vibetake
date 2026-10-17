@@ -218,17 +218,22 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   `--pace tight|normal|relaxed` scales it all (feed/ad: tight · testimonial:
   relaxed). If a join still feels rushed or slow, change the pace or edit that
   segment's `in`/`out`.
-- **Framing (`reframe.py`), like a camera operator, not a tracker**: the crop
-  holds still while the face stays in a dead zone, pans with eased acceleration
-  and a speed limit when it leaves it, and cuts straight to the new framing if
-  the face would leave the crop. When there's room, the face sits at ~40% from
-  the top; the top of the head is never cut (headroom from the face size). It
-  warns when a crop is smaller than the output (a 1080p horizontal source cut to
-  vertical is upscaled ~1.8×: softer image — say so).
-- **Punch-ins**: at every jump cut within the same take the zoom alternates
-  between 1.0 and `--zoom` (1.12 by default), so the jump reads as a cut to a
-  closer shot. A face that already fills the frame gets half the punch-in.
-  `--punch off` when the type doesn't want them (testimonial, corporate).
+- **Framing (`reframe.py`): the simplest one that works, per segment.** Same
+  aspect as the output → untouched. The person barely moves (or a gimbal or
+  tracking camera already kept them centered) → **one fixed crop** for the
+  segment. They move too much for one position → **camera operator, not a
+  tracker**: holds still while the face stays in a dead zone, pans with eased
+  acceleration and a speed limit when it leaves it, cuts straight to the new
+  framing if the face would leave the crop. `--mode fixed|operator` forces one.
+  The face sits at ~40% from the top when there's room; the head is never cut. It
+  warns when a crop is smaller than the output (1080p horizontal cut to vertical
+  is upscaled ~1.8×: softer image — say so).
+- **Zoom at every cut**: at jump cuts the base zoom alternates between 1.0 and
+  `--zoom` (1.12; half for a face that already fills the frame), so the jump reads
+  as a closer shot; each segment after a cut enters with a short impact zoom
+  (`--bump`, +6%, settles in ~0.15 s) and pushes in slowly while it lasts
+  (`--drift`, +3%). `--punch off` disables all of it (testimonial, corporate,
+  screen recordings); `--bump 0 --drift 0` keeps only the alternation.
 - **Hook (feed)**: `hook.py` ranks lines that could open the video (short, makes
   sense alone, a question, a promise, a conflict, a number, talks to "you") into
   `02-work/hooks.md`. It only shortlists: read them in context and choose. Put it

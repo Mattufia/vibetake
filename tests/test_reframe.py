@@ -13,6 +13,9 @@
    right after it (the camera eases, it doesn't snap), and centered again later.
 3. Punch-in alternates at a jump cut; a 1080p source cropped to vertical warns
    about the upscale.
+4. Auto mode: a face that barely moves gets one fixed crop, a face that crosses the
+   frame gets the operator, a vertical source for a vertical edit isn't reframed.
+5. Impact zoom: right after the cut the bar is wider (closer) than once settled.
 """
 from __future__ import annotations
 
@@ -93,7 +96,7 @@ def main() -> None:
     edl = {"version": 1, "output": {"width": 1080, "height": 1920, "fps": 30},
            "segments": [{"source": str(tmp / "bar.mp4"), "name": "bar.mp4", "in": 0.0, "out": D}]}
     (work / "edl.json").write_text(json.dumps(edl))
-    out = run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"))
+    out = run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"), "--mode", "operator")
     run(tmp, "uv", "run", str(SCRIPTS / "render.py"), "--out", "v.mp4", "--no-grade")
     before, just_after, later = (bar_position(tmp / "v.mp4", t) for t in (2.0, 4.15, 8.5))
     checks[f"bar centered before the jump ({before:.2f})"] = abs(before - 0.5) < 0.12
@@ -108,6 +111,34 @@ def main() -> None:
     run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"), "--zoom", "1.12")
     z = [s["frame"]["zoom"] for s in json.loads((work / "edl.json").read_text())["segments"]]
     checks[f"punch-in alternates at a jump cut ({z})"] = z[0] == 1.0 and z[1] > 1.0
+
+    # 4. Auto mode on synthetic face targets (crop 0.32 wide, like 1080p → 9:16).
+    still = 0.5 + rng.normal(0, 0.01, 50)
+    cross = np.linspace(0.2, 0.8, 50)
+    nan = np.full(50, np.nan)
+    checks["auto: face barely moves → fixed crop"] = reframe.choose_framing("auto", False, still, nan, 0.32, 1) == "fixed"
+    checks["auto: face crosses the frame → operator"] = \
+        reframe.choose_framing("auto", False, cross, nan, 0.32, 1) == "operator"
+    checks["auto: same aspect as the output → not reframed"] = \
+        reframe.choose_framing("auto", True, cross, nan, 1, 1) == "full"
+    checks["fixed crop sits at the middle of the travel"] = \
+        abs(reframe.fixed_center(np.r_[0.4, 0.5], 0.32) - 0.45) < 1e-6
+
+    # 5. Impact zoom: second segment enters closer, then settles.
+    run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"), "--punch", "auto", "--bump", "0.08", "--drift", "0")
+    segs = json.loads((work / "edl.json").read_text())["segments"]
+    checks["bump only after a cut, auto picks fixed for the still bar"] = (
+        segs[0]["frame"]["bump"] == 0 and segs[1]["frame"]["bump"] == 0.08
+        and all(s["frame"]["mode"] == "fixed" for s in segs))
+    run(tmp, "uv", "run", str(SCRIPTS / "render.py"), "--out", "b.mp4", "--no-grade")
+
+    def bar_width(t: float) -> int:
+        raw = subprocess.run([FF, "-v", "error", "-ss", str(t), "-i", str(tmp / "b.mp4"), "-frames:v", "1", "-vf",
+                              "format=gray", "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
+        img = np.frombuffer(raw, np.uint8).reshape(1920, 1080)
+        return int((img[960] > 128).sum())
+    hit, settled = bar_width(3.0 + 1 / 30), bar_width(4.0)
+    checks[f"impact zoom: closer on entry ({hit} px) than settled ({settled} px)"] = hit > settled * 1.04
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
