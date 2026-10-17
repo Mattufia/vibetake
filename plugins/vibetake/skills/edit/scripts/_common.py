@@ -28,10 +28,27 @@ def die(msg: str) -> None:
 
 
 def tool(name: str, required: bool = True) -> str | None:
-    path = shutil.which(name)
+    path = shutil.which(name) or _profile_tool(name)
     if not path and required:
-        die(f"'{name}' not found in PATH. Install it (see /vibetake:setup) and retry.")
+        die(f"'{name}' not found. Run /vibetake:setup (or setup.py check / install) and retry.")
     return path
+
+
+def _profile_tool(name: str) -> str | None:
+    """A tool setup.py found outside the PATH (e.g. installed by winget a minute ago, before
+    the terminal's PATH refreshes). ffprobe lives next to ffmpeg."""
+    try:
+        tools = json.loads((HOME / "machine.json").read_text(encoding="utf-8")).get("tools", {})
+    except (OSError, ValueError):
+        return None
+    key = "ffmpeg" if name == "ffprobe" else name
+    p = (tools.get(key) or {}).get("path")
+    if not p:
+        return None
+    if name == "ffprobe":
+        q = Path(p).with_name("ffprobe" + Path(p).suffix)
+        return str(q) if q.exists() else None
+    return p if Path(p).exists() else None
 
 
 class Log:

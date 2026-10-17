@@ -17,6 +17,13 @@ Private repo: the machine needs GitHub credentials that `git` can use without
 prompting (`gh auth login` then `gh auth setup-git`). Without an SSH key, set
 `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1`.
 
+## Set up a machine
+
+Run `/vibetake:setup` once per machine: it checks tools, GPU and models, installs
+what's missing (winget / Homebrew / apt, after your OK) and downloads the heavy models
+up front, with a real transcription test on the GPU. The machine profile goes to
+`~/.vibetake/machine.json`, never into the plugin.
+
 ## Use
 
 Ask Claude to edit a video, or run `/vibetake:edit`.
@@ -45,6 +52,7 @@ uv run tests/test_qa.py           # delivery QA: a good file passes, planted fau
 uv run tests/test_graphics.py     # cue sheet, synthesized SFX on their word, graphics layer, captions off
 uv run tests/test_cover.py        # covers per platform: head size, crop-safe layouts, no text on the face
 uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audio, listening check
+uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
 uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
 ```
 

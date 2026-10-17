@@ -1,6 +1,16 @@
 {
   "name": "vibetake",
+  "version": "0.1.0",
   "description": "From raw footage to a finished video: ingest, cut, mix, subtitle, graphics, thumbnails and delivery.",
-  "author": { "name": "Vibetake" },
-  "keywords": ["video", "editing", "ffmpeg", "whisper", "remotion", "subtitles"]
+  "author": {
+    "name": "Vibetake"
+  },
+  "keywords": [
+    "video",
+    "editing",
+    "ffmpeg",
+    "whisper",
+    "remotion",
+    "subtitles"
+  ]
 }

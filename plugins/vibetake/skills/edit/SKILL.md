@@ -27,12 +27,14 @@ been looked at.
 
 ## 0. Setup
 
-**Check what's available before starting**: which tools are installed, which GPU
-and from which vendor, how much VRAM, cores, RAM, disk space, and which encoders
-ffmpeg was compiled with (some builds lack x264). That determines model size,
-concurrency and the render path. Don't assume any GPU brand: there is
-acceleration on NVIDIA, AMD, Intel and Apple, through different routes. Video
-eats hundreds of GB: if disk is tight, flag it before starting.
+**Read `~/.vibetake/machine.json` before starting** (tools and their paths, GPU and
+VRAM, RAM, free disk, the encoder that works, ffmpeg's filters, where transcription
+runs). Missing, older than ~30 days, or a script says a tool is missing → run
+`uv run ${CLAUDE_SKILL_DIR}/scripts/setup.py check`; to install or download models,
+the `/vibetake:setup` command walks the user through it (`setup.py install`,
+`setup.py prefetch`; without it, the first run downloads several GB: say so). Don't
+assume any GPU brand. Video eats hundreds of GB: if disk
+is tight, flag it before starting.
 
 **Install what's missing, saying what gets installed.** Command-line tools are
 installed **globally**: they're used across all projects and there's no point
@@ -45,9 +47,6 @@ check first and note in `project.md` what was installed.
 
 The only per-project install is Remotion, because its version is pinned in each
 project.
-
-**The first run on a new machine downloads models, CUDA libraries (NVIDIA) and a
-headless browser** (several GB): say so instead of leaving the terminal hanging.
 
 **If installing isn't possible** (no permissions, no network, locked-down work
 machine), make do with what's there and say so in one line: without auto-editor,
