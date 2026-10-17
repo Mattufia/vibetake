@@ -1,0 +1,116 @@
+# /// script
+# requires-python = ">=3.10,<3.14"
+# dependencies = ["numpy>=1.26"]
+# ///
+"""Color tests for grade.py on synthetic clips.
+
+    uv run tests/test_grade.py
+
+1. A neutral scene with a strong warm cast: analyze must flag it, build must
+   remove it (measured, not by eye).
+2. The same scene without a cast: auto mode must leave it alone.
+3. Simulated log: the warm scene encoded with a generic log curve, graded with
+   that curve's inverse as the "official LUT": the cast is corrected in log and
+   the result lands close to the original exposure.
+4. A look-only .cube is written and is a valid 3D LUT.
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+GRADE = Path(__file__).resolve().parents[1] / "plugins" / "vibetake" / "skills" / "edit" / "scripts" / "grade.py"
+FF = shutil.which("ffmpeg")
+# Neutral gray texture with a few small colored patches (a scene with real neutrals).
+SCENE = ("nullsrc=s=640x360:d=4:r=25,geq=lum='110+70*sin(X/29)*cos(Y/21)+20*sin(T)':cb=128:cr=128,"
+         "drawbox=x=40:y=40:w=90:h=90:color=red@1:t=fill,drawbox=x=500:y=230:w=90:h=90:color=blue@1:t=fill,"
+         "drawbox=x=280:y=260:w=70:h=70:color=green@1:t=fill")
+WARM = "colorbalance=rs=0.12:rm=0.12:rh=0.08:bs=-0.12:bm=-0.12:bh=-0.08"
+X264 = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", "-pix_fmt", "yuv420p"]
+
+
+def to_log(lin):            # generic log encoding: ~0.08 per stop, lifted black, no real white
+    return 0.1 + 0.75 * np.log2(1 + 31 * lin) / 5
+
+
+def from_log(code):
+    return np.clip((2 ** ((np.clip(code, 0.1, 1) - 0.1) * 5 / 0.75) - 1) / 31, 0, 1)
+
+
+def write_cube(path: Path, fn, n: int = 33) -> None:
+    v = np.linspace(0, 1, n)
+    b, g, r = np.meshgrid(v, v, v, indexing="ij")
+    out = np.clip(fn(np.stack([r, g, b], -1).reshape(-1, 3)), 0, 1)
+    path.write_text(f"LUT_3D_SIZE {n}\n" + "\n".join(f"{x:.6f} {y:.6f} {z:.6f}" for x, y, z in out) + "\n")
+
+
+def ff(cwd: Path, *args: str) -> None:
+    subprocess.run([FF, "-hide_banner", "-v", "error", "-y", *args], check=True, cwd=cwd)
+
+
+def grade(cwd: Path, *args: str) -> None:
+    subprocess.run(["uv", "run", str(GRADE), *args], cwd=cwd, check=True, capture_output=True)
+
+
+def read(cwd: Path, name: str) -> dict:
+    return json.loads((cwd / "02-work" / "color" / name).read_text(encoding="utf-8"))
+
+
+def main() -> None:
+    tmp = Path(tempfile.mkdtemp(prefix="vibetake-grade-"))
+    ff(tmp, "-f", "lavfi", "-i", SCENE, *X264, "clean.mp4")
+    ff(tmp, "-i", "clean.mp4", "-vf", WARM, *X264, "warm.mp4")
+    write_cube(tmp / "to_log.cube", lambda d: to_log(d ** 2.4))
+    write_cube(tmp / "from_log.cube", lambda c: from_log(c) ** (1 / 2.4))
+    ff(tmp, "-i", "warm.mp4", "-vf", "format=rgb48le,lut3d=file=to_log.cube", "-c:v", "libx265",
+       "-preset", "ultrafast", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error", "log.mov")
+
+    checks = {}
+    grade(tmp, "analyze", "warm.mp4", "clean.mp4")
+    a = read(tmp, "color.json")
+    checks["warm cast detected (chroma ≥ 6)"] = a["warm.mp4"]["neutral"]["cast_chroma"] >= 6
+    checks["clean scene: no clear problem"] = not a["clean.mp4"]["verdict"]
+
+    grade(tmp, "build", "warm.mp4", "clean.mp4")
+    plan = read(tmp, "grade.json")
+    warm = plan["warm.mp4"]["check"]
+    checks["warm cast removed (chroma < 2 after)"] = warm["cast_after"] < 2
+    checks["clean scene left alone (unity gains)"] = plan["clean.mp4"]["params"]["gains"] == [1.0, 1.0, 1.0]
+
+    grade(tmp, "build", "log.mov", "--input-lut", "from_log.cube", "--force-log", "--correct", "on")
+    log = read(tmp, "grade.json")["log.mov"]["check"]
+    clean_luma = a["clean.mp4"]["median_luma"]
+    checks["log: cast corrected before the LUT (< 2.5)"] = log["cast_after"] < 2.5
+    checks[f"log: exposure near the original (±0.05 of {clean_luma})"] = abs(log["median_luma_after"]
+                                                                             - clean_luma) < 0.05
+
+    grade(tmp, "look", "--look", "cinematic", "--intensity", "70", "--file", "cine.cube")
+    txt = (tmp / "cine.cube").read_text()
+    checks["look-only .cube is a 33³ LUT"] = "LUT_3D_SIZE 33" in txt and txt.count("\n") >= 33 ** 3 + 4
+
+    # Creative: a user LUT applies; a reference image pulls the palette toward it.
+    grade(tmp, "build", "clean.mp4", "--creative-lut", "cine.cube", "--out", "creative")
+    checks["creative LUT builds a grade"] = (tmp / "creative" / "clean.cube").exists()
+    grade(tmp, "build", "clean.mp4", "--reference", "warm.mp4", "--reference-intensity", "100", "--out", "ref")
+    ff(tmp, "-i", "clean.mp4", "-vf", "format=rgb48le,lut3d=file=ref/clean.cube", *X264, "matched.mp4")
+    grade(tmp, "analyze", "matched.mp4", "--out", "ref")
+    warm_b = a["warm.mp4"]["neutral"]["b"]
+    matched_b = json.loads((tmp / "ref" / "color.json").read_text())["matched.mp4"]["neutral"]["b"]
+    checks[f"reference pulls toward the warm image (b {matched_b} → near {warm_b})"] = matched_b > warm_b * 0.5
+
+    for name, ok in checks.items():
+        print(f"{'PASS' if ok else 'FAIL'}  {name}")
+    print("warm:", warm, "\nlog:", log)
+    shutil.rmtree(tmp, ignore_errors=True)
+    sys.exit(0 if all(checks.values()) else 1)
+
+
+if __name__ == "__main__":
+    main()

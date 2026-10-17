@@ -121,7 +121,7 @@ What the script already handles, so it isn't redone by hand:
 ffprobe/ffmpeg and say so: probe, VFR/HDR checks, scene-change stills plus a
 regular grid, `silencedetect` and `ebur128`, word-level transcription.
 
-## 2. What the video is, and the only question
+## 2. What the video is, and what to ask
 
 Two independent axes define the edit. Don't mix them:
 
@@ -164,31 +164,43 @@ Once classified, **read `${CLAUDE_SKILL_DIR}/profiles/<type>.md`** and apply its
 defaults. The profile sets defaults; the request and the material can override
 them.
 
-### The question
+### Questions: only real doubts, all at once
 
-Say in one line what the raw footage is and ask **everything together, proposing
-the most likely answer** so that confirming is enough:
+There's no fixed questionnaire. Before asking anything, two checks: **can it be
+deduced with confidence** (from the request, the material, `project.md`)? And
+**how expensive is it to fix if wrong?**
 
-1. **Type**, only if confidence is medium or low; then it goes first, with the
-   alternative as an option. With high confidence, state it and don't ask.
-2. Output orientation (the raw footage doesn't determine it: people shoot
-   horizontal and publish vertical all the time).
-3. Where it will be published.
-4. What to do with subtitles.
+| | Cheap to fix | Expensive to fix |
+|---|---|---|
+| **Deducible** | decide, state it in the delivery | decide, state it in the delivery |
+| **In doubt** | propose, apply, state it in the delivery | **ask** |
 
-Example:
+Applied:
+
+- **Destination and format** (where it's published, orientation): the raw
+  footage doesn't determine it — people shoot horizontal and publish vertical all
+  the time — and getting it wrong redoes reframing, margins, pacing and duration.
+  **Ask, unless the request says it.** Ask it as one question: the platform
+  implies the orientation (TikTok/Reels/Shorts 9:16, YouTube 16:9).
+- **Type**: ask only with low confidence; otherwise state it.
+- **Subtitles**: don't ask. They follow from the destination and the material
+  (section 6); state the choice in the delivery.
+- **Color**: don't ask. The baseline is the most natural, best-looking image
+  (section 4). Only exception: log footage without its conversion LUT.
+
+When something has to be asked, it's **one moment**: say in one line what the
+raw footage is, then ask every open question together. With a multiple-choice
+question tool, use it (up to 4 questions in one go, recommended option first);
+without one, a single message with the proposals.
 
 ```
-It's a UGC ad (high confidence; alternative: talking-head), 48 s, one person to camera.
-Proposal: vertical 9:16 · TikTok + Reels · word-by-word burned-in subtitles + .srt
+It's a UGC ad (high confidence), 48 s, one person to camera.
+→ Where will it be published?  TikTok + Reels 9:16 (recommended) · YouTube 16:9 · Both
 ```
 
-- If a multiple-choice question tool is available, use it, with the proposal as
-  the recommended option.
-- **Don't ask what the request already says.** If it covers everything, there's
-  no question.
-- If the user says "no questions" or "your call", take the proposal and flag it
-  in the delivery.
+- **Don't ask what the request already says.** Often there's no question at all.
+- If the user says "no questions" or "your call", take the recommended options
+  and flag them in the delivery.
 
 Margins, pacing and duration follow from the answers; don't ask about them
 separately.
@@ -214,7 +226,47 @@ within that frame.
 - ffmpeg does the cutting. **Don't send the footage through Remotion**:
   re-encoding hours of camera footage through a browser is a waste of time.
 
-## 4. Voice, music and SFX
+## 4. Color
+
+**The baseline is the most natural, best-looking image**, done without asking;
+anything stylized only when asked. **Always on the whole frame**: no masks, no
+tracking. Faces are only used to *measure* skin. Three levels:
+
+| Level | What | When |
+|---|---|---|
+| 1. Correction | white balance, exposure, matching shots | **by default**, whenever it makes the image more natural: strong casts fully, mild casts partly (natural isn't sterile: a warm room keeps some warmth), exposure clearly off, shots that should match. Nothing to fix → nothing is touched |
+| 2. Look | `natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity | when asked, or when the type profile expects one |
+| 3. Creative | the user's LUT, a reference image (experimental), a custom look | only when asked |
+
+Don't ask about color (exception: log footage without its LUT). In the delivery,
+say in one line what was corrected, point to the before/after preview, and offer
+the looks.
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py analyze
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build [--look cinematic --intensity 60] [--match]
+       [--input-lut <format>.cube] [--creative-lut <user>.cube] [--reference <image>]
+uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py preview
+```
+
+- `analyze` → `02-work/color/color.md`: exposure, the cast of what should be
+  neutral, skin hue against the skin line, verdict. Skin offsets are reported,
+  never auto-corrected: lighting and complexion legitimately move them.
+- `build` bakes everything into **one .cube per file** and writes `grade.json`
+  (which pre-filter and LUT each file gets at render). It re-measures through the
+  grade and prints the cast and exposure before → after.
+- `preview` → before/after sheets with waveform and vectorscope. **Look at them
+  before rendering**: natural skin, no crushed blacks or burnt whites the
+  original didn't have, the look at a sensible strength.
+- **Order: input transform → correction → look → Rec.709.** Log: correction in
+  log, before the format's official LUT (`references/log-formats.md`). HDR: tone
+  mapping as a pre-filter, then the LUT. **Render from the original file**, never
+  from the normalized copy.
+- **Graphics and subtitles go on top after the grade**, or brand colors shift.
+- A look the user liked can also be delivered as a .cube for their editor:
+  `grade.py look --look cinematic --intensity 60 --file 03-delivery/<name>.cube`.
+
+## 5. Voice, music and SFX
 
 - **Voice chain before leveling** (it's the most noticeable difference between
   amateur and paid work): high-pass ~80 Hz → gentle de-noise → de-esser →
@@ -231,12 +283,14 @@ within that frame.
   gain, **`offset` is ignored**. For fine adjustment, use an explicit
   `volume=-XdB`.
 
-## 5. Subtitles
+## 6. Subtitles
 
-It's an editing decision, not a consequence of the format. Propose according to
-the material: no subtitles · keywords only as a graphic punchline · full burned-in
-· separate `.srt`. Clean audio and clear diction don't need burned-in subtitles;
-a video that starts muted in a feed does.
+It's an editing decision, not a consequence of the format, and it isn't asked:
+decide from the destination and the material, and state it in the delivery. Options:
+no subtitles · keywords only as a graphic punchline · full burned-in · separate
+`.srt`. Defaults: a feed (it starts muted) → word-by-word burned-in + `.srt`;
+chosen viewing with clean audio and clear diction → `.srt` only. The type profile
+can override.
 
 - Vertical: 2–3 words per frame. Horizontal: lines of ≤42 characters.
 - **Never over the face.** Check the stills section by section: the face moves
@@ -245,7 +299,7 @@ a video that starts muted in a feed does.
 - **Check proper names, brands and numbers by hand.** That's where it always
   fails, with any model; the glossary prevents most of it, not all.
 
-## 6. Graphics over the video
+## 7. Graphics over the video
 
 **Remotion renders only the graphics layer, with an alpha channel** (ProRes 4444
 or WebM VP9); ffmpeg overlays it on the edit. Cards, lower thirds, titles, logos,
@@ -260,13 +314,13 @@ not, propose a graphic identity, apply it, and show it in the delivery on a
 sample card so changing it is a concrete request. Don't hold up the work waiting
 for approval.
 
-## 7. Generating video from scratch (no filmed material)
+## 8. Generating video from scratch (no filmed material)
 
 Pure motion graphics — an animated reel, a card, a visual explainer:
 
 - **Canvas + ffmpeg, not Remotion.** An HTML page with a deterministic `frame(t)`
   function, a headless browser over CDP, and ffmpeg encoding according to the
-  master rule (section 8), with `-pix_fmt yuv420p -movflags +faststart`. Average
+  master rule (section 9), with `-pix_fmt yuv420p -movflags +faststart`. Average
   2–3 temporal subsamples per frame for real motion blur. It's faster to render
   and simpler to reason about than the same thing in Remotion.
 - **Remotion from scratch only if** there's a series (the same mold with different
@@ -274,7 +328,7 @@ Pure motion graphics — an animated reel, a card, a visual explainer:
 - Synthesized audio (hits, dings, backing music): float32 WAV at 48 kHz, mixed
   separately.
 
-## 8. GPU
+## 9. GPU
 
 **Prioritize the GPU where it helps, falling back to CPU without drama.** If
 there's a GPU, use it to raise quality too, not just to go faster: larger
@@ -307,7 +361,7 @@ to spare, not which encoder made it.
 - Intermediates and previews, always on the GPU if there is one.
 - State in the delivery what the master was encoded with.
 
-## 9. Project structure
+## 10. Project structure
 
 ```
 project/
@@ -327,7 +381,7 @@ so work can resume without asking everything again.
 **If the project is already organized differently, adapt and don't reorganize
 it.** This structure is only created when starting from scratch.
 
-## 10. Delivery
+## 11. Delivery
 
 Always in `03-delivery`: **the video, the `.srt`** (even if subtitles are burned
 in: YouTube and Meta use it for accessibility and index it) **and a designed
@@ -362,7 +416,7 @@ renders, ProRes, temporary WAVs): they're regenerated from the project in minute
 and there's no point in them taking up disk. They're temporary: no need to
 mention it.
 
-## 11. Safe margins
+## 12. Safe margins
 
 **On every 9:16 video, read `${CLAUDE_SKILL_DIR}/references/safe-margins.md`
 before placing any text, subtitle, graphic or logo.**

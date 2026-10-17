@@ -13,3 +13,4 @@ Day in the life, travel, behind the scenes.
 - **Graphics**: location titles, light and in the creator's style.
 - **Stabilize** handheld shots that need it.
 - **Traps**: sponsor segments get the `ad` treatment (see mixed material).
+- **Color**: `--match` across locations so it feels like one day; a look only if the creator has a style.

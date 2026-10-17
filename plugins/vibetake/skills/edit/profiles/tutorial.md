@@ -14,3 +14,4 @@ Screencasts and step-by-step instructional videos.
 - **Traps**: on-screen text (UI, code, values) must stay legible after any
   reframe or zoom; a vertical crop of a screen recording is usually unreadable —
   say so and propose zoom-ins instead.
+- **Color**: level 1 on the camera shots only; never grade screen recordings (UI colors must stay true).

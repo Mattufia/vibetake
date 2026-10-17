@@ -32,6 +32,7 @@ Ask Claude to edit a video, or run `/vibetake:edit`.
 ```text
 uv run tests/test_ingest.py       # ingest traps, synthetic clips
 uv run tests/test_transcribe.py   # retakes, fillers, word timing (needs the Whisper model)
+uv run tests/test_grade.py        # color: cast correction, log path, looks, creative
 ```
 
 Generates synthetic clips for each ingest trap (VFR, HDR, rotation, two audio
