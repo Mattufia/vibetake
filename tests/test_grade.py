@@ -78,7 +78,7 @@ def main() -> None:
     checks["warm cast detected (chroma ≥ 6)"] = a["warm.mp4"]["neutral"]["cast_chroma"] >= 6
     checks["clean scene: no clear problem"] = not a["clean.mp4"]["verdict"]
 
-    grade(tmp, "build", "warm.mp4", "clean.mp4")
+    grade(tmp, "build", "warm.mp4", "clean.mp4", "--no-match")   # per-file correction (matching: test_match.py)
     plan = read(tmp, "grade.json")
     warm = plan["warm.mp4"]["check"]
     checks["warm cast removed (chroma < 2 after)"] = warm["cast_after"] < 2

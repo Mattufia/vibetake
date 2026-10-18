@@ -32,7 +32,7 @@ Example (in the user's language):
 It's a UGC ad (high confidence), 48 s, one person to camera. Color: mild warm cast,
 skin leaning red · before/after: 02-work/color/basic/ and 02-work/color/full/
 → Where will it be published?  TikTok + Reels 9:16 (recommended) · YouTube 16:9 · Both
-→ Color?  Full (recommended) · Basic · Untouched · (write: a look, your LUT, a reference)
+→ Color?  Full (recommended) · Basic · Only match shots · (write: a look, your LUT, a reference)
 → Have you added everything you'd like me to use? Brand assets in brand/, style
   references in references/, your own music in music/. Anything missing, I'll source
   myself — typefaces, music and icons; your logo only if you provide it.

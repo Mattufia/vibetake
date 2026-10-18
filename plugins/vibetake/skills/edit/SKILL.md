@@ -245,13 +245,13 @@ the other questions, as levels:
 
 | Option | What |
 |---|---|
-| **Basic** | exposure (when clearly off), white balance (strong casts fully, mild ones partly: natural isn't sterile, a warm room keeps some warmth), black and white points, **matching shots and cameras** |
+| **Basic** | shots matched + exposure (when clearly off), white balance (strong casts fully, mild ones partly: natural isn't sterile, a warm room keeps some warmth), black and white points |
 | **Full** | Basic + skin toward the skin line (global and gentle, capped at a few degrees: similar colors like wood barely move), contrast and vibrance tidy-up |
-| **Untouched** | the material as is (e.g. the user grades it elsewhere) |
+| **Only match shots** | the shots made alike, nothing else (one file: the material as is) — e.g. the user grades it elsewhere |
 | **Custom** (free text) | a look (`natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity), the user's LUT, a reference image (experimental) — on top of Basic unless told otherwise |
 
 **Recommended**: Full when skin is clearly off the line (>10°); Basic when only
-exposure, balance or matching need work; Untouched when nothing needs fixing.
+exposure, balance or matching need work; Only match shots (one file: untouched) when nothing else needs fixing.
 Before asking, run `propose`, which builds Basic and Full with before/after
 previews so the user can compare, and give the folders in the question's context
 line (the options themselves can only show text). "Your call" → the recommended.
@@ -263,6 +263,11 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # afte
 
 - **Order: input transform → correction → look → Rec.709**, all baked into one
   .cube per file that `render.py` applies to the **original** file.
+- **Several files: shots are matched first, at every level** (`match.py`, on what
+  repeats in every shot — the person, or anything you point at — never the whole
+  frame), then one correction for all. Check `02-work/color/match/` (`match.md`,
+  `sheet.jpg`, `faces.jpg`, `regions.jpg`), add or drop references if needed; how, in
+  `color.md`.
 - **Look at the before/after previews before rendering**: natural skin, no
   crushed blacks or burnt whites the original didn't have, a look at a sensible
   strength.

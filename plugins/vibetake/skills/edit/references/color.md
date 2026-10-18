@@ -8,8 +8,10 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none
        [--input-lut <format>.cube] [--force-log]                 # log footage
        [--creative-lut <user>.cube --creative-intensity 100]    # the user's LUT
        [--reference <image> --reference-intensity 60]           # experimental
-       [--match]                                                 # force shot matching
+       [--no-match] [--match-target <file>] [--zones auto|on|off] [--no-person]
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py preview
+uv run ${CLAUDE_SKILL_DIR}/scripts/match.py add --name <ref> --file <file> --t <s> --at <x>,<y>
+uv run ${CLAUDE_SKILL_DIR}/scripts/match.py drop --name <ref> [--file <file>] [--restore]
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py look --look cinematic --intensity 60 --file 03-delivery/<name>.cube
 ```
 
@@ -30,8 +32,57 @@ Without files, every video in `01-ingest/material.json` is used. Output in
   move; check it.
 - **Black/white points**: milky blacks (p1 > 0.06) or dull whites (p99 < 0.88)
   pulled ~70% toward full range.
-- **Shot matching**: with several files whose median luma spreads more than 0.08,
-  exposure is matched to the median automatically.
+## Shot matching (`match.py`, automatic with several files)
+
+Every shot should look the same, from the same camera or not. It runs first, right
+after the input transform, **at every level — "Only match shots" too** (matching isn't a look;
+revert with `--no-match` if the user asks). Then **one** correction is measured on the
+matched set and applied the same to all of them.
+
+**What is measured: things present in every shot, never whole-frame statistics.**
+Backgrounds differ between shots (white wall, dark room, a window), so frame medians
+or percentiles match the numbers and leave the picture different.
+
+- **The person** (automatic): skin (cheeks and nose), hair and clothes (dark and light
+  garments apart), from the face boxes and a rembg cut-out on a few frames per shot.
+- **Anything you see repeated** — a sign, a wall, a table, a garment: look at the
+  frames and point at it, once per file. The point is snapped to the surface around
+  it (similar color, connected). Pick flat, evenly lit spots; with a person, skin is
+  already the strongest reference.
+  `match.py add --name sign --file A.mp4 --t 3.2 --at 0.42,0.31` (x, y as 0–1 of the frame).
+- **Leave out** what you see is lit differently in one shot (a jacket in the sun in
+  one, in shade in the other): `match.py drop --name clothes_light --file B.mp4`.
+- Only as a last resort (no shared references): low-saturation surfaces per tonal
+  zone — low confidence, flagged.
+
+**Per shot**: white balance (gains) → exposure → a smooth tone curve (crushed or
+lifted blacks, contrast; past white, a shoulder so nothing new clips) → a small color
+offset per tonal zone, only when the cameras differ (`--zones on` to force).
+
+**Target: a neutral base with headroom**, so the creative grade has room later: skin
+and mids at the shots' middle value; darks as deep as the deepest shot that still has
+texture (black hair stays black, not a gray average); lights as bright as the
+brightest one that isn't clipped, below pure white. `--match-target <file>` matches to
+one shot instead.
+
+**Rules the code enforces** (it rejects or flags instead of applying):
+
+1. The order of brightness never inverts — what was lighter stays lighter.
+2. Detail is kept: each reference's texture is measured before and after.
+3. No new clipped blacks or whites.
+4. Gentle changes: bounded slopes, gains, exposure and color offsets.
+5. A shot that can't be matched well is flagged, not forced: no shared references →
+   "not matched" and its own correction; detail lost at the source (crushed blacks,
+   burnt whites) → not forced; a reference that contradicts the others (lit
+   differently, or too close in brightness to a stronger one) → dropped in that shot,
+   lowest priority first (skin > darks and lights > the rest).
+
+**Check before rendering** (`02-work/color/match/`): `match.md` (each reference per
+shot before → after, the spread between shots, what was dropped and why, warnings),
+`sheet.jpg` (each reference in every shot, before | after), `faces.jpg` (faces at full
+resolution — flat or plastic skin shows there) and `regions.jpg` (what was measured:
+if a region landed on the background, `drop` it and `add` the right one). Then
+`grade.py build` again. Warnings go in the delivery note.
 
 ## How the grade is built
 

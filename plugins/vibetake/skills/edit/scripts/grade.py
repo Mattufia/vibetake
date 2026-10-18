@@ -1,21 +1,22 @@
 # /// script
 # requires-python = ">=3.10,<3.14"
-# dependencies = ["numpy>=1.26"]
+# dependencies = ["numpy>=1.26", "scipy>=1.11"]
 # ///
 """Color: measure, build the grade as a .cube, preview before/after.
 
     uv run grade.py analyze [files...] [--ingest 01-ingest] [--out 02-work/color]
     uv run grade.py propose [files...]   # Basic and Full side by side + previews + recommendation
     uv run grade.py build   [files...] [--level none|basic|full] [--look cinematic --intensity 60]
-                            [--input-lut <format>.cube] [--match] [--out 02-work/color]
+                            [--input-lut <format>.cube] [--no-match] [--match-target <file>] [--out 02-work/color]
                             [--creative-lut <user>.cube] [--reference <image> (experimental)]
     uv run grade.py preview [files...] [--out 02-work/color]
     uv run grade.py look --look cinematic --intensity 60 --file <name>.cube   # look alone, for other editors
 
 Without files, uses every video in 01-ingest/material.json. Order inside the grade:
-input transform (HDR tone mapping as a pre-filter; a log format's LUT) → correction
-(white balance and exposure, done in log before the LUT for log footage) → look →
-Rec.709. Everything after the HDR pre-filter is baked into one .cube per file and
+input transform (HDR tone mapping as a pre-filter; a log format's LUT) → shot matching
+(match.py, with several files; also at level none) → correction (white balance and
+exposure; one shared correction for the matched shots; for a single log file, done in
+log before the LUT) → look → Rec.709. Everything after the HDR pre-filter is baked into one .cube per file and
 applied with ffmpeg's lut3d; grade.json says, per file, which pre-filter and LUT to
 use at render time. Always the whole frame: faces only serve to measure skin.
 
@@ -366,8 +367,9 @@ def cmd_analyze(args) -> dict:
     if len(report) > 1:
         meds = [r["median_luma"] for r in report.values()]
         casts = [r.get("neutral", {}).get("b", 0) for r in report.values()]
-        lines.append(f"Shot match: median luma spread {max(meds) - min(meds):.2f}, warm/cool spread "
-                     f"{max(casts) - min(casts):.1f} (b). Above 0.08 / 4, use --match.")
+        lines.append(f"Whole frame (backgrounds differ, so only a hint): median luma spread "
+                     f"{max(meds) - min(meds):.2f}, warm/cool spread {max(casts) - min(casts):.1f} (b). "
+                     "build matches the shots on shared references (match.py).")
     (out / "color.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     (out / "color.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
@@ -410,19 +412,24 @@ def lab_stats(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity, stop_size: float = STOP_IN_LOG,
-             creative=None, transfer=None, finish: dict | None = None):
+             creative=None, transfer=None, finish: dict | None = None, match_fn=None):
     """creative: (table, intensity) of a user LUT. transfer: (src_mean, src_std, ref_mean, ref_std) in Lab.
     finish: level extras after the correction — levels (black, white), skin (center, shift deg),
-    vibrance, contrast."""
+    vibrance, contrast. match_fn: the shot's match (match.py), right after the input transform;
+    the correction then works in display light, the same for every matched shot."""
     gains = np.asarray(gains, np.float32)
     finish = finish or {}
 
     def fn(x: np.ndarray) -> np.ndarray:
-        if is_log:
+        if is_log and match_fn is None:
             # Correction in log, before the LUT: exposure and white balance as offsets.
             x = np.clip(x + (np.log2(gains) + stops) * stop_size, 0, 1)
             x = apply_cube(x, input_lut) if input_lut is not None else x
         else:
+            if is_log and input_lut is not None:
+                x = apply_cube(x, input_lut)
+            if match_fn is not None:
+                x = match_fn(x)
             x = to_disp(soft_clip(to_lin(x) * gains * 2 ** stops))
         x = np.clip(x, 0, 1)
         if "levels" in finish:
@@ -446,6 +453,50 @@ def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity,
     return fn
 
 
+def plan_correction(r: dict, args, level: str, levels_ok: bool, through) -> tuple:
+    """Correction from a measurement r; through(gains, stops, finish) measures the result.
+    Returns gains, stops, finish, notes, the measurement after."""
+    # The baseline is the most natural image: strong casts fully, mild ones partly
+    # (a warm room keeps some warmth).
+    cast = r.get("neutral", {}).get("cast_chroma", 0)
+    correct = level != "none" and (args.correct == "on" or (args.correct == "auto" and (
+        cast >= CAST_MILD or any("exposed" in v for v in r["verdict"]))))
+    strength = 1.0 if args.correct == "on" or cast >= CAST_STRONG else MILD_STRENGTH
+    gains, stops, notes, finish = [1.0, 1.0, 1.0], 0.0, [], {}
+    if correct and cast >= 1 and "neutral" in r:
+        gains = [round(g ** strength, 4) for g in r["neutral"]["gains"]]
+        notes.append(f"white balance (cast {cast}{', partial' if strength < 1 else ''})")
+    if correct and ("underexposed" in r["verdict"] or "overexposed" in r["verdict"]):
+        # Half of the way to a 0.4 median: conservative, the scene may be meant to be dark/bright.
+        stops = float(np.clip(math.log2(0.4 / max(r["median_luma"], 0.02)) * GAMMA / 2, -MAX_STOPS, MAX_STOPS))
+        notes.append(f"exposure {stops:+.2f} stops")
+    if level != "none" and levels_ok and (r["p1"] > 0.06 or r["p99"] < 0.88):
+        black = min(max(r["p1"] - 0.01, 0.0), 0.08) if r["p1"] > 0.06 else 0.0
+        white = max(r["p99"] + 0.01, 0.85) if r["p99"] < 0.88 else 1.0
+        finish["levels"] = (round(black, 3), round(white, 3))
+        notes.append("black/white points")
+    after = through(gains, stops)
+    if gains != [1.0, 1.0, 1.0] and strength == 1.0:
+        # Refine: the log offsets and the soft clip are approximations, so re-measure.
+        for _ in range(3):
+            if after.get("neutral", {}).get("cast_chroma", 0) < 1:
+                break
+            gains = [round(g * a, 4) for g, a in zip(gains, after["neutral"]["gains"])]
+            after = through(gains, stops)
+    if level == "full":
+        # Skin toward the skin line: half the offset, capped — global, so kept small.
+        off = after.get("skin_offset_deg")
+        if off is not None and abs(off) > 5:
+            shift = float(np.clip(-off * 0.5, -SKIN_MAX_SHIFT, SKIN_MAX_SHIFT))
+            finish["skin"] = (after["skin_hue_deg"], round(shift, 1))
+            notes.append(f"skin {shift:+.1f}° toward the skin line (global, gentle)")
+        finish["contrast"], finish["vibrance"] = 0.06, 0.08
+        notes.append("contrast and vibrance tidy-up")
+    if finish:
+        after = through(gains, stops, finish)
+    return gains, stops, finish, notes, after
+
+
 def cmd_build(args) -> None:
     out = Path(args.out)
     if args.look and args.look not in LOOKS:
@@ -458,74 +509,68 @@ def cmd_build(args) -> None:
     if (Path(args.ingest) / "faces.json").exists():
         faces = json.loads((Path(args.ingest) / "faces.json").read_text(encoding="utf-8"))
     level = args.level
-    lumas = [report[m["name"]]["median_luma"] for m in items]
-    # Basic includes matching shots: automatic when several files clearly differ.
-    match = args.match or (level != "none" and len(items) > 1 and max(lumas) - min(lumas) > 0.08)
-    target = float(np.median(lumas)) if match else None
-    plan = {}
+    ctx = {}
     for m in items:
-        r = report[m["name"]]
         is_log = bool(args.input_lut and (m.get("log_hint") or m.get("faces", {}).get("image", {}).get("flat")
                                           or args.force_log))
-        # The baseline is the most natural image: strong casts fully, mild ones partly
-        # (a warm room keeps some warmth).
-        cast = r.get("neutral", {}).get("cast_chroma", 0)
-        correct = level != "none" and (args.correct == "on" or (args.correct == "auto" and (
-            cast >= CAST_MILD or any("exposed" in v for v in r["verdict"]))))
-        strength = 1.0 if args.correct == "on" or cast >= CAST_STRONG else MILD_STRENGTH
-        gains, stops, notes, finish = [1.0, 1.0, 1.0], 0.0, [f"level {level}"], {}
-        if correct and cast >= 1 and "neutral" in r:
-            gains = [round(g ** strength, 4) for g in r["neutral"]["gains"]]
-            notes.append(f"white balance (cast {cast}{', partial' if strength < 1 else ''})")
-        if correct and ("underexposed" in r["verdict"] or "overexposed" in r["verdict"]):
-            # Half of the way to a 0.4 median: conservative, the scene may be meant to be dark/bright.
-            stops = float(np.clip(math.log2(0.4 / max(r["median_luma"], 0.02)) * GAMMA / 2, -MAX_STOPS, MAX_STOPS))
-            notes.append(f"exposure {stops:+.2f} stops")
-        if target is not None:
-            stops = float(np.clip(stops + math.log2(target / max(r["median_luma"], 0.02)) * GAMMA,
-                                  -MAX_STOPS, MAX_STOPS))
-            notes.append(f"matched to median luma {target:.2f}")
-        if level != "none" and not is_log and (r["p1"] > 0.06 or r["p99"] < 0.88):
-            black = min(max(r["p1"] - 0.01, 0.0), 0.08) if r["p1"] > 0.06 else 0.0
-            white = max(r["p99"] + 0.01, 0.85) if r["p99"] < 0.88 else 1.0
-            finish["levels"] = (round(black, 3), round(white, 3))
-            notes.append("black/white points")
-        stop_size = log_stop_size(lut) if is_log else STOP_IN_LOG
+        frames, times = analysis_frames(m, None)
+        ctx[m["name"]] = {"is_log": is_log, "stop_size": log_stop_size(lut) if is_log else STOP_IN_LOG,
+                          "frames": frames, "boxes": [faces_at(faces, m["name"], t) for t in times],
+                          "match": None, "mfn": None}
+    # Several files: match them first (also at level none — matching isn't a look), then one
+    # correction for all of them, measured on the matched set.
+    matched = {}
+    if len(items) > 1 and not getattr(args, "no_match", False):
+        import match as matcher
+        matched = matcher.solve(items, args)
+        for name, res in matched.items():
+            if res.get("params") and name in ctx:
+                ctx[name]["match"], ctx[name]["mfn"] = res, matcher.transform(res["params"])
+
+    def through_for(names):
+        def through(g, s, fin=None):
+            fr, bx = [], []
+            for n in names:
+                c = ctx[n]
+                fn = grade_fn(g, s, c["is_log"], lut if c["is_log"] else None, None, 0, c["stop_size"], finish=fin,
+                              match_fn=c["mfn"])
+                fr += [fn(f.reshape(-1, 3)).reshape(f.shape) for f in c["frames"]]
+                bx += c["boxes"]
+            return measure(fr, bx)
+        return through
+
+    group = [m["name"] for m in items if ctx[m["name"]]["mfn"] is not None]
+    shared = None
+    if group:
+        through = through_for(group)
+        r0 = through([1.0, 1.0, 1.0], 0.0)
+        r0["verdict"] = verdict(r0)
+        shared = plan_correction(r0, args, level, not all(ctx[n]["is_log"] for n in group), through)
+    plan = {}
+    for m in items:
+        r, c = report[m["name"]], ctx[m["name"]]
+        is_log, stop_size, frames = c["is_log"], c["stop_size"], c["frames"]
+        notes = [f"level {level}"]
+        if c["mfn"] is not None:
+            gains, stops, finish, shared_notes, _ = shared
+            notes.append(f"shots matched ({c['match']['status']}; references: {', '.join(c['match']['used'])})")
+            notes += [f"shared: {x}" for x in shared_notes]
+            after = through_for([m["name"]])(gains, stops, finish or None)
+        else:
+            if m["name"] in matched:
+                notes.append("not matched: " + "; ".join(matched[m["name"]]["warnings"]))
+            gains, stops, finish, own, after = plan_correction(r, args, level, not is_log, through_for([m["name"]]))
+            notes += own
         if is_log:
             notes.insert(0, f"log → Rec.709 with {Path(args.input_lut).name} ({stop_size:.3f}/stop)")
-        frames, times = analysis_frames(m, None)
-        boxes = [faces_at(faces, m["name"], t) for t in times]
-
-        def through(g, s, fin=None):
-            fn = grade_fn(g, s, is_log, lut if is_log else None, None, 0, stop_size, finish=fin)
-            return measure([fn(f.reshape(-1, 3)).reshape(f.shape) for f in frames], boxes)
-
-        after = through(gains, stops)
-        if gains != [1.0, 1.0, 1.0] and strength == 1.0:
-            # Refine: the log offsets and the soft clip are approximations, so re-measure.
-            for _ in range(3):
-                if after.get("neutral", {}).get("cast_chroma", 0) < 1:
-                    break
-                gains = [round(g * a, 4) for g, a in zip(gains, after["neutral"]["gains"])]
-                after = through(gains, stops)
-        if level == "full":
-            # Skin toward the skin line: half the offset, capped — global, so kept small.
-            off = after.get("skin_offset_deg")
-            if off is not None and abs(off) > 5:
-                shift = float(np.clip(-off * 0.5, -SKIN_MAX_SHIFT, SKIN_MAX_SHIFT))
-                finish["skin"] = (after["skin_hue_deg"], round(shift, 1))
-                notes.append(f"skin {shift:+.1f}° toward the skin line (global, gentle)")
-            finish["contrast"], finish["vibrance"] = 0.06, 0.08
-            notes.append("contrast and vibrance tidy-up")
-        if finish:
-            after = through(gains, stops, finish)
         creative = transfer = None
         if args.creative_lut:
             creative = (read_cube(Path(args.creative_lut)), args.creative_intensity / 100)
             notes.append(f"creative LUT {Path(args.creative_lut).name} {args.creative_intensity:.0f}%")
         if args.reference:
             # Experimental: move the shot's Lab mean/spread toward the reference image's.
-            base = grade_fn(gains, stops, is_log, lut if is_log else None, None, 0, stop_size, finish=finish)
+            base = grade_fn(gains, stops, is_log, lut if is_log else None, None, 0, stop_size, finish=finish,
+                            match_fn=c["mfn"])
             sm, ss = lab_stats([base(f.reshape(-1, 3)).reshape(f.shape) for f in frames])
             rm, rs = lab_stats([reference_image(Path(args.reference))])
             transfer = (sm, ss, rm, rs, args.reference_intensity / 100)
@@ -535,7 +580,7 @@ def cmd_build(args) -> None:
             notes.append(f"look {args.look} {args.intensity:.0f}%")
         cube = out / f"{m['stem']}.cube"
         write_cube(cube, grade_fn(gains, stops, is_log, lut if is_log else None, args.look, args.intensity,
-                                  stop_size, creative, transfer, finish), f"vibetake {m['name']}")
+                                  stop_size, creative, transfer, finish, c["mfn"]), f"vibetake {m['name']}")
         pre = ""
         if m.get("hdr"):
             from ingest import pick_tonemap
@@ -552,7 +597,9 @@ def cmd_build(args) -> None:
         pre = ",".join(x for x in (pre, *repairs) if x)
         plan[m["name"]] = {"source": m["file"], "pre": pre, "lut": str(cube), "notes": notes,
                            "params": {"level": level, "gains": gains, "stops": round(stops, 3), "log": is_log,
-                                      "finish": finish, "look": args.look, "intensity": args.intensity}}
+                                      "finish": finish, "look": args.look, "intensity": args.intensity,
+                                      "match": (c["match"] or {}).get("params"),
+                                      "match_status": (matched.get(m["name"]) or {}).get("status")}}
         plan[m["name"]]["check"] = {"cast_before": r.get("neutral", {}).get("cast_chroma"),
                                     "cast_after": after.get("neutral", {}).get("cast_chroma"),
                                     "median_luma_before": r["median_luma"], "median_luma_after": after["median_luma"],
@@ -572,7 +619,7 @@ def cmd_propose(args) -> None:
     report = None
     for level in ("basic", "full"):
         sub = argparse.Namespace(**{**vars(args), "level": level, "out": str(out / level), "look": None,
-                                    "correct": "auto", "match": False, "force_log": args.force_log,
+                                    "correct": "auto", "force_log": args.force_log,
                                     "creative_lut": None, "reference": None, "creative_intensity": 100,
                                     "reference_intensity": 60, "intensity": 60, "n": 2})
         cmd_build(sub)
@@ -583,9 +630,12 @@ def cmd_propose(args) -> None:
     rec = "full" if skin else "basic" if anything else "none"
     findings = "; ".join(f"{n}: {', '.join(r['verdict']) or 'nothing to correct'}" for n, r in report.items())
     lines = ["# Color proposal", "", f"Findings: {findings}", f"Recommended: {rec}", "",
-             f"- Basic: exposure, white balance, black/white points, matching shots → previews in {out / 'basic'}",
+             f"- Basic: shots matched + exposure, white balance, black/white points → previews in {out / 'basic'}",
              f"- Full: Basic + skin (global, gentle), contrast and vibrance → previews in {out / 'full'}",
-             "- None: the material as is", "- Custom: free text (a look, the user's LUT, a reference image)"]
+             "- None: only the shots matched (a single file: the material as is)",
+             "- Custom: free text (a look, the user's LUT, a reference image)"]
+    if len(report) > 1 and not args.no_match:
+        lines.append(f"- Shot matching: {Path(args.match_dir) / 'match.md'}, sheet.jpg and faces.jpg — check them")
     (out / "propose.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 
@@ -649,9 +699,16 @@ def main() -> None:
         s.add_argument("--input-lut", help="the log format's official conversion LUT (.cube)")
         if name == "propose":
             s.add_argument("--force-log", action="store_true", help="treat files as log even if not flagged")
+        if name in ("build", "propose"):
+            s.add_argument("--no-match", action="store_true", help="don't match the shots to each other")
+            s.add_argument("--match-target", help="match to this shot instead of the neutral base")
+            s.add_argument("--zones", choices=("auto", "on", "off"), default="auto",
+                           help="matching color per tonal zone: auto = only when the cameras differ")
+            s.add_argument("--no-person", action="store_true", help="match without the person cut-out (rembg)")
+            s.add_argument("--match-dir", default="02-work/color/match")
         if name == "build":
             s.add_argument("--level", choices=LEVELS, default="basic",
-                           help="none: untouched · basic: exposure, white balance, black/white, matching · "
+                           help="none: only shot matching · basic: + exposure, white balance, black/white · "
                                 "full: basic + skin, contrast, vibrance")
             s.add_argument("--denoise", choices=("off", *DENOISE), default="off",
                            help="noise reduction, only when asked (grain can be wanted): light or medium")
@@ -661,7 +718,6 @@ def main() -> None:
                            help="auto: strong casts fully, mild ones partly, exposure when clearly off")
             s.add_argument("--look", choices=LOOKS)
             s.add_argument("--intensity", type=float, default=60)
-            s.add_argument("--match", action="store_true", help="match exposure across files")
             s.add_argument("--force-log", action="store_true", help="treat files as log even if not flagged")
             s.add_argument("--creative-lut", help="a user's creative LUT (Rec.709 in and out), after correction")
             s.add_argument("--creative-intensity", type=float, default=100)
