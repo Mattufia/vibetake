@@ -52,10 +52,11 @@ from scipy.interpolate import PchipInterpolator
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import die, filter_path, find_font, tool  # noqa: E402
 from grade import (LUMA, apply_cube, faces_at, from_lab, grab, load_material, read_cube, resolve,  # noqa: E402
-                   sample_times, to_disp, to_lab, to_lin)
+                   to_disp, to_lab, to_lin)
 
 WIDTH = 640                      # analysis width
-FRAMES = 6                       # frames measured per shot
+FRAMES = 6                       # frames measured per shot (4 when there are many shots)
+MASK_MODEL = "u2net_human_seg"   # person cut-out for measuring
 # Tone curve, in L*. Past 100: what a positive exposure pushed over white, rolled back under it.
 KNOTS = np.array([0, 8, 16, 25, 35, 45, 55, 65, 75, 85, 93, 100, 115, 140], float)
 L_MAX = float(KNOTS[-1])
@@ -63,13 +64,13 @@ SLOPE = (0.55, 1.7)              # rule 4: the curve (after exposure) never much
 SLOPE_SHADOWS = (0.5, 1.4)       # below L* 25: flatter undoes lifted blacks; steep lifts noise and blocks
 SLOPE_TEXTURE = 0.85             # rule 2: around skin (and any reference losing texture) contrast stays
 TEXTURE_KEEP = 0.75              # rule 2: share of a reference's texture that must survive (skin 0.85)
-LOST = 0.5                       # texture below this share of the best shot's: lost at the source
+LOST = 0.3                       # share of a reference crushed or burnt: its detail is lost at the source
 MAX_GAIN_STOPS = 0.5             # rule 4: white balance, per channel
 MAX_EXPOSURE = 1.5               # rule 4: stops
 MAX_ZONE_OFFSET = 5.0            # rule 4: a, b units per tonal zone
 MAX_NEW_CLIP = 0.5               # rule 3: percentage points of newly clipped pixels
 FIT_TOL = 4.0                    # L*: a reference left further than this from its target conflicts
-UNSTABLE = 6.0                   # L* spread across a shot's frames: the light on it changes
+UNSTABLE = 6.0                   # L* spread across a shot's frames: the light on it changes (noted)
 DARK_FLOOR, LIGHT_CEIL = 8.0, 92.0   # the base keeps texture in the darks and headroom in the lights
 PRIORITY = {"skin": 3.0, "dark": 1.5, "light": 1.5, "mid": 1.0, "neutral": 0.3}
 COLORS = [(255, 80, 80), (80, 200, 255), (255, 210, 60), (120, 255, 120), (255, 120, 255), (255, 160, 60),
@@ -182,12 +183,30 @@ def frame_size(m: dict) -> tuple[int, int]:
     return WIDTH, int(round(WIDTH * m["display_height"] / m["display_width"] / 2)) * 2
 
 
-def pick_times(m: dict, faces: dict, n: int) -> list[float]:
-    """Times with a face when there are any (the person is the best reference), else spread out."""
-    with_face = [s["t"] for s in faces.get("files", {}).get(m["name"], []) if s["faces"]]
+def used_ranges(m: dict, edl: dict | None) -> list[tuple[float, float]]:
+    """The parts of the file the edit keeps; the whole file when there's no edit yet."""
+    segs = [(s["in"], s["out"]) for s in (edl or {}).get("segments", [])
+            if s.get("name", Path(s.get("source", "")).name) == m["name"] and s["out"] > s["in"]]
+    return segs or [(0.0, m["duration"])]
+
+
+def pick_times(m: dict, faces: dict, n: int, ranges: list[tuple[float, float]]) -> list[float]:
+    """Spread over what the edit uses, preferring times with a face (the person is the best
+    reference): what's measured is what the viewer will see."""
+    inside = lambda t: any(a <= t <= b for a, b in ranges)  # noqa: E731
+    with_face = [s["t"] for s in faces.get("files", {}).get(m["name"], []) if s["faces"] and inside(s["t"])]
     if len(with_face) >= n:
         return [with_face[i] for i in np.linspace(0, len(with_face) - 1, n).round().astype(int)]
-    return sample_times(m["duration"], n)
+    total = sum(b - a for a, b in ranges)
+    times = []
+    for k in range(n):
+        pos = total * (k + 0.5) / n
+        for a, b in ranges:
+            if pos <= b - a:
+                times.append(round(a + pos, 2))
+                break
+            pos -= b - a
+    return times
 
 
 def load(m: dict, t: float, lut) -> np.ndarray:
@@ -197,8 +216,9 @@ def load(m: dict, t: float, lut) -> np.ndarray:
 
 
 def person_masks(work: list[tuple[str, np.ndarray]], mdir: Path) -> dict[str, np.ndarray]:
-    """rembg (birefnet-portrait) masks for the sampled frames, cached by file and time."""
-    d_in, d_out = mdir / "masks" / "in", mdir / "masks" / "out"
+    """Person masks for the sampled frames, cached by file and time. A light model (rembg
+    u2net_human_seg, ~0.4 s a frame on CPU) is enough to measure; the heavy one is for covers."""
+    d_in, d_out = mdir / "masks" / "in", mdir / "masks" / MASK_MODEL
     d_in.mkdir(parents=True, exist_ok=True)
     d_out.mkdir(parents=True, exist_ok=True)
     todo = [(k, img) for k, img in work if not (d_out / f"{k}.png").exists()]
@@ -211,9 +231,9 @@ def person_masks(work: list[tuple[str, np.ndarray]], mdir: Path) -> dict[str, np
             f.unlink()
         for k, img in todo:
             write_png(d_in / f"{k}.png", img)
-        print(f"cutting out the person on {len(todo)} frames (rembg birefnet-portrait)…", flush=True)
+        print(f"cutting out the person on {len(todo)} frames (rembg {MASK_MODEL})…", flush=True)
         p = subprocess.run([uvx, "--python", "3.12", "--from", "rembg[cpu,cli]", "rembg", "p", "-om", "-m",
-                            "birefnet-portrait", str(d_in), str(d_out)],
+                            MASK_MODEL, str(d_in), str(d_out)],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if p.returncode != 0:
             print(f"WARNING: rembg failed ({(p.stderr or p.stdout).strip().splitlines()[-1:]}) — "
@@ -222,7 +242,8 @@ def person_masks(work: list[tuple[str, np.ndarray]], mdir: Path) -> dict[str, np
     for k, img in work:
         f = d_out / f"{k}.png"
         if f.exists():
-            out[k] = read_gray(f, img.shape[1], img.shape[0]) > 0.5
+            # Pulled in a little: the light model's edge runs a few pixels into the background.
+            out[k] = ndimage.binary_erosion(read_gray(f, img.shape[1], img.shape[0]) > 0.5, iterations=3)
     return out
 
 
@@ -253,13 +274,31 @@ def person_regions(lab: np.ndarray, box, person: np.ndarray | None) -> dict[str,
         out["hair"] = hair
     clothes = rect(-0.9, 1.9, 1.4, 3.2) & person & ~near_skin
     if clothes.sum() >= 300:
-        thr = otsu(L[clothes])
-        lo, hi = clothes & (L < thr), clothes & (L >= thr)
-        if min(lo.sum(), hi.sum()) >= 0.2 * clothes.sum() and np.median(L[hi]) - np.median(L[lo]) >= 15:
-            out["clothes_dark"], out["clothes_light"] = lo, hi
-        else:
-            out["clothes"] = clothes
+        out["clothes"] = clothes          # split into garments later, the same way in every shot
     return out
+
+
+def split_clothes(data: dict) -> None:
+    """A dark and a light garment (sweater and jeans) are two references — decided once for all
+    shots with one brightness threshold, so the same garment has the same name everywhere."""
+    vals = [d["clothes_L"][k] for d in data.values() for k in d.get("clothes_L", {})]
+    if not vals:
+        return
+    allL = np.concatenate(vals)
+    thr = otsu(allL)
+    lo, hi = allL[allL < thr], allL[allL >= thr]
+    if min(len(lo), len(hi)) < 0.15 * len(allL) or np.median(hi) - np.median(lo) < 15:
+        return                                                  # one garment, or one tone
+    for d in data.values():
+        items = d["regions"].pop("clothes", [])
+        for i, reg in items:
+            idx = np.flatnonzero(reg)
+            Lv = d["clothes_L"][i]
+            for name, sel in (("clothes_dark", Lv < thr), ("clothes_light", Lv >= thr)):
+                if sel.sum() >= 150:
+                    m = np.zeros(reg.shape, bool)
+                    m.flat[idx[sel]] = True
+                    d["regions"].setdefault(name, []).append((i, m))
 
 
 def neutral_regions(lab: np.ndarray, exclude: np.ndarray) -> dict[str, np.ndarray]:
@@ -315,7 +354,20 @@ def stats(samples: list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]) 
     return {"L": round(float(np.median(L)), 2), "a": round(float(np.median(Lb[:, 1])), 2),
             "b": round(float(np.median(Lb[:, 2])), 2), "lin": to_lin(P[core]).mean(0).round(6).tolist(),
             "tex": round(float(np.median(texs)), 3), "spread": round(float(np.std(meds)), 2),
-            "clip": round(float(np.mean((L < 2) | (L > 98))), 4), "n": int(len(P)), "frames": len(pix)}
+            "split": two_lights(meds),
+            # Crushed to black or burnt to white: detail that isn't in the file any more.
+            "clip": round(float(np.mean((L < 3) | (L > 97))), 4), "n": int(len(P)), "frames": len(pix)}
+
+
+def two_lights(meds: list[float]) -> bool:
+    """The shot spends a similar time under two different lights (half inside, half outside):
+    one correction can't suit both. A short moment under other light doesn't count."""
+    if len(meds) < 4:
+        return False
+    v = np.sort(meds)
+    gaps = np.diff(v)
+    k = int(np.argmax(gaps))
+    return bool(gaps[k] > 8 and min(k + 1, len(v) - k - 1) >= 0.35 * len(v))
 
 
 def measure(frames: list[np.ndarray], regions: dict[str, list[tuple[int, np.ndarray]]], fn=None) -> dict:
@@ -361,9 +413,8 @@ def targets(meas: dict, refs: list[str], target_file: str | None) -> dict:
             ta = float(np.median([v["a"] for v in vals.values()]))
             tb = float(np.median([v["b"] for v in vals.values()]))
             if med < 30:
-                # Darks: as deep as the deepest shot that still has texture — black hair stays black.
-                best = max(v["tex"] for v in vals.values())
-                ok = [v["L"] for v in vals.values() if v["tex"] >= 0.7 * best and v["clip"] < 0.05]
+                # Darks: as deep as the deepest shot that isn't crushed — black hair stays black.
+                ok = [v["L"] for v in vals.values() if v["clip"] < 0.05]
                 tL = max(min(ok) if ok else med, DARK_FLOOR)
             elif med > 70:
                 # Lights: as bright as the brightest that isn't clipped, with headroom.
@@ -371,8 +422,7 @@ def targets(meas: dict, refs: list[str], target_file: str | None) -> dict:
                 tL = min(max(ok) if ok else med, LIGHT_CEIL)
             else:
                 tL = med
-        T[r] = {"L": round(float(tL), 2), "a": round(ta, 2), "b": round(tb, 2), "zone": zone_of(med),
-                "tex_best": max(v["tex"] for v in vals.values())}
+        T[r] = {"L": round(float(tL), 2), "a": round(ta, 2), "b": round(tb, 2), "zone": zone_of(med)}
     return T
 
 
@@ -453,19 +503,24 @@ def fit_zones(items: list[tuple[float, float, float, float]]) -> list | None:
 
 
 def solve_file(name: str, frames, regions, before: dict, T: dict, prio: dict, zones_on: bool) -> dict:
-    usable, notes = [], []
+    usable, notes, split = [], [], []
     for r, s in before.items():
         if r not in T:
             continue
-        if s["spread"] > UNSTABLE:
-            notes.append(f"{r}: light on it changes within the shot (spread {s['spread']}) — not used")
-        elif s["n"] < 150:
+        if s["n"] < 150:
             notes.append(f"{r}: too small here — not used")
-        elif s["tex"] < LOST * T[r]["tex_best"] or s["clip"] > 0.2:
+        elif s["clip"] > LOST:
             notes.append(f"{r}: detail lost at the source in this shot (crushed or clipped) — it can't be "
                          "recovered, so it isn't forced")
         else:
             usable.append(r)
+            # The light changing within the shot doesn't stop it: one correction for the whole
+            # shot, set by what's most common (medians). Only an even split is worth a warning.
+            if s.get("split"):
+                split.append(r)
+            elif s["spread"] > UNSTABLE:
+                notes.append(f"{r}: the light on it changes within the shot (spread {s['spread']}) — "
+                             "corrected for the most common light")
     if not usable:
         return {"status": "not matched", "params": None, "used": [], "dropped": [], "notes": notes,
                 "warnings": ["no reference shared with the other shots — left to the shared correction"]}
@@ -528,6 +583,9 @@ def solve_file(name: str, frames, regions, before: dict, T: dict, prio: dict, zo
         warnings.append(f"still {max(left):.1f} L* off on {usable[int(np.argmax(left))]}")
     if len(usable) == 1:
         warnings.append(f"only one reference ({usable[0]}): the rest of the tonal range isn't matched")
+    if split:
+        warnings.append(f"the light changes halfway through the shot ({', '.join(split)}): one correction "
+                        "can't suit both halves — say so in the delivery")
     if all(r.startswith("neutral_") for r in usable):
         warnings.append("matched on neutral surfaces only (low confidence: backgrounds differ between shots)")
     return {"status": "partial" if warnings else "ok", "params": params, "used": usable, "dropped": dropped,
@@ -659,11 +717,12 @@ def load_refs(mdir: Path) -> dict:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {"added": {}, "drop": []}
 
 
-def cache_key(items, args, refs: dict) -> str:
+def cache_key(items, args, refs: dict, edl: dict | None) -> str:
     parts = [[m["name"], Path(m["file"]).stat().st_size if Path(m["file"]).exists() else 0,
               Path(m["file"]).stat().st_mtime if Path(m["file"]).exists() else 0] for m in items]
     parts += [getattr(args, "input_lut", None), getattr(args, "force_log", False), getattr(args, "match_target", None),
-              getattr(args, "zones", "auto"), getattr(args, "no_person", False), refs, FRAMES, KNOTS.tolist()]
+              getattr(args, "zones", "auto"), getattr(args, "no_person", False), refs, FRAMES, KNOTS.tolist(),
+              MASK_MODEL, [used_ranges(m, edl) for m in items]]
     return hashlib.sha1(json.dumps(parts, default=str).encode()).hexdigest()[:16]
 
 
@@ -672,7 +731,9 @@ def solve(items: list[dict], args) -> dict:
     mdir = Path(getattr(args, "match_dir", None) or "02-work/color/match")
     mdir.mkdir(parents=True, exist_ok=True)
     refs_cfg = load_refs(mdir)
-    key = cache_key(items, args, refs_cfg)
+    ep = Path(getattr(args, "edl", None) or "02-work/edl.json")
+    edl = json.loads(ep.read_text(encoding="utf-8")) if ep.exists() else None
+    key = cache_key(items, args, refs_cfg, edl)
     mj = mdir / "match.json"
     if mj.exists():
         old = json.loads(mj.read_text(encoding="utf-8"))
@@ -684,9 +745,11 @@ def solve(items: list[dict], args) -> dict:
     lut_for = lambda m: lut if is_log(m, args) else None  # noqa: E731
 
     data = {}
+    n = FRAMES if len(items) <= 8 else 4
     for m in items:
-        times = pick_times(m, faces, FRAMES)
-        data[m["name"]] = {"times": times, "frames": [load(m, t, lut_for(m)) for t in times], "regions": {}}
+        times = pick_times(m, faces, n, used_ranges(m, edl))
+        data[m["name"]] = {"times": times, "frames": [load(m, t, lut_for(m)) for t in times], "regions": {},
+                           "clothes_L": {}}
     any_face = any(faces_at(faces, m["name"], t) for m in items for t in data[m["name"]]["times"])
     masks = {}
     if any_face and not getattr(args, "no_person", False):
@@ -708,6 +771,8 @@ def solve(items: list[dict], args) -> dict:
                 exclude[int(max(y - bh, 0) * h):int(min(y + 4 * bh, 1) * h),
                         int(max(x - bw, 0) * w):int(min(x + 2 * bw, 1) * w)] = True
             regs.update(neutral_regions(lab, exclude))
+            if "clothes" in regs:
+                d["clothes_L"][i] = lab[..., 0][regs["clothes"]]
             for r, reg in regs.items():
                 d["regions"].setdefault(r, []).append((i, reg))
         # References added by looking (snapped to the surface around the point, a few frames around t).
@@ -722,9 +787,11 @@ def solve(items: list[dict], args) -> dict:
                 if reg is not None:
                     d["frames"].append(img)
                     d["regions"].setdefault(r, []).append((len(d["frames"]) - 1, reg))
+    split_clothes(data)
+    for m in items:
         for drop in refs_cfg.get("drop", []):
             if drop.get("file") in (None, m["name"]):
-                d["regions"].pop(drop["name"], None)
+                data[m["name"]]["regions"].pop(drop["name"], None)
 
     before = {m["name"]: measure(data[m["name"]]["frames"], data[m["name"]]["regions"]) for m in items}
     names = sorted({r for b in before.values() for r in b})
@@ -865,6 +932,7 @@ def main() -> None:
             s.add_argument("--zones", choices=("auto", "on", "off"), default="auto",
                            help="color per tonal zone: auto = only when the cameras differ")
             s.add_argument("--no-person", action="store_true", help="don't cut out the person (no rembg)")
+            s.add_argument("--edl", default="02-work/edl.json", help="measure only what the edit uses (if it exists)")
         if name == "add":
             s.add_argument("--name", required=True)
             s.add_argument("--file", required=True)
