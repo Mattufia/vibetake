@@ -153,6 +153,7 @@ uv run tests/test_grade.py        # color: ambient white balance, log path, leve
 uv run tests/test_match.py        # shot matching: groups, references, darks kept, skip, nudges, rules
 uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
 uv run tests/test_reframe.py      # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
+uv run tests/test_speaker.py      # several people: who says each sentence (mics, mouths), framing follows them
 uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts
 uv run tests/test_audio.py        # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
 uv run tests/test_audio_inputs.py # the sound's source: channels, best track, separate recordings, ambience

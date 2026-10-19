@@ -199,7 +199,11 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   tracker**: holds still while the face stays in a dead zone, pans with eased
   acceleration and a speed limit when it leaves it, cuts straight to the new
   framing if the face would leave the crop. `--mode fixed|operator` forces one.
-  The face sits at ~40% from the top when there's room; the head is never cut. It
+  The face sits at ~40% from the top when there's room; the head is never cut.
+  **Several people on screen**: the group when they all fit; otherwise who speaks,
+  sentence by sentence — from a mic per person when there is one (it learns whose is
+  whose), else from mouth movement; unsure → it stays. Check `02-work/speakers.md` and
+  `people_<file>.jpg` (who is person 1, 2…); fix a line with `speaker.py --set L12=2`. It
   warns when a crop is smaller than the output (1080p horizontal cut to vertical
   is stretched ~1.8×, softer): say so, or once the segment is final recover detail
   with AI — `upscale.py run --seg N --test 2` first (time, comparison), never a

@@ -66,6 +66,50 @@ def face_track(samples: list[dict], duration: float) -> tuple[np.ndarray, ...]:
     return t, x, y, h
 
 
+HOLD_S = 1.5         # least time on one person before the framing moves to another
+
+
+def who_track(name: str, samples: list[dict], duration: float, spk: dict, cw: float) -> tuple | None:
+    """With several people on screen: everyone, when they all fit the crop; otherwise whoever
+    says each sentence (speaker.py), changing only where a sentence starts and after HOLD_S;
+    unsure → hold the person on screen. None when there's one person (the usual path)."""
+    info = spk.get(name)
+    if not info:
+        return None
+    from speaker import tracks
+    people = tracks(samples, duration)
+    if len(people) < 2:
+        return None
+    t = np.arange(0, duration, 1 / RATE)
+    n = len(t)
+    X = np.array([p["x"][:n] for p in people])
+    Y = np.array([p["y"][:n] for p in people])
+    Wd = np.array([p["w"][:n] for p in people])
+    Hh = np.array([p["h"][:n] for p in people])
+    # Who, at each moment.
+    current = np.full(n, -1)
+    who, since = -1, -1e9
+    events = sorted((s["start"], s["person"]) for s in info["sentences"] if s.get("person"))
+    k = 0
+    for i, ti in enumerate(t):
+        while k < len(events) and events[k][0] <= ti:
+            p = events[k][1] - 1
+            if p != who and (who < 0 or ti - since >= HOLD_S) and 0 <= p < len(people):
+                who, since = p, ti
+            k += 1
+        current[i] = who
+    x, y, h = np.full(n, np.nan), np.full(n, np.nan), np.full(n, np.nan)
+    with np.errstate(all="ignore"):
+        left, right = np.nanmin(X - Wd / 2, 0), np.nanmax(X + Wd / 2, 0)
+    group = (right - left) * 1.25 <= cw
+    for i in range(n):
+        if group[i] and not np.isnan(left[i]):
+            x[i], y[i], h[i] = (left[i] + right[i]) / 2, np.nanmean(Y[:, i]), np.nanmax(Hh[:, i])
+        elif current[i] >= 0 and not np.isnan(X[current[i], i]):
+            x[i], y[i], h[i] = X[current[i], i], Y[current[i], i], Hh[current[i], i]
+    return t, x, y, h, group, current
+
+
 def operate(target: np.ndarray, size: float, start: float | None = None) -> np.ndarray:
     """Camera position (crop center, 0-1 of the source) following target like an operator.
     size: crop size on this axis (0-1). The center is kept so the crop stays inside the frame."""
@@ -162,7 +206,15 @@ def main() -> None:
         zooms.append(z)
         prev = s
 
+    # Several people on screen: who says each sentence (speaker.py, cached).
+    multi = [n for n in dict.fromkeys(s["name"] for s in segs)
+             if sum(1 for smp in faces.get(n, []) if len(smp["faces"]) >= 2) >= 0.3 * max(len(faces.get(n, [])), 1)]
+    spk = {}
+    if multi:
+        from speaker import analyze
+        spk = analyze(multi, ing)
     paths: dict[tuple[str, float], tuple] = {}
+    follow: dict[tuple[str, float], tuple] = {}
     warnings = set()
     moving_on = args.punch == "auto"
     for i_seg, (s, z) in enumerate(zip(segs, zooms)):
@@ -183,6 +235,14 @@ def main() -> None:
         key = (s["name"], z)
         if key not in paths:
             t, fx, fy, fh = face_track(faces.get(s["name"], []), m["duration"])
+            wt = who_track(s["name"], faces.get(s["name"], []), m["duration"], spk, cw)
+            if wt:
+                # The group when it fits, else who speaks; the biggest face where neither is known.
+                _, wx, wy, wh, grp, cur = wt
+                n = min(len(t), len(wx))
+                known = ~np.isnan(wx[:n])
+                fx[:n][known], fy[:n][known], fh[:n][known] = wx[:n][known], wy[:n][known], wh[:n][known]
+                follow[key] = (grp, cur)
             # Vertical target: face center at FACE_Y of the crop, but never so low that the
             # top of the head is cut — the box starts at the brows, hair adds ~30% above.
             hair_top = fy - fh / 2 - HAIR * fh - 0.02
@@ -202,6 +262,14 @@ def main() -> None:
                       "bump": round(bump, 4), "drift": round(drift, 4)}
         moving = (max(k[1] for k in keys) - min(k[1] for k in keys)) * sw
         what = {"full": "full frame", "fixed": "fixed crop"}.get(how, f"operator, pans {moving:.0f} px")
+        if key in follow and how != "full":
+            grp, cur = follow[key]
+            g, c = grp[i0:i1], cur[i0:i1]
+            if len(g) and g.mean() > 0.5:
+                what += " · everyone fits: the group"
+            elif len(c):
+                ppl = sorted({int(v) + 1 for v in c if v >= 0})
+                what += f" · follows who speaks: person {', '.join(map(str, ppl))}" if ppl else " · unsure who speaks"
         print(f"[{s['in']:7.2f}–{s['out']:7.2f}] {s['name']}  zoom {z:.2f}  {what}"
               f"{f'  bump +{bump:.0%}' if bump else ''}{f'  drift +{drift:.1%}' if drift else ''}")
     for w in sorted(warnings):
