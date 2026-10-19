@@ -92,10 +92,8 @@ progress, and skips what's already done if run again (`--force` redoes it). Then
    To recompute only the marks: `transcribe.py --rebuild-md --lang <code>`.
    Filler words per language live in `${CLAUDE_SKILL_DIR}/references/fillers.json`.
 
-The script already handles VFR, HDR, rotation, several audio tracks, audio
-recorded separately and possible log footage, and records faces every 0.5 s.
-**When `material.md` shows a warning, read `${CLAUDE_SKILL_DIR}/references/ingest.md`**
-for what each one means and what to do.
+It handles VFR, HDR, rotation, several audio tracks, separate audio and log footage;
+**a warning in `material.md` → read `${CLAUDE_SKILL_DIR}/references/ingest.md`**.
 
 **If the scripts can't run** (no uv, no Python), do the same by hand with
 ffprobe/ffmpeg and say so: probe, VFR/HDR checks, scene-change stills plus a
@@ -141,15 +139,11 @@ them.
 
 Ask only what can't be deduced with confidence **and** is expensive to fix if wrong:
 usually the **destination** (unless the request says it) and the **color level**
-(section 4); the type only with low confidence; subtitles never. It's **one
-moment**: one line on what the raw footage is, every open question together — and,
-in the same moment, **whether all the material is in** ("Have you added everything
-you'd like me to use? Brand assets in `brand/`, style references in `references/`,
-your own music in `music/`. Anything missing, I'll source myself — typefaces, music
-and icons; your logo only if you provide it"), in the user's language. Brand assets
-are never searched for or recreated. Nothing to ask? Don't stop for the folders:
-mention them in the delivery. "Your call" → the recommended options, flagged in the
-delivery. Rules, example: **`${CLAUDE_SKILL_DIR}/references/questions.md`**.
+(section 4); the type only with low confidence; subtitles never. **One moment**, every
+open question together with **whether all the material is in** (`brand/`,
+`references/`, `music/`), in the user's language. Brand assets are never searched for
+or recreated. Nothing to ask → don't stop; "your call" → the recommended options,
+flagged in the delivery. How, wording, example: **`${CLAUDE_SKILL_DIR}/references/questions.md`**.
 
 Margins, pacing and duration follow from the answers; don't ask about them
 separately.
@@ -217,12 +211,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 - **Hook (feed)**: `hook.py` shortlists lines that could open the video into
   `02-work/hooks.md`; read them in context and choose. First with `--keep
   "L9,L1-L12"` (also kept in place) or `"L9,L1-L8,L10-L12"` (moved).
-- **B-roll**: own material first (ingest flags candidates). `broll.py list`
-  catalogs them; describe each from its contact sheets; `broll.py place` anchors
-  one to a word (`--line L5 --word material`) or centers it on a cut (`--cut 3`);
-  `render.py` lays it over the edit with the speech underneath. Rules (what to
-  illustrate, length, coverage, never over the hook):
-  **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
+- **B-roll**: own material first; `broll.py list` catalogs it, `place` anchors a
+  clip to a word or a cut, `render.py` lays it over the speech. Commands and rules
+  (what to illustrate, length, coverage, never over the hook): **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
 - Edit `edl.json` by hand for anything finer (trim a segment, move one, change a
   segment's `frame.zoom`) and re-render.
 - `render.py` works from the **original files**: color from
@@ -325,14 +316,11 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   leaves room for speech); sound effects (`sfx.py`, section 7) sit ~10 dB below it.
 - **Start the music where it has energy** (`--start`), not on a slow intro, and
   fade it out at the end.
-- **Music source**: for quick, informal videos, a bed synthesized to the exact
-  length (`musicgen.py`, no licenses; it sounds synthetic up close, fine ducked
-  under the voice). For scripted, brand or music-driven videos, a real track (the
-  user's, or downloaded by hand from libraries without attribution). Never music
-  the user can't publish. **Any third-party material** (music, effects, stock,
-  fonts) under a free license, ideally without attribution (CC0, Pixabay/Pexels
-  style; OFL fonts); if only an attributed one exists, say so and credit it in the
-  copy. Options and licenses: **`${CLAUDE_SKILL_DIR}/references/music.md`**.
+- **Music source**: a bed synthesized to the length (`musicgen.py`) for quick,
+  informal videos; a real track for scripted, brand or music-driven ones. **Never
+  anything the user can't publish**; third-party material (music, effects, stock,
+  fonts) free-licensed, source and license in `project.md`. Where from, licenses:
+  **`${CLAUDE_SKILL_DIR}/references/music.md`**.
 
 ## 6. Subtitles
 
@@ -388,16 +376,12 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py init | still 1.2 4.5 | render
 uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word ventas
 ```
 
-- **Design** (`02-work/design.json`): how, and what separates professional from
-  amateur — **`${CLAUDE_SKILL_DIR}/references/design.md`**. Subtitles and covers use
-  its fonts and accent too.
-- **Elements enter on the frame of the word that names them**; keywords, not
-  sentences; a graphic per kind of idea. Face, graphics and captions keep their own
-  bands; each visual event can have its sound, anchored to the same word.
-- **Remotion renders only the graphics layer, with alpha**, built from the kit's
-  motion pieces and this video's design, plus components written for the video;
-  `still` checks frames over the real image (safe zone, face) before the full render.
-  Scene plan, levels, idea → graphic table, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
+- **Design** (`02-work/design.json`, also used by subtitles and covers):
+  **`${CLAUDE_SKILL_DIR}/references/design.md`**.
+- **Elements enter on the frame of the word that names them**, each with its sound
+  on the same word; face, graphics and captions keep their own bands. Remotion renders
+  only the graphics layer (alpha); `still` checks frames over the real image first.
+  Scene plan, idea → graphic, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
 
 ## 8. Generating video from scratch (no filmed material)
 
@@ -453,21 +437,10 @@ copy to publish with**.
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
   past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
 
-**Covers: three different concepts, one file per platform** (YouTube 1280×720;
-Reels, TikTok, Shorts 1080×1920 with headline and face inside the grid's 3:4 crop).
-Each concept is a free canvas designed for this video — its idea, the person's
-expression with a few words, something bold — not one layout with three texts.
-
-```
-uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py candidates            # face visible, big, sharp
-uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py cutout --time 14.5    # person cut out (default) + face position
-uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py render && cover.py preview   # → 03-delivery/, then at real size
-```
-
-The person is cut out by default (whole frame only if asked); if the cut fails, try
-another frame. Concepts, checks and what makes a cover work:
-**`${CLAUDE_SKILL_DIR}/references/covers.md`**. The video's first frame must work
-alone too (autoplay starts there).
+**Covers: three different concepts, one file per platform**, each a free canvas
+designed for this video (not one layout with three texts), the person cut out by
+default. Sizes, commands, checks: **`${CLAUDE_SKILL_DIR}/references/covers.md`** —
+read it before making them. The video's first frame must work alone too.
 
 **Before delivering, always run the QA** (with the destination's platforms and
 loudness):

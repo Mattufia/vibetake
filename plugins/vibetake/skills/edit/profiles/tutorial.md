@@ -14,5 +14,6 @@ Screencasts and step-by-step instructional videos.
 - **Traps**: on-screen text (UI, code, values) must stay legible after any
   reframe or zoom; a vertical crop of a screen recording is usually unreadable —
   say so and propose zoom-ins instead.
-- **Color**: Basic, on the camera shots only; never grade screen recordings (UI colors must stay true).
+- **Color**: Basic, on the camera shots only; never grade screen recordings (`match.py skip` them: UI colors
+  must stay true).
 - **Framing**: never reframe or punch into screen recordings (UI must stay readable and still); the operator framing is for camera shots only.

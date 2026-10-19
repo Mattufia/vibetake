@@ -24,7 +24,8 @@ Applied:
   measured. It's subjective and it's the user's image. Log footage without its
   conversion LUT: also ask for the LUT.
 - **Material**: whether everything is in (`brand/`, `references/`, `music/`) — in
-  the same moment, never as a separate stop.
+  the same moment, never as a separate stop. Nothing else to ask → don't stop for it:
+  mention the folders in the delivery.
 
 Example (in the user's language):
 

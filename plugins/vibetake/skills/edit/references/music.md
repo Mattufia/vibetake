@@ -20,7 +20,7 @@ on its music: use a real track there.
 ## 2. A real track (better quality)
 
 - **The user's own file** (bought, licensed, or theirs).
-- **Downloaded by hand** into the project (`00-raw/music/`), from libraries that
+- **Downloaded by hand** into the project's `music/` folder, from libraries that
   allow commercial use without attribution — check the track's page each time,
   terms change:
   - **Pixabay Music** (Pixabay Content License). Its API has no music endpoint, so
@@ -40,12 +40,10 @@ on its music: use a real track there.
   usable commercially, 4–8 GB VRAM): verify the license on the official model card
   before using it; the only option for real-sounding music made to measure.
 
-## Mixing
+## Level
 
-`render.py` levels the bed (~−28 LUFS), ducks it ~14–18 dB under the voice and
-brings it back in the pauses, fades in and out, and masters the whole mix to the
-destination's loudness. `--gain` on `audio.py music` nudges the bed (+3 louder,
-−3 quieter).
+How it's mixed under the voice: SKILL.md section 5. The bed sits at ~−28 LUFS;
+`--gain` on `audio.py music` nudges it (+3 louder, −3 quieter).
 
 ## Any third-party material (music, effects, stock, images, fonts)
 
