@@ -10,15 +10,18 @@ The same three objects (dark, mid, light — each with texture) filmed in three 
 that differ the way real ones do: a different background each time (gray wall,
 white wall, dark room — the trap for whole-frame statistics), and different
 rendering (A: normal · B: darker with crushed blacks · C: lifted blacks and a cool
-cast, like another camera). References are added by pointing at them (match.py add).
+cast, like another camera). Done the way the AI does it after looking at the sheet:
+the shots are grouped (match.py group) and the objects pointed at (match.py add).
 
-1. After matching, every reference lands within a few L* across shots (it started far apart).
-2. The darks stay dark: the target is the deepest shot that keeps texture, not a gray average.
-3. Detail is kept: each reference keeps most of its texture.
-4. The order of brightness never inverts (gray axis of every .cube).
-5. A reference lit differently in one shot (a "decoy" next to the mid one) is dropped there.
-6. A shot with nothing in common with the others is flagged "not matched", not forced.
-7. Level none still matches; --no-match leaves it untouched.
+1. Before grouping nothing is matched: every shot keeps its own look.
+2. After matching, every reference lands within a few L* across the group (it started far apart).
+3. The darks stay dark: the target is the deepest shot that isn't crushed, not a gray average.
+4. Detail is kept: each reference keeps most of its texture.
+5. The order of brightness never inverts (gray axis of every .cube).
+6. A reference lit differently in one shot (a "decoy" next to the mid one) is dropped there.
+7. A grouped shot with nothing in common with the rest is flagged "not matched", not forced.
+8. Level none still matches; --no-match leaves it untouched.
+9. skip leaves a shot untouched (no correction, no look); set nudges a shot, capped to a gentle range.
 """
 from __future__ import annotations
 
@@ -120,12 +123,20 @@ def main() -> None:
                 "--at", f"{(x + SIZE / 2) / W:.3f},{(y + SIZE / 2) / H:.3f}")
 
     files = ["A.mp4", "B.mp4", "C.mp4", "D.mp4"]
+    mdir = tmp / "02-work" / "color" / "match"
+    checks = {}
+    run(tmp, "match.py", "solve", *files)
+    first = json.loads((mdir / "match.json").read_text(encoding="utf-8"))["files"]
+    checks["no groups yet: every shot keeps its own look"] = all(
+        r["status"] == "alone" and r["params"] is None for r in first.values())
+    checks["sheet.jpg drawn before grouping (to decide the groups)"] = (mdir / "sheet.jpg").exists()
+
+    run(tmp, "match.py", "group", "--name", "room", *files)
     run(tmp, "grade.py", "build", *files, "--level", "none")
-    mj = json.loads((tmp / "02-work" / "color" / "match" / "match.json").read_text(encoding="utf-8"))
-    before, after, T = mj["measured"]["before"], mj["measured"]["after"], mj["targets"]
+    mj = json.loads((mdir / "match.json").read_text(encoding="utf-8"))
+    before, after, T = mj["measured"]["before"], mj["measured"]["after"], mj["targets"]["room"]
     res = mj["files"]
     abc = ["A.mp4", "B.mp4", "C.mp4"]
-    checks = {}
     for r in ("dark", "mid", "light"):
         shots = [f for f in abc if r in res[f]["used"]]
         b = [before[f][r]["L"] for f in shots]
@@ -138,7 +149,7 @@ def main() -> None:
     checks["B's crushed darks flagged as lost at the source, not forced"] = (
         "dark" not in res["B.mp4"]["used"] and any("dark: detail lost" in n for n in res["B.mp4"]["notes"]))
     deep_ok = min(before[f]["dark"]["L"] for f in ("A.mp4", "C.mp4"))
-    checks[f"darks stay dark (target {T['dark']['L']} ≈ the deepest textured shot {deep_ok:.1f}, "
+    checks[f"darks stay dark (target {T['dark']['L']} ≈ the deepest uncrushed shot {deep_ok:.1f}, "
            f"below the average {np.mean([before[f]['dark']['L'] for f in abc]):.1f})"] = (
         abs(T["dark"]["L"] - max(deep_ok, 8)) < 1.5 and T["dark"]["L"] < np.mean([before[f]["dark"]["L"] for f in abc]))
     keep = min(after[f][r]["tex"] / before[f][r]["tex"] for f in abc for r in ("mid", "light"))
@@ -146,14 +157,13 @@ def main() -> None:
     dropped_b = [x["ref"] for x in res["B.mp4"]["dropped"]]
     checks[f"decoy lit differently in B is dropped there (dropped: {dropped_b})"] = "decoy" in dropped_b
     checks["decoy still used in A and C"] = all("decoy" in res[f]["used"] for f in ("A.mp4", "C.mp4"))
-    checks[f"unrelated shot flagged, not forced ({res['D.mp4']['status']})"] = (
+    checks[f"grouped shot with nothing shared flagged, not forced ({res['D.mp4']['status']})"] = (
         res["D.mp4"]["status"] == "not matched" and res["D.mp4"]["params"] is None)
     ramps = {f: gray_axis(tmp / "02-work" / "color" / f"{Path(f).stem}.cube") for f in abc}
     checks["brightness order never inverts (gray axis of every .cube)"] = all(
         np.all(np.diff(v) >= -1e-4) for v in ramps.values())
     checks["level none still matches (cube isn't identity)"] = abs(ramps["B.mp4"][8] - 8 / 32) > 0.02
-    checks["sheet.jpg and match.md written"] = all((tmp / "02-work" / "color" / "match" / n).exists()
-                                                    for n in ("sheet.jpg", "match.md"))
+    checks["sheet.jpg and match.md written"] = all((mdir / n).exists() for n in ("sheet.jpg", "match.md"))
     grade = json.loads((tmp / "02-work" / "color" / "grade.json").read_text(encoding="utf-8"))
     checks["grade.json records the match"] = (grade["B.mp4"]["params"]["match_status"] in ("ok", "partial")
                                               and grade["B.mp4"]["params"]["match"]["curve"])
@@ -162,6 +172,20 @@ def main() -> None:
     ident = gray_axis(tmp / "nomatch" / "B.cube")
     checks["--no-match at level none: untouched"] = np.allclose(ident[:30], np.linspace(0, 1, len(ident))[:30],
                                                                 atol=2e-3)
+
+    # skip: not camera footage → untouched, even with a look. set: a nudge, capped.
+    run(tmp, "match.py", "skip", "D.mp4")
+    out = run(tmp, "match.py", "set", "--file", "A.mp4", "exposure=+5")
+    run(tmp, "grade.py", "build", *files, "--level", "basic", "--look", "cinematic", "--out", "looked")
+    g2 = json.loads((tmp / "looked" / "grade.json").read_text(encoding="utf-8"))
+    d_ramp = gray_axis(tmp / "looked" / "D.cube")
+    checks["skip: untouched — no correction, no look"] = (
+        g2["D.mp4"]["params"]["look"] is None and np.allclose(d_ramp[:30], np.linspace(0, 1, len(d_ramp))[:30],
+                                                              atol=2e-3))
+    a_after = json.loads((mdir / "match.json").read_text(encoding="utf-8"))["measured"]["after"]["A.mp4"]
+    checks[f"set: exposure nudge capped at +2 and brightens A (mid {after['A.mp4']['mid']['L']} → "
+           f"{a_after['mid']['L']})"] = "capped" in out and a_after["mid"]["L"] > after["A.mp4"]["mid"]["L"] + 5
+    checks["set: still no inverted brightness"] = np.all(np.diff(gray_axis(tmp / "looked" / "A.cube")) >= -1e-4)
 
     checks = {k: bool(v) for k, v in checks.items()}
     for name, ok in checks.items():

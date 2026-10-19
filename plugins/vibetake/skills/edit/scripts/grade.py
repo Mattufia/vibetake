@@ -41,7 +41,12 @@ LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
 SKIN_LINE_DEG = 123.0        # where skin of any color sits on a vectorscope (the "I line")
 STOP_IN_LOG = 0.08           # approx. code-value change per stop in common log curves
 CAST_STRONG, CAST_MILD = 6.0, 3.0   # chroma (Lab) of what should be neutral
-MILD_STRENGTH = 0.6                 # share of a mild cast removed in auto mode
+# Ambient: temperature runs along the daylight/tungsten line (blue ↔ amber) in a*b*, tint across it
+# (green ↔ magenta). balanced keeps the temperature (eases it past TEMP_KEEP) and removes the tint.
+TEMP_DIR = np.array([0.2, 1.0]) / math.hypot(0.2, 1.0)
+TINT_DIR = np.array([1.0, -0.2]) / math.hypot(1.0, -0.2)
+TEMP_KEEP = 12.0
+AMBIENTS = ("balanced", "neutral", "keep")
 LEVELS_STRENGTH = 0.7               # how far milky blacks / dull whites are pulled to full range
 SKIN_MAX_SHIFT = 8.0                # degrees; global skin correction stays small (no mask yet)
 LEVELS = ("none", "basic", "full")
@@ -141,6 +146,31 @@ def skin_angle(pixels: np.ndarray) -> float | None:
     cb = float(((pixels[:, 2] - y) / 1.8556).mean())
     cr = float(((pixels[:, 0] - y) / 1.5748).mean())
     return math.degrees(math.atan2(cr, cb))
+
+
+def ab_split(a: float, b: float) -> tuple[float, float]:
+    """A cast in a*b* as (temperature: + warm / − cool, tint: + magenta / − green)."""
+    return float(np.dot([a, b], TEMP_DIR)), float(np.dot([a, b], TINT_DIR))
+
+
+def balance_gains(items: list[tuple], pull: float = 0.5) -> np.ndarray:
+    """Luminance-neutral channel gains that bring colors to target a*b*.
+    items: (linear rgb, target a, target b, weight). pull: how much it prefers no change."""
+    from scipy import optimize
+
+    def gains_of(p):
+        g = 2.0 ** np.array([p[0], 0.0, p[1]])
+        return g / (g @ LUMA)
+    if not items:
+        return np.ones(3)
+
+    def res(p):
+        g, out = gains_of(p), []
+        for lin, ta, tb, w in items:
+            lab = to_lab(to_disp(np.asarray(lin) * g)[None])[0]
+            out += [w * (lab[1] - ta), w * (lab[2] - tb)]
+        return out + [pull * p[0], pull * p[1]]
+    return gains_of(optimize.least_squares(res, [0.0, 0.0], bounds=([-1.0, -1.0], [1.0, 1.0])).x)
 
 
 def saturate(x, s):
@@ -296,7 +326,9 @@ def measure(frames: list[np.ndarray], face_boxes: list[list]) -> dict:
         mean_lin = to_lin(n).mean(0)
         a, b, c = lab_chroma(to_disp(mean_lin))
         y = float(mean_lin @ LUMA)
+        temp, tint = ab_split(a, b)
         out["neutral"] = {"a": round(a, 1), "b": round(b, 1), "cast_chroma": round(c, 1),
+                          "temp": round(temp, 1), "tint": round(tint, 1), "lin": [float(v) for v in mean_lin],
                           "gains": [round(y / max(float(v), 1e-6), 4) for v in mean_lin]}
     if skin:
         ang = skin_angle(np.concatenate(skin))
@@ -456,16 +488,27 @@ def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity,
 def plan_correction(r: dict, args, level: str, levels_ok: bool, through) -> tuple:
     """Correction from a measurement r; through(gains, stops, finish) measures the result.
     Returns gains, stops, finish, notes, the measurement after."""
-    # The baseline is the most natural image: strong casts fully, mild ones partly
-    # (a warm room keeps some warmth).
-    cast = r.get("neutral", {}).get("cast_chroma", 0)
-    correct = level != "none" and (args.correct == "on" or (args.correct == "auto" and (
-        cast >= CAST_MILD or any("exposed" in v for v in r["verdict"]))))
-    strength = 1.0 if args.correct == "on" or cast >= CAST_STRONG else MILD_STRENGTH
+    # White balance by ambient: the temperature of the light (warm ↔ cool) is the place's mood,
+    # the tint (green ↔ magenta) is almost always an error (fluorescents, cheap LEDs, mixed light).
+    ambient = "neutral" if args.correct == "on" else getattr(args, "ambient", "balanced")
     gains, stops, notes, finish = [1.0, 1.0, 1.0], 0.0, [], {}
-    if correct and cast >= 1 and "neutral" in r:
-        gains = [round(g ** strength, 4) for g in r["neutral"]["gains"]]
-        notes.append(f"white balance (cast {cast}{', partial' if strength < 1 else ''})")
+    n = r.get("neutral")
+    target = None
+    if n and level != "none" and args.correct != "off":
+        temp, tint = ab_split(n["a"], n["b"])
+        keep_temp = 0.0 if ambient == "neutral" else temp
+        if ambient == "balanced" and abs(temp) > TEMP_KEEP:
+            keep_temp = math.copysign(TEMP_KEEP + (abs(temp) - TEMP_KEEP) / 2, temp)   # ease an extreme one
+        keep_tint = tint if ambient == "keep" else 0.0
+        target = keep_temp * TEMP_DIR + keep_tint * TINT_DIR
+        if math.hypot(n["a"] - target[0], n["b"] - target[1]) >= 1.5:
+            gains = [round(float(g), 4) for g in balance_gains([(n["lin"], *target, 1.0)], pull=0.0)]
+            notes.append(f"white balance ({ambient}): tint {tint:+.1f} → {keep_tint:+.1f}, "
+                         f"temperature {temp:+.1f} → {keep_temp:+.1f}")
+        else:
+            target = None
+    correct = level != "none" and (args.correct == "on" or (args.correct == "auto"
+                                                            and any("exposed" in v for v in r["verdict"])))
     if correct and ("underexposed" in r["verdict"] or "overexposed" in r["verdict"]):
         # Half of the way to a 0.4 median: conservative, the scene may be meant to be dark/bright.
         stops = float(np.clip(math.log2(0.4 / max(r["median_luma"], 0.02)) * GAMMA / 2, -MAX_STOPS, MAX_STOPS))
@@ -476,12 +519,14 @@ def plan_correction(r: dict, args, level: str, levels_ok: bool, through) -> tupl
         finish["levels"] = (round(black, 3), round(white, 3))
         notes.append("black/white points")
     after = through(gains, stops)
-    if gains != [1.0, 1.0, 1.0] and strength == 1.0:
+    if target is not None:
         # Refine: the log offsets and the soft clip are approximations, so re-measure.
         for _ in range(3):
-            if after.get("neutral", {}).get("cast_chroma", 0) < 1:
+            na = after.get("neutral")
+            if not na or math.hypot(na["a"] - target[0], na["b"] - target[1]) < 1:
                 break
-            gains = [round(g * a, 4) for g, a in zip(gains, after["neutral"]["gains"])]
+            step = balance_gains([(na["lin"], *target, 1.0)], pull=0.0)
+            gains = [round(float(g * s), 4) for g, s in zip(gains, step)]
             after = through(gains, stops)
     if level == "full":
         # Skin toward the skin line: half the offset, capped — global, so kept small.
@@ -517,15 +562,17 @@ def cmd_build(args) -> None:
         ctx[m["name"]] = {"is_log": is_log, "stop_size": log_stop_size(lut) if is_log else STOP_IN_LOG,
                           "frames": frames, "boxes": [faces_at(faces, m["name"], t) for t in times],
                           "match": None, "mfn": None}
-    # Several files: match them first (also at level none — matching isn't a look), then one
-    # correction for all of them, measured on the matched set.
+    # Matching first (match.py: the groups, references and nudges decided by looking at its
+    # sheet) — also at level none, matching isn't a look. Then one correction per group,
+    # measured on the matched group; a shot in no group gets its own.
     matched = {}
-    if len(items) > 1 and not getattr(args, "no_match", False):
+    if not getattr(args, "no_match", False):
         import match as matcher
         matched = matcher.solve(items, args)
         for name, res in matched.items():
-            if res.get("params") and name in ctx:
-                ctx[name]["match"], ctx[name]["mfn"] = res, matcher.transform(res["params"])
+            if name in ctx:
+                ctx[name]["match"] = res
+                ctx[name]["mfn"] = matcher.transform(res["params"]) if res.get("params") else None
 
     def through_for(names):
         def through(g, s, fin=None):
@@ -539,35 +586,48 @@ def cmd_build(args) -> None:
             return measure(fr, bx)
         return through
 
-    group = [m["name"] for m in items if ctx[m["name"]]["mfn"] is not None]
-    shared = None
-    if group:
-        through = through_for(group)
+    def unit_of(name: str) -> str:
+        res = ctx[name]["match"] or {}
+        return f"group {res['group']}" if res.get("group") and res.get("status") in ("ok", "partial") else name
+
+    units: dict[str, list[str]] = {}
+    for m in items:
+        if (ctx[m["name"]]["match"] or {}).get("status") != "skipped":
+            units.setdefault(unit_of(m["name"]), []).append(m["name"])
+    corrections = {}
+    for u, names in units.items():
+        through = through_for(names)
         r0 = through([1.0, 1.0, 1.0], 0.0)
         r0["verdict"] = verdict(r0)
-        shared = plan_correction(r0, args, level, not all(ctx[n]["is_log"] for n in group), through)
+        corrections[u] = plan_correction(r0, args, level, not all(ctx[n]["is_log"] for n in names), through)
     plan = {}
     for m in items:
         r, c = report[m["name"]], ctx[m["name"]]
         is_log, stop_size, frames = c["is_log"], c["stop_size"], c["frames"]
+        res = c["match"] or {}
+        skipped = res.get("status") == "skipped"
         notes = [f"level {level}"]
-        if c["mfn"] is not None:
-            gains, stops, finish, shared_notes, _ = shared
-            notes.append(f"shots matched ({c['match']['status']}; references: {', '.join(c['match']['used'])})")
-            notes += [f"shared: {x}" for x in shared_notes]
-            after = through_for([m["name"]])(gains, stops, finish or None)
+        if skipped:
+            # Not camera footage (screen, graphics, archive): no correction, no look.
+            gains, stops, finish, after = [1.0, 1.0, 1.0], 0.0, {}, r
+            notes.append("skipped: not camera footage, left untouched")
         else:
-            if m["name"] in matched:
-                notes.append("not matched: " + "; ".join(matched[m["name"]]["warnings"]))
-            gains, stops, finish, own, after = plan_correction(r, args, level, not is_log, through_for([m["name"]]))
-            notes += own
+            u = unit_of(m["name"])
+            gains, stops, finish, own, _ = corrections[u]
+            if res.get("status") in ("ok", "partial"):
+                notes.append(f"matched in {u} ({res['status']}; references: {', '.join(res.get('used', []))})")
+            elif res.get("status") == "not matched":
+                notes.append("not matched: " + "; ".join(res.get("warnings", [])))
+            notes += [f"{'shared' if u != m['name'] else 'own'}: {x}" for x in own]
+            after = through_for([m["name"]])(gains, stops, finish or None)
         if is_log:
             notes.insert(0, f"log → Rec.709 with {Path(args.input_lut).name} ({stop_size:.3f}/stop)")
         creative = transfer = None
-        if args.creative_lut:
+        look_name = None if skipped else args.look
+        if args.creative_lut and not skipped:
             creative = (read_cube(Path(args.creative_lut)), args.creative_intensity / 100)
             notes.append(f"creative LUT {Path(args.creative_lut).name} {args.creative_intensity:.0f}%")
-        if args.reference:
+        if args.reference and not skipped:
             # Experimental: move the shot's Lab mean/spread toward the reference image's.
             base = grade_fn(gains, stops, is_log, lut if is_log else None, None, 0, stop_size, finish=finish,
                             match_fn=c["mfn"])
@@ -576,10 +636,10 @@ def cmd_build(args) -> None:
             transfer = (sm, ss, rm, rs, args.reference_intensity / 100)
             notes.append(f"matched to reference {Path(args.reference).name} {args.reference_intensity:.0f}% "
                          "(experimental)")
-        if args.look:
+        if look_name:
             notes.append(f"look {args.look} {args.intensity:.0f}%")
         cube = out / f"{m['stem']}.cube"
-        write_cube(cube, grade_fn(gains, stops, is_log, lut if is_log else None, args.look, args.intensity,
+        write_cube(cube, grade_fn(gains, stops, is_log, lut if is_log else None, look_name, args.intensity,
                                   stop_size, creative, transfer, finish, c["mfn"]), f"vibetake {m['name']}")
         pre = ""
         if m.get("hdr"):
@@ -597,11 +657,14 @@ def cmd_build(args) -> None:
         pre = ",".join(x for x in (pre, *repairs) if x)
         plan[m["name"]] = {"source": m["file"], "pre": pre, "lut": str(cube), "notes": notes,
                            "params": {"level": level, "gains": gains, "stops": round(stops, 3), "log": is_log,
-                                      "finish": finish, "look": args.look, "intensity": args.intensity,
+                                      "finish": finish, "look": look_name, "intensity": args.intensity,
                                       "match": (c["match"] or {}).get("params"),
                                       "match_status": (matched.get(m["name"]) or {}).get("status")}}
         plan[m["name"]]["check"] = {"cast_before": r.get("neutral", {}).get("cast_chroma"),
                                     "cast_after": after.get("neutral", {}).get("cast_chroma"),
+                                    "temp_tint_before": [r.get("neutral", {}).get("temp"), r.get("neutral", {}).get("tint")],
+                                    "temp_tint_after": [after.get("neutral", {}).get("temp"),
+                                                        after.get("neutral", {}).get("tint")],
                                     "median_luma_before": r["median_luma"], "median_luma_after": after["median_luma"],
                                     "skin_offset_before": r.get("skin_offset_deg"),
                                     "skin_offset_after": after.get("skin_offset_deg")}
@@ -704,7 +767,10 @@ def main() -> None:
             s.add_argument("--match-target", help="match to this shot instead of the neutral base")
             s.add_argument("--zones", choices=("auto", "on", "off"), default="auto",
                            help="matching color per tonal zone: auto = only when the cameras differ")
-            s.add_argument("--no-person", action="store_true", help="match without the person cut-out (rembg)")
+            s.add_argument("--ambient", choices=AMBIENTS, default="balanced",
+                           help="white balance: balanced keeps the light's warmth or coolness and removes "
+                                "green/magenta tints · neutral removes both · keep leaves both")
+            s.add_argument("--edl", default="02-work/edl.json", help="match on what the edit uses (if it exists)")
             s.add_argument("--match-dir", default="02-work/color/match")
         if name == "build":
             s.add_argument("--level", choices=LEVELS, default="basic",

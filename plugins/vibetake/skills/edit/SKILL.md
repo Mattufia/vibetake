@@ -245,7 +245,7 @@ the other questions, as levels:
 
 | Option | What |
 |---|---|
-| **Basic** | shots matched + exposure (when clearly off), white balance (strong casts fully, mild ones partly: natural isn't sterile, a warm room keeps some warmth), black and white points |
+| **Basic** | shots matched + exposure (when clearly off), white balance (the light's warmth or coolness stays — it's the place's mood; green/magenta tints go), black and white points |
 | **Full** | Basic + skin toward the skin line (global and gentle, capped at a few degrees: similar colors like wood barely move), contrast and vibrance tidy-up |
 | **Only match shots** | the shots made alike, nothing else (one file: the material as is) — e.g. the user grades it elsewhere |
 | **Custom** (free text) | a look (`natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity), the user's LUT, a reference image (experimental) — on top of Basic unless told otherwise |
@@ -263,11 +263,12 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # afte
 
 - **Order: input transform → correction → look → Rec.709**, all baked into one
   .cube per file that `render.py` applies to the **original** file.
-- **Several files: shots are matched first, at every level** (`match.py`, on what
-  repeats in every shot — the person, or anything you point at — never the whole
-  frame), then one correction for all. Check `02-work/color/match/` (`match.md`,
-  `sheet.jpg`, `faces.jpg`, `regions.jpg`), add or drop references if needed; how, in
-  `color.md`.
+- **Several files: match by looking** (`match.py`, before the question): `solve`, look
+  at its `sheet.jpg`, **group the shots that share place and light** (different places
+  stay different), `skip` what isn't camera footage, point at what repeats if skin isn't
+  enough, `set` to nudge; one correction per group follows. Steps and rules in `color.md`.
+- **Ambient** (`--ambient`, default balanced: keeps the light's warmth or coolness,
+  removes green/magenta tints); the user can ask neutral or keep for this video.
 - **Look at the before/after previews before rendering**: natural skin, no
   crushed blacks or burnt whites the original didn't have, a look at a sensible
   strength.

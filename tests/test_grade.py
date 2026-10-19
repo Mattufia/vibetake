@@ -81,7 +81,12 @@ def main() -> None:
     grade(tmp, "build", "warm.mp4", "clean.mp4", "--no-match")   # per-file correction (matching: test_match.py)
     plan = read(tmp, "grade.json")
     warm = plan["warm.mp4"]["check"]
-    checks["warm cast removed (chroma < 2 after)"] = warm["cast_after"] < 2
+    t_before, t_after = warm["temp_tint_before"], warm["temp_tint_after"]
+    checks[f"balanced (default): warmth kept, tint removed (temp {t_before[0]} → {t_after[0]}, "
+           f"tint {t_before[1]} → {t_after[1]})"] = t_after[0] > 0.6 * min(t_before[0], 12) and abs(t_after[1]) < 1.5
+    grade(tmp, "build", "warm.mp4", "--no-match", "--ambient", "neutral", "--out", "neutral")
+    neutral = json.loads((tmp / "neutral" / "grade.json").read_text())["warm.mp4"]["check"]
+    checks[f"neutral: the whole cast removed (chroma {neutral['cast_after']} < 2)"] = neutral["cast_after"] < 2
     checks["clean scene left alone (unity gains)"] = plan["clean.mp4"]["params"]["gains"] == [1.0, 1.0, 1.0]
 
     grade(tmp, "build", "log.mov", "--input-lut", "from_log.cube", "--force-log", "--correct", "on")
