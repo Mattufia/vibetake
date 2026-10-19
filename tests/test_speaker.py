@@ -17,6 +17,7 @@ their own mic (two audio tracks).
 5. The vertical framing follows the speaker; it changes where a sentence starts.
 6. An override (--set) wins, and going back to auto restores the automatic choice.
 7. Two people close together fit the crop: the framing keeps the group.
+8. Three people (a panel), with one mic for all and with a mic each: same results.
 """
 from __future__ import annotations
 
@@ -101,6 +102,56 @@ def project(tmp: Path, p1: float, p2: float) -> None:
                                                                         "in": 0.0, "out": D}]}))
 
 
+def three_people(mics: bool) -> tuple[int, list, list, dict]:
+    """A wide shot of three people (a panel): one mic for all, or one per person."""
+    tmp = Path(tempfile.mkdtemp(prefix="vibetake-speaker3-"))
+    xs, w3, h3, d3, face = [0.18, 0.5, 0.82], 960, 360, 13.0, (0.07, 0.20)
+    sents = [(0.5, 2.5, 1), (3.0, 5.0, 3), (5.5, 7.5, 2), (8.0, 10.0, 1), (10.5, 12.5, 3)]
+    rng = np.random.default_rng(5)
+    frames = []
+    for i in range(int(d3 * FPS)):
+        t = i / FPS
+        img = np.full((h3, w3), 60, np.uint8)
+        for cx in xs:
+            x0, y0 = int((cx - face[0] / 2) * w3), int((0.4 - face[1] / 2) * h3)
+            img[y0:y0 + int(face[1] * h3), x0:x0 + int(face[0] * w3)] = 170
+        for a, b, who in sents:
+            if a <= t <= b:
+                cx = xs[who - 1]
+                x0, y0 = int((cx - face[0] / 4) * w3), int((0.4 + face[1] * 0.1) * h3)
+                mw, mh = int(face[0] / 2 * w3), int(face[1] * 0.35 * h3)
+                img[y0:y0 + mh, x0:x0 + mw] = rng.integers(40, 250, (mh, mw), dtype=np.uint8)
+        frames.append(np.repeat(img[:, :, None], 3, 2))
+    ins, maps = [], ["-map", "0:v"]
+    for p in range(1, (len(xs) if mics else 1) + 1):
+        x = rng.standard_normal(int(d3 * SR)).astype(np.float32) * 0.002
+        for a, b, who in sents:
+            if who == p or not mics:
+                n = int((b - a) * SR)
+                x[int(a * SR):int(a * SR) + n] += rng.standard_normal(n).astype(np.float32) * 0.2
+        f = tmp / f"m{p}.wav"
+        subprocess.run([FF, "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-", str(f)],
+                       input=x.tobytes(), check=True)
+        ins += ["-i", str(f)]
+        maps += ["-map", f"{p}:a"]
+    subprocess.run([FF, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w3}x{h3}", "-r", str(FPS),
+                    "-i", "-", *ins, *maps, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", str(tmp / "panel.mp4")],
+                   input=b"".join(f.tobytes() for f in frames), check=True)
+    (tmp / "01-ingest").mkdir()
+    samples = [{"t": i * 0.5, "faces": [[x - face[0] / 2, 0.4 - face[1] / 2, face[0], face[1], 0.9] for x in xs]}
+               for i in range(int(d3 * 2))]
+    (tmp / "01-ingest" / "faces.json").write_text(json.dumps({"files": {"panel.mp4": samples}}))
+    (tmp / "01-ingest" / "material.json").write_text(json.dumps({"files": [{
+        "name": "panel.mp4", "file": "panel.mp4", "kind": "video", "duration": d3, "display_width": w3,
+        "display_height": h3, "audio": [{"index": i, "integrated_lufs": -20} for i in range(len(xs) if mics else 1)]}]}))
+    (tmp / "01-ingest" / "transcript.json").write_text(json.dumps({"files": {}, "sentences": [
+        {"file": "panel.mp4", "line": k, "start": a, "end": b} for k, (a, b, _) in enumerate(sents, 1)]}))
+    run(tmp, "speaker.py")
+    r = json.loads((tmp / "02-work" / "speakers.json").read_text(encoding="utf-8"))["panel.mp4"]
+    return r["people"], [s["person"] for s in r["sentences"]], [w for *_, w in sents], r["mics"]
+
+
 def run(tmp: Path, script: str, *a: str) -> str:
     p = subprocess.run(["uv", "run", str(SCRIPTS / script), *a], cwd=tmp, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -163,6 +214,13 @@ def main() -> None:
     checks[f"close together, both fit the crop → the group ({grp.mean():.0%} of the time)"] = (
         grp.mean() > 0.9 and abs(np.nanmedian(x) - 0.48) < 0.03)
     _ = reframe
+
+    # Three people (a panel), with one mic for all and with one mic each.
+    for mics in (False, True):
+        n, got3, want3, mapped = three_people(mics)
+        checks[f"three people, {'a mic each' if mics else 'one mic'}: {got3} vs {want3}"
+               + (f", mics {mapped}" if mics else "")] = (
+            n == 3 and got3 == want3 and (not mics or mapped == {"track 1": 1, "track 2": 2, "track 3": 3}))
 
     checks = {k: bool(v) for k, v in checks.items()}
     for name, ok in checks.items():
