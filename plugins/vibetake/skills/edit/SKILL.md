@@ -5,25 +5,25 @@ description: Edit video from raw footage to a finished deliverable — ingest an
 
 # Video editing instructions
 
+**Every video you deliver is the creator's showreel — and yours.** Work the way the
+best in each craft would if their name were on it: sweat the details nobody asked
+for; check, fix what isn't right, check again — until it's genuinely good, not just
+done. Go all out on quality, with the masters' restraint: great work serves the
+video, never shows off over it.
+
 **Tools:** ffmpeg (prepare, cut, render), yt-dlp (download material from a link),
 Whisper (transcription; cuts come from it), Remotion with the `remotion-*` skills
-(graphics layer only, see below), rembg (remove the background of people or
-objects in stills; for people, use the `birefnet-portrait` model, and check hair
-and hands).
+(graphics layer only, see below), rembg (cut-outs for covers, see `covers.md`).
 
 **Don't wait for intermediate approvals.** Deliver the first complete version and
 adjust afterwards on concrete requests.
 
-**Long processes with visible progress.** Renders, transcriptions, downloads and
-long encodes run showing their progress: without filtering the output (no
-`| tail`), or saving it to a log that can be checked. If asked how it's going,
-answer with a percentage or frames processed, plus an estimate of the remaining
-time. If the tool doesn't show progress, say so before launching it.
+**Long processes with visible progress** (renders, transcriptions, downloads): never
+filter the output (no `| tail`) or save it to a log you can check; asked how it's
+going, answer with a percentage and the time left. No progress shown → say so first.
 
-**This assumes a terminal and the ability to see images.** Much of the method
-relies on looking at stills (framing, where the face falls, verifying the
-export). If images can't be viewed, say so and don't carry on as if they had
-been looked at.
+**This assumes you can see images** (stills, sheets): if you can't, say so and never
+carry on as if you had looked.
 
 ## 0. Setup
 
@@ -36,18 +36,10 @@ the `/vibetake:setup` command walks the user through it (`setup.py install`,
 assume any GPU brand. Video eats hundreds of GB: if disk
 is tight, flag it before starting.
 
-**Ask before installing anything**: what, what it's for and how big; install only
-after the user's OK (a declined tool: work without it). Command-line tools are
-installed **globally**: they're used across all projects and there's no point
-reinstalling them each time (the transcription dependencies alone weigh several
-GB). For Python tools, use an installer that keeps them isolated from each other
-but available system-wide, so versions don't clash. Downloaded models live in the
-user cache and are shared between projects: don't duplicate them. For system
-binaries, the OS's own package manager. Don't reinstall what's already there:
-check first and note in `project.md` what was installed.
-
-The only per-project install is Remotion, because its version is pinned in each
-project.
+**Ask before installing anything** (what, what for, how big; declined → work without
+it). Tools install **globally** and once (isolated Python tools, the OS package
+manager for binaries), models live in the shared user cache; check before installing
+and note it in `project.md`. Only Remotion installs per project (pinned version).
 
 **If installing isn't possible** (no permissions, no network, locked-down work
 machine), make do with what's there and say so in one line: without Remotion, graphics
@@ -170,6 +162,14 @@ within that frame.
 
 ## 3. Editing
 
+**Cut this like the editor everyone wants on their project** — the one whose edits
+feel effortless. The strongest opening this type allows, every cut motivated and
+invisible, tight where it drags and room to breathe where it lands, a rhythm that
+carries the viewer to the end. Frame like a seasoned camera operator: the subject
+where the eye expects them, moving only when it means something. Every insert shows
+what's being said, or what words can't. Go all out on pacing and story: cut what
+doesn't earn its place, protect what makes it human.
+
 **The edit lives in `02-work/edl.json`**: which piece of which file, in what
 order, and why. Everything renders from it, so a change ("drop the part about
 X") is an edit to that list and a new render, never a redo.
@@ -238,6 +238,12 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 
 ## 4. Color
 
+**Grade like a feature-film colorist putting this in their reel**: shots of the same
+place and light look like one film while each place keeps its own light, skin that
+looks alive when there's a person, detail in the blacks and the highlights — natural
+unless a look is asked for. Go all out on consistency and finesse, never on
+saturation or effects: great grading is felt, not noticed.
+
 The goal of the correction is the most natural, best-looking image; anything
 stylized is the user's choice. **Always on the whole frame**: no masks, no
 tracking (faces are only used to *measure* skin). It's asked, in the same moment as
@@ -281,6 +287,12 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # afte
   **`${CLAUDE_SKILL_DIR}/references/color.md`**.
 
 ## 5. Voice, music and SFX
+
+**Mix like a top sound engineer**: the voice, when there is one, clear, warm and
+present on a phone speaker and on headphones; when there's music, it lifts the moment
+and steps aside for every word; effects make cuts and graphics feel physical — and
+never a click, a level jump or a lost word. Viewers forgive a bad picture before bad
+sound.
 
 **Clean on the raw, mix and level on the cut.**
 
@@ -351,6 +363,13 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 
 ## 7. Graphics over the video
 
+**Treat everything you put on screen as your motion-design showreel**: purposeful
+timing, beautiful easing, typography with intent, every frame polished. Captions read
+at a glance, timed to the frame, broken where the meaning breaks, adding energy
+without covering what matters. Go all out on craft; the amount follows this type's
+level (dynamic / measured / minimal), because a great designer also knows when the
+best graphic is none.
+
 **How much graphics and sound design is set by the video**: dynamic for feed
 videos (every idea gets its visual and its sound), measured for long or
 informative ones, minimal for testimonials, interviews and formal pieces. The
@@ -388,11 +407,8 @@ Studio. **`${CLAUDE_SKILL_DIR}/references/from-scratch.md`**.
 
 ## 9. GPU
 
-**GPU where it helps, CPU without drama** — the scripts pick: Whisper on CUDA or
-the same model on CPU int8 (never a smaller model: the transcript decides the cuts);
-the master on the GPU's encoder after a short test, x264 otherwise. **Always set the
-language explicitly.** Heavy GPU jobs one at a time. Details:
-`${CLAUDE_SKILL_DIR}/references/gpu.md`.
+**The scripts pick GPU or CPU** (never a smaller transcription model: the transcript
+decides the cuts); heavy GPU jobs one at a time. `${CLAUDE_SKILL_DIR}/references/gpu.md`.
 
 ## 10. Project structure
 
@@ -406,16 +422,22 @@ project/
   project.md       what was decided and why.
 ```
 
-Conversions go to `01-ingest`; `01` and `02` can be deleted to recover disk.
-`project.md` holds destination, subtitle decision, glossary, what was cut and why,
-the color and LUT used, the source and license of every piece of music, effect,
-stock clip and font (the proof if a copyright claim comes), what was installed and
-what's pending — so work resumes without asking everything again.
+`01` and `02` can be deleted to recover disk. `project.md` holds the decisions
+(destination, subtitles, glossary, cuts, color, ambient) and the source and license
+of every track, effect, clip and font — so work resumes without asking again.
 
 Say in one line what `organize.py` moved (it never overwrites; `--undo` puts it
 back). Footage given by path somewhere else is read where it is, not moved.
 
 ## 11. Delivery
+
+**What the audience sees first is yours too.** Thumbnails like the best on the
+platform: one idea readable in half a second at the size of a fingernail, a face with
+real emotion when there's a person, a subject that pops when there isn't — three
+concepts genuinely different. Titles and copy specific, curious, true to the video,
+in the creator's or brand's voice. Never promise what the video doesn't deliver.
+Before delivering, watch it as the toughest viewer and as the creator at once: would
+you sign this? If anything is merely okay, fix it.
 
 Always in `03-delivery`: **the video, the `.srt`** (even if subtitles are burned
 in: YouTube and Meta use it for accessibility and index it), **the covers and the
@@ -430,8 +452,6 @@ copy to publish with**.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
   past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
-- **Upload resolution**: YouTube gives 1440p+ uploads better codecs, so a 1080p
-  edit for YouTube goes out with `render.py --upload-height 1440`.
 
 **Covers: three different concepts, one file per platform** (YouTube 1280×720;
 Reels, TikTok, Shorts 1080×1920 with headline and face inside the grid's 3:4 crop).
@@ -456,16 +476,12 @@ loudness):
 uv run ${CLAUDE_SKILL_DIR}/scripts/qa.py --platform reels --platform tiktok --loudness social   # the latest version
 ```
 
-It checks format (H.264 yuv420p, constant frame rate, BT.709, AAC 48 kHz,
-faststart), size and duration against the edit, picture = sound, unintended black
-or frozen stretches, loudness and true peak, long silences, `.srt` rules, burned-in
-captions inside the safe zone, platform aspect/length/resolution, covers and copy
-per platform — and it **listens**: the export is transcribed again and compared
-with the edit's words, which catches a cut mid-word, a lost or doubled word, or a
-leftover filler that stills can't show. Report in `03-delivery/qa/qa.md`, with the
-upload reminders per platform (Instagram's "highest quality" switch, TikTok's HD
-upload); exit code 1 on any FAIL. **A FAIL is fixed before delivering**; a WARN is
-judged (listen where the listening check points) and mentioned if it stays.
+It checks format, duration, picture = sound, black or frozen stretches, loudness,
+`.srt` rules, captions in the safe zone, platform limits, covers and copy — and it
+**listens**: the export is transcribed again and compared with the edit's words (a cut
+mid-word, a lost or doubled word, a leftover filler). Report and upload reminders in
+`03-delivery/qa/qa.md`. **A FAIL is fixed before delivering**; a WARN is judged (listen
+where it points) and mentioned if it stays.
 
 - **Look at the QA contact sheets** (`03-delivery/qa/`, the vertical safe zone in
   green): framing, readable captions, nothing cut off, the first frame works alone.
@@ -479,5 +495,4 @@ judged (listen where the listening check points) and mentioned if it stays.
 
 ## 12. Safe margins
 
-**On every 9:16 video, read `${CLAUDE_SKILL_DIR}/references/safe-margins.md`
-before placing any text, subtitle, graphic or logo.**
+**9:16: read `${CLAUDE_SKILL_DIR}/references/safe-margins.md` before placing any text.**
