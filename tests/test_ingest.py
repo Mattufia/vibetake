@@ -87,9 +87,11 @@ def main() -> None:
         "loghint: S-Log3 from metadata": "S-Log3" in (f["loghint.mp4"]["log_hint"] or ""),
         "twotracks: suggests clean track 2": f["twotracks.mov"].get("suggested_audio_track") == 1,
         "contact sheets written": all(m["shots"]["sheets"] for m in res["files"] if m["kind"] == "video"),
-        "recorder: synced to a video": bool(res["external_audio"] and res["external_audio"][0].get("video")),
-        f"recorder: offset ≈ +{OFFSET} s": res["external_audio"]
-                                           and abs(res["external_audio"][0].get("offset_s", 99) - OFFSET) < 0.01,
+        "recorder: synced to the videos it covers": bool(res["external_audio"]
+                                                         and res["external_audio"][0].get("videos")),
+        f"recorder: offset ≈ +{OFFSET} s": bool(res["external_audio"] and res["external_audio"][0].get("videos"))
+                                           and all(abs(v["offset_s"] - OFFSET) < 0.01
+                                                   for v in res["external_audio"][0]["videos"]),
     }
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")

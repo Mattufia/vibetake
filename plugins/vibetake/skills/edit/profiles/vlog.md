@@ -7,7 +7,7 @@ Day in the life, travel, behind the scenes.
 - **Pacing**: varied — quick montages between locations, room to breathe when
   something happens.
 - **Cleanup**: light; spontaneity is the point. Remove dead time, not
-  personality.
+  personality. Audio: `audio.py clean --nr light` (ambience-only clips keep their sound).
 - **Music**: changes by scene or location; ambient sound kept under it.
 - **Subtitles**: depends on destination; ambient-heavy audio often needs them.
 - **Graphics**: dynamic but light, in the creator's style: location titles, a few keywords, whooshes on location changes.

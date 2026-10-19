@@ -297,3 +297,12 @@ def wcag_luminance(rgb) -> float:
     """WCAG relative luminance of an sRGB color given as 0-255 values (0 black, 1 white)."""
     r, g, b = (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (float(v) / 255 for v in rgb))
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def channel_pan(layout: dict | None) -> str:
+    """A mic on one channel only → that channel in the center; one mic per channel (one per
+    person) → both mixed to the center; real stereo → untouched."""
+    if not layout or layout.get("layout") == "stereo" or not layout.get("live"):
+        return ""
+    live = layout["live"]
+    return "pan=mono|c0=" + "+".join(f"{1 / len(live):.3f}*c{c}" for c in live)

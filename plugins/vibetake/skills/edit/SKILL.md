@@ -297,13 +297,13 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file <track>     # optional 
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and masters
 ```
 
-- **Cleanup on the whole raw file** (it depends on how it was recorded): high-pass
-  ~80 Hz, noise reduction calibrated on that file's own noise floor (the raw's
-  long pauses teach it the noise), de-esser, and every file brought to the same
-  speech level (−20 LUFS), so phone and camera match. The chain's latency is
-  measured and compensated: lips stay in sync. `render.py` uses the cleaned audio
-  automatically. Transcription stays on the original. It also keeps each file's
-  room tone: a gap is filled with the room's air, never digital silence.
+- **Cleanup on the whole raw file** (it depends on how it was recorded): the best
+  source (a separate recording, the right track, the voice centered), high-pass, noise
+  reduction calibrated on that file's own noise floor (`--nr light` for spontaneous
+  material), de-esser, and every file brought to the same **speech** level (−20 LUFS,
+  measured where someone talks), so phone and camera match. A file that's mostly
+  ambience (the sea, a street) keeps its sound as recorded. Latency compensated: lips
+  stay in sync; `render.py` uses it automatically; each file's room tone fills gaps.
 - **On the cut** (it depends on the final edit): gentle compression across the
   whole voice (consistent level across cuts); music leveled to a bed and **ducked
   under the voice** (~14–18 dB down while someone talks, back up in the pauses —
@@ -373,7 +373,7 @@ the brand, real icons. One line on it in the delivery; changes come from there.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/design.py palette            # the footage's colors
-uv run ${CLAUDE_SKILL_DIR}/scripts/fonts.py get "<Family>" --weights 500,800 --lang es
+uv run ${CLAUDE_SKILL_DIR}/scripts/fonts.py get "<Family>" --weights 500,800   # checks the video's characters
 uv run ${CLAUDE_SKILL_DIR}/scripts/icons.py brand whatsapp      # or: icons.py ui check --set phosphor
 uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py cues             # → design.json + graphics.json, then:
 uv run ${CLAUDE_SKILL_DIR}/scripts/graphics.py init | still 1.2 4.5 | render

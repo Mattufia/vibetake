@@ -83,10 +83,10 @@ def lang_data(lang: str) -> dict:
                                                               "restart": []}
 
 
-def transcribe_file(model, f: Path, args, ld: dict) -> dict:
+def transcribe_file(model, f: Path, args, ld: dict, track: int = 0) -> dict:
     dur = float(ffprobe(f).get("format", {}).get("duration") or 0)
     # Decode with ffmpeg ourselves: faster-whisper's own decoder (PyAV) breaks across versions.
-    raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", str(f), "-map", f"0:a:{args.track}",
+    raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", str(f), "-map", f"0:a:{track}",
                           "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
     import numpy as np
     audio = np.frombuffer(raw, np.int16).astype(np.float32) / 32768
@@ -114,7 +114,7 @@ def transcribe_file(model, f: Path, args, ld: dict) -> dict:
             next_pct = (int(pct) // 10 + 1) * 10
     print(f"{f.name}: done in {time.time() - t0:.0f} s", flush=True)
     tighten_words(segments, audio)
-    return {"language": args.lang, "model": args.model, "track": args.track, "duration": dur,
+    return {"language": args.lang, "model": args.model, "track": track, "duration": dur,
             "glossary": glossary, "segments": segments}
 
 
@@ -369,6 +369,9 @@ def main() -> None:
     ap.add_argument("--out", default="01-ingest")
     ap.add_argument("--model", default="large-v3")
     ap.add_argument("--track", type=int, default=0, help="audio track index to transcribe")
+    ap.add_argument("--track-for", action="append", default=[], metavar="NAME=N",
+                    help="a file's own audio track (ingest passes the best one per file)")
+    ap.add_argument("--force", action="store_true", help="transcribe again even if nothing changed")
     ap.add_argument("--rebuild-md", action="store_true", help="only recompute marks from transcript.json")
     args = ap.parse_args()
 
@@ -385,14 +388,29 @@ def main() -> None:
     if not args.rebuild_md:
         if not args.files:
             die("no files given")
-        print(f"loading {args.model} (first run downloads the model, ~3 GB)…", flush=True)
-        model, device = load_model(args.model)
-        print(f"model ready on {device}", flush=True)
+        tracks = {k: int(v) for k, _, v in (x.rpartition("=") for x in args.track_for)}
+        model = device = None
         for f in map(Path, args.files):
-            result["files"][f.name] = {**transcribe_file(model, f, args, ld), "device": device}
+            track = tracks.get(f.name, args.track)
+            # A file whose transcript was made with the same settings isn't transcribed again.
+            sig = [f.stat().st_size, int(f.stat().st_mtime), args.lang, args.glossary or "", track, args.model]
+            old = result["files"].get(f.name)
+            if old and old.get("sig") == sig and not args.force:
+                print(f"{f.name}: transcript up to date", flush=True)
+                continue
+            if model is None:
+                print(f"loading {args.model} (first run downloads the model, ~3 GB)…", flush=True)
+                model, device = load_model(args.model)
+                print(f"model ready on {device}", flush=True)
+            result["files"][f.name] = {**transcribe_file(model, f, args, ld, track), "device": device, "sig": sig}
             result_path.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+        # Recording order is ingest's (it passes every file in that order); redoing some files
+        # keeps the order they had, so line numbers don't move around.
         names = [Path(f).name for f in args.files]
-        result["order"] = names + [n for n in result["order"] if n not in names]
+        if set(names) >= set(result["order"]):
+            result["order"] = names
+        else:
+            result["order"] = result["order"] + [n for n in names if n not in result["order"]]
     elif not result["files"]:
         die(f"nothing to rebuild: {result_path} is missing or empty")
 

@@ -78,6 +78,18 @@ def main() -> None:
     checks["retake across two files"] = bool(first["file"] == "take1.wav" and target
                                               and target["file"] == "take2.wav")
 
+    # Kept transcripts: running again with the same settings transcribes nothing; redoing
+    # one file keeps the recording order (line numbers don't move around).
+    again = subprocess.run(cmd + [str(SCRIPTS / "transcribe.py"), str(split / "take1.wav"), str(split / "take2.wav"),
+                                  "--lang", "es", "--model", args.model, "--out", str(split / "out")],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+    checks["same settings again → nothing transcribed"] = (again.stdout.count("transcript up to date") == 2
+                                                           and "loading" not in again.stdout)
+    subprocess.run(cmd + [str(SCRIPTS / "transcribe.py"), str(split / "take2.wav"), "--force", "--lang", "es",
+                          "--model", args.model, "--out", str(split / "out")], check=True, stdout=subprocess.DEVNULL)
+    res3 = json.loads((split / "out" / "transcript.json").read_text(encoding="utf-8"))
+    checks["one file redone → recording order kept"] = res3["order"] == ["take1.wav", "take2.wav"]
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     print((tmp / "transcript.md").read_text(encoding="utf-8"))

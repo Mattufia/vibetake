@@ -77,10 +77,21 @@ def family_info(name: str) -> dict:
     die(f"'{name}' isn't on Google Fonts" + (f" — maybe: {', '.join(close)}" if close else ""))
 
 
-def missing_chars(path: Path, lang: str) -> str:
+def video_text(ingest: Path = Path("01-ingest")) -> tuple[str | None, str]:
+    """The video's language and every character its transcript uses (any script)."""
+    p = ingest / "transcript.json"
+    if not p.exists():
+        return None, ""
+    tr = json.loads(p.read_text(encoding="utf-8"))
+    chars = {c for f in tr.get("files", {}).values() for s in f.get("segments", []) for w in s.get("words", [])
+             for c in w.get("word", "") if not c.isspace()}
+    return tr.get("lang"), "".join(sorted(chars))
+
+
+def missing_chars(path: Path, lang: str | None, text: str = "") -> str:
     from fontTools.ttLib import TTFont
     cmap = TTFont(str(path)).getBestCmap() or {}
-    need = BASE_CHARS + LANG_CHARS.get(lang, "")
+    need = dict.fromkeys(BASE_CHARS + LANG_CHARS.get(lang or "", "") + text)
     return "".join(c for c in need if ord(c) not in cmap)
 
 
@@ -105,6 +116,8 @@ def cmd_info(args) -> None:
 
 
 def cmd_get(args) -> None:
+    t_lang, text = video_text()
+    lang = args.lang or t_lang
     f = family_info(args.family)
     weights = [w.strip() for w in args.weights.split(",") if w.strip()]
     have = set(f["fonts"])
@@ -128,7 +141,7 @@ def cmd_get(args) -> None:
     for style, weight, url in faces:
         dst = DIR / f"{slug}-{weight}{'i' if style == 'italic' else ''}.ttf"
         dst.write_bytes(fetch(url))
-        miss = missing_chars(dst, args.lang)
+        miss = missing_chars(dst, lang, text)
         if miss:
             dst.unlink()
             die(f"{f['family']} {weight} lacks characters the video needs: {miss} — pick another family")
@@ -158,7 +171,8 @@ def main() -> None:
     g = sub.add_parser("get")
     g.add_argument("family")
     g.add_argument("--weights", default="400,700", help="e.g. 400,800 or 400,400i,700")
-    g.add_argument("--lang", default="es", help="the video's language: its characters must exist")
+    g.add_argument("--lang", help="the video's language (default: the transcript's); every character the "
+                                  "transcript uses must exist in the font")
     sub.add_parser("list")
     args = ap.parse_args()
     {"info": cmd_info, "get": cmd_get, "list": cmd_list}[args.cmd](args)

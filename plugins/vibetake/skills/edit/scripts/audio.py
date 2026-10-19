@@ -4,7 +4,7 @@
 # ///
 """Audio: clean each source once, add music, master the final mix.
 
-    uv run audio.py clean [--force]                 # raw → 01-ingest/audio/<file>.wav
+    uv run audio.py clean [--nr normal|light|off] [--force]   # raw → 01-ingest/audio/<file>.wav
     uv run audio.py music --file track.mp3 [--in 0] [--gain 0] [--start 0] [--fade-in 1] [--fade-out 2]
     uv run audio.py music --clear
 
@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import Cache, Log, die, ffmpeg_progress, ffprobe, run, tool  # noqa: E402
+from _common import Cache, Log, channel_pan, die, ffmpeg_progress, ffprobe, run, tool  # noqa: E402
 
 TARGETS = {"social": (-14.0, -1.0), "podcast": (-16.0, -1.0),
            "broadcast-eu": (-23.0, -2.0), "broadcast-us": (-24.0, -2.0)}
@@ -39,9 +39,28 @@ MUSIC_LEVEL = -28.0      # LUFS of the music bed before ducking (~18 dB under th
 BUS = "acompressor=threshold=0.125:ratio=2.5:attack=15:release=200:makeup=1"   # gentle, across cuts
 
 
-def chain(noise_floor_db: float | None) -> str:
+NR = {"normal": 12, "light": 6, "off": 0}   # dB of noise reduction (--nr; a profile can ask for less)
+AMBIENT_SPEECH_PCT = 15                     # below this share of speech a file is ambience: kept as recorded
+
+
+def chain(noise_floor_db: float | None, nr: str = "normal") -> str:
     nf = min(max(noise_floor_db if noise_floor_db is not None else -60, -80), -20)
-    return f"highpass=f=80,afftdn=nr=12:nf={nf:.0f}:tn=1,deesser=i=0.4"
+    nrf = f",afftdn=nr={NR[nr]}:nf={nf:.0f}:tn=1" if NR[nr] else ""
+    return f"highpass=f=80{nrf},deesser=i=0.4"
+
+
+def speech_spans(words: list[dict], merge: float = 1.0, limit: int = 150) -> list[tuple[float, float]]:
+    """Where someone speaks (from the transcript's words), merged into at most `limit` spans."""
+    spans: list[list[float]] = []
+    for w in sorted(words, key=lambda w: w["start"]):
+        if spans and w["start"] - spans[-1][1] < merge:
+            spans[-1][1] = max(spans[-1][1], w["end"])
+        else:
+            spans.append([w["start"], w["end"]])
+    while len(spans) > limit:                  # merge the closest pair until it fits
+        k = min(range(len(spans) - 1), key=lambda i: spans[i + 1][0] - spans[i][1])
+        spans[k:k + 2] = [[spans[k][0], spans[k + 1][1]]]
+    return [(a, b) for a, b in spans]
 
 
 _LATENCY: dict[str, int] = {}
@@ -112,43 +131,81 @@ def room_tone(src: Path, dst: Path) -> Path | None:
 def cmd_clean(args) -> None:
     ing = Path(args.ingest)
     material = json.loads((ing / "material.json").read_text(encoding="utf-8"))["files"]
-    tracks = {}
+    tracks, words = {}, {}
     if (ing / "transcript.json").exists():
-        tracks = {n: f.get("track", 0) for n, f in
-                  json.loads((ing / "transcript.json").read_text(encoding="utf-8"))["files"].items()}
+        tfiles = json.loads((ing / "transcript.json").read_text(encoding="utf-8"))["files"]
+        tracks = {n: f.get("track", 0) for n, f in tfiles.items()}
+        words = {n: [w for s in f["segments"] for w in s.get("words", [])] for n, f in tfiles.items()}
     out = ing / "audio"
     out.mkdir(parents=True, exist_ok=True)
     log = Log(ing / "ingest.log")
     cache = Cache(out / ".cache.json", args.force)
     index_path = out / "clean.json"
     index = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else {}
+    by_name = {m["name"]: m for m in material}
+    used_external = {m["external_audio"]["name"] for m in material if m.get("external_audio")}
     for m in material:
         if not m.get("audio_tracks"):
             continue
         name, src = m["name"], Path(m["file"])
+        if name in used_external and not args.no_external:
+            continue                       # cleaned through the videos it covers, aligned to each
         track = tracks.get(name, m.get("suggested_audio_track", 0))
-        floor = next((a["noise_floor_db"] for a in m.get("audio", []) if a["index"] == track), None)
-        af = chain(floor)
+        info = next((a for a in m.get("audio", []) if a["index"] == track), {})
+        floor = info.get("noise_floor_db")
+        pan = channel_pan(info.get("channels"))
+        # Sound recorded separately (a recorder, a wireless mic): usually the best — use it,
+        # cut and aligned to this video (offset, and the drift of the two clocks).
+        ext, align, sound = m.get("external_audio"), "", src
+        if ext and not args.no_external:
+            sound, dur = Path(ext["file"]), float(m["duration"])
+            e_meta = by_name.get(ext["name"], {})
+            ch = next((t.get("channels") for t in e_meta.get("audio_tracks", [])), 1) or 1
+            from ingest import channel_layout
+            pan = channel_pan(channel_layout(sound, 0, ch)) if ch > 1 else ""
+            floor, off, drift = None, ext["offset_s"], ext.get("drift_s") or 0.0
+            align = ",".join(x for x in (
+                f"atrim=start={max(0.0, -off):.4f},asetpts=PTS-STARTPTS",
+                f"atempo={(dur - drift) / dur:.6f}" if drift else "",
+                f"adelay={max(0.0, off) * 1000:.1f}:all=1" if off > 0 else "",
+                f"apad,atrim=end={dur:.4f}") if x)
+        spans = speech_spans(words.get(name, []))
+        speech_pct = 100 * sum(b - a for a, b in spans) / max(float(m["duration"]), 1e-6)
+        ambient = name in words and speech_pct < AMBIENT_SPEECH_PCT     # no transcript → treated as speech
+        # Ambience (little or no speech: the sea, a street, a walk) keeps its sound as recorded:
+        # no noise reduction, no gain — that sound is what the shot is for.
+        af = ",".join(x for x in (pan, "highpass=f=40" if ambient else chain(floor, args.nr)) if x)
         dst = out / f"{Path(name).stem}.wav"
-        if dst.exists() and name in index and cache.fresh(f"clean:{name}", src, af):
+        if dst.exists() and name in index and cache.fresh(f"clean:{name}", src, f"{align}|{af}"):
             log(f"{name}: clean audio is up to date")
             continue
-        sel = ["-map", f"0:a:{track}"] if m.get("kind") == "video" else []
-        level = measure(src, sel, af)["I"]
-        gain = max(min(SPEECH_LEVEL - level, 20.0), -20.0) if level is not None else 0.0
+        sel = ["-map", f"0:a:{track}"] if m.get("kind") == "video" and sound == src else []
+        full = ",".join(x for x in (align, af) if x)
+        if ambient:
+            level, gain = None, 0.0
+        else:
+            # The level of the voice, measured where someone speaks — not the ambience or music.
+            only = "aselect='" + "+".join(f"between(t,{a:.2f},{b:.2f})" for a, b in spans) + "',asetpts=N/SR/TB"
+            level = measure(sound, sel, f"{full},{only}" if spans else full)["I"]
+            gain = max(min(SPEECH_LEVEL - level, 20.0), -20.0) if level is not None else 0.0
         lat = latency(af)
-        log(f"{name}: cleaning (noise floor {floor} dB, speech {level} LUFS → {SPEECH_LEVEL}, {gain:+.1f} dB, "
-            f"chain latency {lat / 48:.1f} ms compensated)")
+        log(f"{name}: " + (f"ambience ({speech_pct:.0f}% speech): kept as recorded" if ambient else
+                           f"cleaning (noise floor {floor} dB, noise reduction {args.nr}, speech {level} LUFS → "
+                           f"{SPEECH_LEVEL}, {gain:+.1f} dB, chain latency {lat / 48:.1f} ms compensated)")
+            + (f" · channels → center ({pan})" if pan else "")
+            + (f" · sound from {ext['name']} at {ext['offset_s']:+.3f} s"
+               + (f", drift {ext['drift_s'] * 1000:+.0f} ms corrected" if ext.get("drift_s") else "") if align else ""))
         # Resample first so the latency (measured at 48 kHz) is in the same samples.
         shift = (f",atrim=start_sample={lat},asetpts=PTS-STARTPTS,apad=pad_len={lat}" if lat else "")
-        ffmpeg_progress(["-i", str(src), *sel, "-af", f"aresample=48000,{af}{shift},volume={gain:.2f}dB",
+        ffmpeg_progress(["-i", str(sound), *sel, "-af", f"aresample=48000,{full}{shift},volume={gain:.2f}dB",
                          "-c:a", "pcm_s24le", str(dst)], float(m["duration"]), f"{name} clean audio", log, step=50)
         index[name] = {"file": str(dst), "track": track, "chain": af, "gain_db": round(gain, 2),
-                       "measured_lufs": level}
+                       "measured_lufs": level, "ambient": ambient,
+                       "sound": f"external {ext['name']}" if align else "camera"}
         rt = room_tone(dst, out / f"{Path(name).stem}.roomtone.wav")
         if rt:
             index[name]["roomtone"] = str(rt)
-        cache.mark(f"clean:{name}", src, af)
+        cache.mark(f"clean:{name}", src, f"{align}|{af}")
         index_path.write_text(json.dumps(index, indent=1), encoding="utf-8")
     log(f"clean audio → {out}")
 
@@ -231,6 +288,10 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("clean")
     c.add_argument("--force", action="store_true")
+    c.add_argument("--no-external", action="store_true",
+                   help="use the camera's sound even where a separate recording matches")
+    c.add_argument("--nr", choices=tuple(NR), default="normal",
+                   help="noise reduction on speech: normal, light (vlog, spontaneous material) or off")
     mu = sub.add_parser("music")
     mu.add_argument("--file")
     mu.add_argument("--in", dest="in_", type=float, default=0.0, help="start inside the music file")

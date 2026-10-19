@@ -36,7 +36,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
-from _common import material_index, pre_filter  # noqa: E402
+from _common import channel_pan, material_index, pre_filter  # noqa: E402
 from _timeline import resolve_broll, signature as timeline_sig, total as timeline_total  # noqa: E402
 
 MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
@@ -161,7 +161,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
               "setpts=PTS-STARTPTS", "format=yuv420p"]
     v = f"[{k}:v:0]{','.join(chain)}[v{k}]"
     if audio_in:
-        a = (f"[{audio_in}]aformat=sample_rates=48000:channel_layouts=stereo,"
+        a = (f"[{audio_in}]{seg['_pan'] + ',' if seg.get('_pan') else ''}aformat=sample_rates=48000:channel_layouts=stereo,"
              f"apad,atrim=duration={dur:.6f},asetpts=PTS-STARTPTS,"
              f"afade=t=in:d={FADE_S},afade=t=out:st={max(dur - FADE_S, 0):.6f}:d={FADE_S}[a{k}]")
     else:
@@ -250,6 +250,10 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
                 audio_in, idx = f"{idx}:a:{s.get('track', 0)}", idx + 1
             elif has_audio:
                 audio_in = f"{vid}:a:{s.get('track', 0)}"
+                # Raw audio (no cleanup): a mic on one channel still goes to the center.
+                info = next((a for a in (MATERIAL.get(s.get("name", "")) or {}).get("audio", [])
+                             if a["index"] == s.get("track", 0)), {})
+                s["_pan"] = channel_pan(info.get("channels"))
             else:
                 # No sound in this piece: the room's own air, never a dead digital silence.
                 rt = next((x["roomtone"] for x in clean.values() if x.get("roomtone")), None)
@@ -420,8 +424,23 @@ def main() -> None:
         f"subtitles: {'burned-in' if fin['subs'] else 'none'} · loudness: {args.loudness}")
 
     pre = dst.with_name(dst.stem + ".premaster" + dst.suffix)
+    cpu_name, cpu = (PREVIEW if args.preview else MASTER)[-1]
+
+    def fallback(e: RuntimeError) -> list[str]:
+        """A hardware encoder that passed the short test can still fail mid-render (session
+        limits, drivers): finish on the CPU instead of stopping, and say so."""
+        used_encoder[0] = cpu_name
+        log(f"WARNING: {enc_name} failed mid-render ({str(e).splitlines()[0][:120]}) — finishing with {cpu_name}")
+        return cpu
+    used_encoder = [enc_name]
     if len(segs) <= CHUNK:
-        total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
+        try:
+            total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
+        except RuntimeError as e:
+            if enc_name == cpu_name:
+                raise
+            enc = fallback(e)
+            total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
     else:
         work = Path("02-work") / "render"
         work.mkdir(parents=True, exist_ok=True)
@@ -435,10 +454,19 @@ def main() -> None:
         lst = work / "parts.txt"
         lst.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
         f_inputs, f_graphs = finish_graph(1, "0:v", "0:a", fin, out, grade)
-        ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *f_inputs,
-                         "-filter_complex", ";".join(f_graphs), "-map", "[v]", "-map", "[a]", *enc,
-                         "-pix_fmt", "yuv420p", *TAGS, "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart",
-                         str(pre)], total, "final encode", log)
+
+        def final(e_args: list[str]) -> None:
+            ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *f_inputs,
+                             "-filter_complex", ";".join(f_graphs), "-map", "[v]", "-map", "[a]", *e_args,
+                             "-pix_fmt", "yuv420p", *TAGS, "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart",
+                             str(pre)], total, "final encode", log)
+        try:
+            final(enc)
+        except RuntimeError as e:
+            if enc_name == cpu_name:
+                raise
+            enc = fallback(e)
+            final(enc)
         for p in parts:
             p.unlink(missing_ok=True)
     master(pre, dst, args.loudness, log)
@@ -448,7 +476,7 @@ def main() -> None:
     vd = float(next(s for s in got["streams"] if s["codec_type"] == "video").get("duration") or 0)
     ad = float(next((s for s in got["streams"] if s["codec_type"] == "audio"), {}).get("duration") or 0)
     log(f"done: {tc(total)} expected · video {tc(vd)} · audio {tc(ad)} · "
-        f"{dst.stat().st_size / 1e6:.1f} MB · encoded with {enc_name}")
+        f"{dst.stat().st_size / 1e6:.1f} MB · encoded with {used_encoder[0]}")
     if abs(vd - ad) > 1.5 / out["fps"]:
         log(f"WARNING: picture and sound differ by {abs(vd - ad) * 1000:.0f} ms")
 

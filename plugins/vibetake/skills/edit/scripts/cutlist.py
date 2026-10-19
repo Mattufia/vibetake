@@ -73,6 +73,39 @@ def join_kind(last_word: str, follows: bool) -> str:
     return "comma" if w.endswith((",", ";", ":")) else "word"
 
 
+def transcript_sig(tr: dict) -> str:
+    """Fingerprint of the transcript's numbering: which line is which moment of which file."""
+    import hashlib
+    items = [(s["line"], s["file"], round(s["start"], 2)) for s in tr["sentences"]]
+    items += [(x["id"], x["file"], round(x["start"], 2)) for x in tr.get("silences") or []]
+    return hashlib.sha1(json.dumps(items).encode()).hexdigest()[:12]
+
+
+def remap_keep(kept: list[dict], tr: dict) -> str:
+    """The kept lines and silent stretches found again, by file and time, in a renumbered transcript."""
+    def overlap(a, b):
+        return max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
+    out, moved = [], []
+    for k in kept:
+        pool = (tr.get("silences") or []) if k["id"].upper().startswith("S") else tr["sentences"]
+        hits = [x for x in pool if x["file"] == k["file"]
+                and overlap(x, k) >= 0.5 * min(x["end"] - x["start"], k["end"] - k["start"])]
+        if not hits:
+            moved.append(f"{k['id']} → (gone)")
+            continue
+        for x in hits:
+            new = x["id"].upper() if "id" in x else f"L{x['line']}"
+            if new not in out:
+                out.append(new)
+            if new != k["id"]:
+                moved.append(f"{k['id']} → {new}")
+    if not out:
+        die("the transcript changed and none of the kept lines were found again: pass --keep")
+    print("the transcript changed since the last cut: kept lines found again by time"
+          + (f" ({', '.join(moved)})" if moved else " (same numbers)"))
+    return ",".join(out)
+
+
 def parse_keep(spec: str, sentences: list[dict], silences: list[dict] | None = None) -> tuple[list[int], list[str]]:
     """Lines to keep, in order, and the silent stretches (S…) named among them."""
     if spec == "auto":
@@ -274,14 +307,26 @@ def main() -> None:
             break
     if Path(args.out).exists():
         prev = prev_edl.get("params", {})
+    keep_given = args.keep is not None
     for k, v in DEFAULTS.items():
         if getattr(args, k) is None:
             setattr(args, k, prev.get(k, v))
+    tsig = transcript_sig(tr)
+    if not keep_given and args.keep != "auto" and prev.get("transcript_sig") not in (None, tsig):
+        # The transcript changed (a file redone, a glossary): line numbers may have moved.
+        # Find the same moments again by file and time, instead of keeping stale numbers.
+        args.keep = remap_keep(prev.get("kept_spans") or [], tr)
     material = {}
     if (ingest / "material.json").exists():
         material = {m["name"]: m for m in json.loads((ingest / "material.json").read_text(encoding="utf-8"))["files"]}
     sents = {s["line"]: s for s in tr["sentences"]}
     keep, keep_sil = parse_keep(args.keep, tr["sentences"], tr.get("silences"))
+    sil_by_id = {x["id"].upper(): x for x in tr.get("silences") or []}
+    args.transcript_sig = tsig
+    args.kept_spans = ([{"id": f"L{n}", "file": sents[n]["file"], "start": sents[n]["start"], "end": sents[n]["end"]}
+                        for n in keep if n in sents]
+                       + [{"id": s, "file": sil_by_id[s]["file"], "start": sil_by_id[s]["start"],
+                           "end": sil_by_id[s]["end"]} for s in keep_sil if s in sil_by_id])
     scale, default_pause = PACE[args.pace]
     max_pause = args.max_pause if args.max_pause is not None else default_pause
 
@@ -430,6 +475,10 @@ def main() -> None:
         w, h = first_src.get("display_width", 1920), first_src.get("display_height", 1080)
     else:
         w, h = FORMATS[args.format]
+    for s in segments:                         # the audio track the transcript (and cleanup) used
+        t = tr["files"].get(s["name"], {}).get("track", 0)
+        if t:
+            s["track"] = t
     edl = {"version": 1, "output": {"width": w, "height": h, "fps": first_src.get("fps", 30)},
            "made_by": "cutlist", "params": vars(args), "segments": segments}
     carried = {k: v for k, v in prev_edl.items() if k not in edl}

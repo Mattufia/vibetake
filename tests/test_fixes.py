@@ -75,6 +75,22 @@ def main() -> None:
     variant = json.loads((proj / "02-work" / "edl_B.json").read_text(encoding="utf-8"))
     checks["a variant cut starts with the main edit's placements"] = bool(variant.get("broll"))
 
+    # 1b. The transcript is renumbered (a file redone): a rebuild finds the kept lines by time.
+    tp = proj / "01-ingest" / "transcript.json"
+    tr = json.loads(tp.read_text(encoding="utf-8"))
+    finals = [s["line"] for s in tr["sentences"] if not s.get("retake_of")]
+    script(proj, "cutlist.py", "--keep", f"L{finals[-1]},L{finals[0]}")
+    texts = [s["text"] for s in json.loads(ep.read_text(encoding="utf-8"))["segments"]]
+    for s in tr["sentences"]:
+        s["line"] += 10
+        if s.get("retake_of"):
+            s["retake_of"] += 10
+    tp.write_text(json.dumps(tr, ensure_ascii=False), encoding="utf-8")
+    out = script(proj, "cutlist.py").stdout
+    again_texts = [s["text"] for s in json.loads(ep.read_text(encoding="utf-8"))["segments"]]
+    checks["transcript renumbered → the same lines kept, found again by time"] = (
+        "found again" in out and again_texts == texts)
+
     # 2. Stale captions / graphics.
     ff(tmp, "-f", "lavfi", "-i", "color=gray:s=320x180:r=30:d=4", "-f", "lavfi", "-i", "sine=f=300:d=4",
        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", "clip.mp4")

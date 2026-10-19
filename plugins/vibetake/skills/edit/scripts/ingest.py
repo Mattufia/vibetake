@@ -316,6 +316,33 @@ def window_db(x: np.ndarray, win: int) -> np.ndarray:
     return np.maximum(20 * np.log10(rms + 1e-9), -90.0)
 
 
+def channel_layout(path: Path, track: int, channels: int, seconds: float = 600) -> dict | None:
+    """How a multichannel track was recorded: a dead channel (a mic on one side only), two
+    independent mics (one per person, left and right), or real stereo. Measured on the
+    first minutes of each channel."""
+    if (channels or 0) < 2:
+        return None
+    p = subprocess.run([tool("ffmpeg"), "-v", "error", "-t", str(seconds), "-i", str(path), "-map", f"0:a:{track}",
+                        "-ar", "8000", "-f", "s16le", "-"], capture_output=True)
+    x = np.frombuffer(p.stdout, np.int16).astype(np.float32) / 32768
+    n = len(x) // channels
+    if n < 8000:
+        return None
+    x = x[:n * channels].reshape(n, channels)
+    levels = [float(np.percentile(window_db(x[:, c], 400), 95)) for c in range(channels)]
+    top = max(levels)
+    live = [c for c, lv in enumerate(levels) if lv > top - 20 and lv > -60]
+    out = {"levels_db": [round(v, 1) for v in levels], "live": live}
+    if len(live) == 1:
+        out["layout"] = "one channel"          # the other is empty or just noise: use the live one
+    else:
+        a, b = x[:, live[0]], x[:, live[1]]
+        corr = float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else 1.0
+        out["corr"] = round(corr, 2)
+        out["layout"] = "separate mics" if corr < 0.3 else "stereo"
+    return out
+
+
 def analyze_audio(meta: dict, log: Log) -> tuple[list, np.ndarray | None]:
     src, dur, results, first_db = Path(meta["file"]), meta["duration"], [], None
     for tr in meta["audio_tracks"]:
@@ -333,7 +360,12 @@ def analyze_audio(meta: dict, log: Log) -> tuple[list, np.ndarray | None]:
         floor, level = float(np.percentile(db, 10)), float(np.percentile(db, 95))
         if first_db is None:
             first_db = db
-        results.append({"index": i, "integrated_lufs": num(r"I:\s+(-?[\d.]+|-inf) LUFS"),
+        layout = channel_layout(src, i, tr.get("channels") or 0)
+        if layout and layout["layout"] != "stereo":
+            meta.setdefault("warnings", []).append(
+                f"audio track {i + 1}: {layout['layout']} ({', '.join(f'{v} dB' for v in layout['levels_db'])}) — "
+                "cleanup puts the voice in the center")
+        results.append({"index": i, "channels": layout, "integrated_lufs": num(r"I:\s+(-?[\d.]+|-inf) LUFS"),
                         "lra_lu": num(r"LRA:\s+([\d.]+) LU"), "true_peak_dbfs": num(r"Peak:\s+(-?[\d.]+|-inf) dBFS"),
                         "silence_pct": round(100 * silence / dur, 1) if dur else 0,
                         "noise_floor_db": round(floor, 1), "snr_db": round(level - floor, 1)})
@@ -348,6 +380,37 @@ def envelope(path: Path, track: int | None, seconds: float = 600) -> np.ndarray:
     if len(env) > k:
         env = env - np.convolve(env, np.ones(k) / k, mode="same")
     return (env - env.mean()) / (env.std() + 1e-9)
+
+
+SYNC_MAX_S = 3 * 3600      # longest recording searched (a whole podcast or event)
+
+
+def match_external(videos: list[dict], externals: list[dict]) -> list[dict]:
+    """Each video's sound inside the separately recorded files (a recorder, a wireless mic
+    that records): which file, at what offset, and how much the two clocks drift apart over
+    the clip. Full length, so one long recording covering several clips matches them all."""
+    aenv = {e["name"]: envelope(Path(e["file"]), None, SYNC_MAX_S) for e in externals}
+    report = {e["name"]: {"name": e["name"], "file": e["file"], "videos": []} for e in externals}
+    for m in videos:
+        if not m.get("audio_tracks"):
+            continue
+        venv = envelope(Path(m["file"]), m.get("transcript_track", 0), min(m["duration"], SYNC_MAX_S))
+        hits = [(name, *sync_offset(venv, a)) for name, a in aenv.items()]
+        name, offset, conf = max(hits, key=lambda r: r[2], default=(None, 0, 0))
+        if not name or conf <= 8:
+            continue
+        drift, w = 0.0, 60_000                               # 60 s windows of the 1 kHz envelope
+        if len(venv) > 3 * w:
+            o1, c1 = sync_offset(venv[:w], aenv[name])
+            o2, c2 = sync_offset(venv[-w:], aenv[name])
+            o2 += (len(venv) - w) / 1000
+            if c1 > 8 and c2 > 8 and 0.02 <= abs(o2 - o1) <= 2:
+                drift = o2 - o1                               # clocks that run apart, end vs start
+        ext = next(e for e in externals if e["name"] == name)
+        m["external_audio"] = {"name": name, "file": ext["file"], "offset_s": round(offset, 3),
+                               "drift_s": round(drift, 3), "confidence": round(conf, 1)}
+        report[name]["videos"].append({"video": m["name"], "offset_s": round(offset, 3), "drift_s": round(drift, 3)})
+    return list(report.values())
 
 
 def sync_offset(video_env: np.ndarray, audio_env: np.ndarray) -> tuple[float, float]:
@@ -428,6 +491,9 @@ def write_report(out: Path, metas: list, externals: list, transcript_note: str |
             lines.append(f"- audio track {a['index'] + 1}: {a['integrated_lufs']} LUFS · peak "
                          f"{a['true_peak_dbfs']} dBTP · noise floor {a['noise_floor_db']} dB · SNR {a['snr_db']} dB · "
                          f"silence {a['silence_pct']}%")
+        if m.get("external_audio"):
+            x = m["external_audio"]
+            lines.append(f"- sound: external {x['name']} at {x['offset_s']:+.3f} s (confidence {x['confidence']:.0f})")
         if m.get("warnings"):
             lines.append("- warnings: " + " · ".join(m["warnings"]))
         if sh.get("sheets"):
@@ -435,9 +501,12 @@ def write_report(out: Path, metas: list, externals: list, transcript_note: str |
         lines.append("")
     if externals:
         lines.append("## External audio")
-        lines += [f"- {e['name']}: " + (f"matches {e['video']} — place at video time {e['offset_s']:+.3f} s "
-                                         f"(confidence {e['confidence']:.0f})" if e.get("video")
-                                         else "no reliable match with any video") for e in externals]
+        lines += [f"- {e['name']}: " + (", ".join(f"{v['video']} at {v['offset_s']:+.3f} s"
+                                                  + (f" (drift {v['drift_s'] * 1000:+.0f} ms)" if v["drift_s"] else "")
+                                                  for v in e.get("videos", []))
+                                        or "no reliable match with any video") for e in externals]
+        lines.append("Cleanup (audio.py clean) uses the external sound for those videos, aligned; the "
+                     "transcript stays on the camera audio (same timing).")
         lines.append("")
     if transcript_note:
         lines += [f"Transcript: {transcript_note}", ""]
@@ -464,7 +533,24 @@ def discover(inputs: list[str]) -> list[Path]:
     return files
 
 
-def start_transcription(files: list[Path], out: Path, args, log: Log) -> subprocess.Popen | None:
+def quick_best_track(m: dict) -> int:
+    """With several audio tracks (camera mic + a wireless mic on track 2), the one with the
+    clearest sound, from its first two minutes — so the transcript and the edit use it."""
+    tracks = m.get("audio_tracks") or []
+    if len(tracks) < 2:
+        return 0
+    scores = []
+    for t in tracks:
+        db = window_db(pcm(Path(m["file"]), t["index"], 16000, 120), 800)
+        level, floor = float(np.percentile(db, 95)), float(np.percentile(db, 10))
+        scores.append((level - floor if level > -50 else -99, t["index"]))
+    best = max(scores)
+    first = next(s for s in scores if s[1] == tracks[0]["index"])
+    return best[1] if best[0] >= first[0] + 6 else tracks[0]["index"]
+
+
+def start_transcription(files: list[Path], out: Path, args, log: Log,
+                        tracks: dict | None = None) -> subprocess.Popen | None:
     if args.no_transcribe:
         return None
     if not args.lang:
@@ -477,6 +563,9 @@ def start_transcription(files: list[Path], out: Path, args, log: Log) -> subproc
         cmd += ["--model", args.model]
     if args.glossary:
         cmd += ["--glossary", args.glossary]
+    for name, t in (tracks or {}).items():
+        if t:
+            cmd += ["--track-for", f"{name}={t}"]
     log(f"transcription started in parallel (progress: {out / 'transcribe.log'})")
     return subprocess.Popen(cmd, stdout=open(out / "transcribe.log", "w", encoding="utf-8"),
                             stderr=subprocess.STDOUT)
@@ -512,7 +601,12 @@ def main() -> None:
         m["stem"] = stem if seen[stem] == 1 else f"{stem}_{seen[stem]}"
     videos = [m for m in metas if m["kind"] == "video"]
     externals = [m for m in metas if m["kind"] == "audio"]
-    tx = start_transcription([Path(m["file"]) for m in (videos or externals)], out, args, log)
+    for m in videos:
+        m["transcript_track"] = quick_best_track(m)
+        if m["transcript_track"]:
+            log(f"{m['name']}: audio track {m['transcript_track'] + 1} sounds clearest — used for the transcript")
+    tx = start_transcription([Path(m["file"]) for m in (videos or externals)], out, args, log,
+                             {m["name"]: m["transcript_track"] for m in videos})
 
     font = find_font()
     faces_all, first_db = {}, {}
@@ -556,8 +650,9 @@ def main() -> None:
         if len(m.get("audio", [])) > 1:
             best = max(m["audio"], key=lambda a: a["snr_db"])
             m["suggested_audio_track"] = best["index"]
-            if best["index"] != 0:
-                m["warnings"].append(f"best audio is track {best['index'] + 1} (transcript used track 1)")
+            if best["index"] != m.get("transcript_track", 0):
+                m["warnings"].append(f"best audio over the whole file is track {best['index'] + 1} (transcript used "
+                                     f"track {m.get('transcript_track', 0) + 1}): transcribe.py --track-for")
         if m.get("faces", {}).get("image", {}).get("flat") or m.get("log_hint"):
             m["warnings"].append("possible LOG footage: confirm and apply the matching conversion LUT")
         log(f"{m['name']}: done")
@@ -568,15 +663,7 @@ def main() -> None:
     ext_report = []
     if videos and externals:
         log("syncing external audio")
-        venv = {m["name"]: envelope(Path(m["file"]), 0) for m in videos if m["audio_tracks"]}
-        for e in externals:
-            aenv = envelope(Path(e["file"]), None)
-            best = max(((name, *sync_offset(v, aenv)) for name, v in venv.items()), key=lambda r: r[2],
-                       default=None)
-            entry = {"name": e["name"], "file": e["file"]}
-            if best and best[2] > 8:
-                entry.update({"video": best[0], "offset_s": round(best[1], 3), "confidence": round(best[2], 1)})
-            ext_report.append(entry)
+        ext_report = match_external(videos, externals)
 
     note = None
     if tx:
