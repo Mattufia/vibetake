@@ -57,7 +57,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, filter_path, run, tc, tool  # noqa: E402
+from _common import die, filter_path, material_index, pre_filter, run, tc, tool  # noqa: E402
 
 PLATFORMS = {
     # size, core box (x0, y0, x1, y1 as 0-1: what must survive the platform's crop), avoid boxes
@@ -89,11 +89,11 @@ def hexcolor(c: str) -> tuple[int, int, int]:
 
 def grab(video: Path, t: float, out: Path) -> Path:
     """Full-resolution frame at t, with the file's color grade if there is one."""
-    vf = []
     gp = Path("02-work/color/grade.json")
-    if gp.exists():
-        g = json.loads(gp.read_text(encoding="utf-8")).get(video.name) or {}
-        vf += [x for x in (g.get("pre"), f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
+    g = (json.loads(gp.read_text(encoding="utf-8")).get(video.name) or {}) if gp.exists() else {}
+    # HDR without a grade is still tone-mapped: a cover is never washed out.
+    vf = [x for x in (pre_filter(material_index().get(video.name), g),
+                      f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
     run([tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", str(video), "-frames:v", "1",
          *(["-vf", ",".join(vf)] if vf else []), str(out)])
     return out

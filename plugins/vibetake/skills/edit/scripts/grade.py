@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, ffprobe, filter_path, find_font, run, tc, tool  # noqa: E402
+from _common import die, ffprobe, filter_path, find_font, pick_tonemap, run, sdr_source, tc, tool  # noqa: E402
 
 GAMMA = 2.4                  # display-referred math (BT.1886)
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
@@ -276,9 +276,11 @@ def sample_times(dur: float, n: int) -> list[float]:
     return [dur * (i + 0.5) / n for i in range(n)]
 
 
-def grab(src: str, t: float, w: int, h: int) -> np.ndarray:
+def grab(src: str, t: float, w: int, h: int, pre: str = "") -> np.ndarray:
+    """A frame as float RGB 0-1; pre: filters before scaling (e.g. HDR tone mapping)."""
+    vf = ",".join(x for x in (pre, f"scale={w}:{h}") if x)
     p = subprocess.run([tool("ffmpeg"), "-v", "error", "-ss", f"{t:.3f}", "-i", src, "-frames:v", "1",
-                        "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "rgb48le", "-"],
+                        "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb48le", "-"],
                        capture_output=True, check=True)
     return (np.frombuffer(p.stdout, np.uint16).reshape(h, w, 3).astype(np.float32) / 65535)
 
@@ -357,13 +359,13 @@ def verdict(m: dict) -> list[str]:
 
 
 def analysis_frames(m: dict, input_lut: np.ndarray | None, n: int = 10) -> tuple[list, list]:
-    # HDR is measured on the tone-mapped working copy, which is what the grade starts from.
-    src = (m.get("normalized") or {}).get("file") if m.get("hdr") else None
-    src = src or m["file"]
+    # HDR is measured tone-mapped (the working copy, or on the fly if it was cleaned up),
+    # which is what the grade starts from.
+    src, pre = sdr_source(m)
     w = 480
     h = int(round(w * m["display_height"] / m["display_width"] / 2)) * 2
     times = sample_times(m["duration"], n)
-    frames = [grab(src, t, w, h) for t in times]
+    frames = [grab(src, t, w, h, pre) for t in times]
     if input_lut is not None:
         frames = [apply_cube(f, input_lut) for f in frames]
     return frames, times
@@ -380,7 +382,7 @@ def cmd_analyze(args) -> dict:
     report, lines = {}, ["# Color analysis", ""]
     for m in resolve(args.files, material):
         is_log = bool(m.get("log_hint") or (m.get("faces", {}).get("image", {}).get("flat")))
-        frames, times = analysis_frames(m, lut if is_log or args.input_lut else None)
+        frames, times = analysis_frames(m, lut if is_log else None)
         meas = measure(frames, [faces_at(faces, m["name"], t) for t in times])
         meas["verdict"] = verdict(meas)
         if is_log and lut is None:
@@ -643,7 +645,6 @@ def cmd_build(args) -> None:
                                   stop_size, creative, transfer, finish, c["mfn"]), f"vibetake {m['name']}")
         pre = ""
         if m.get("hdr"):
-            from ingest import pick_tonemap
             pre = pick_tonemap()[1]
             notes.insert(0, f"HDR {m['hdr']} tone-mapped before the LUT")
         # Repairs go before the correction: correcting amplifies noise and false color.

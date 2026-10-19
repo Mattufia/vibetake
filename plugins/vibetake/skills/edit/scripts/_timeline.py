@@ -64,3 +64,14 @@ def resolve_broll(segs: list[dict], fps: float, items: list[dict]) -> tuple[list
         if y["at"] < x["at"] + x["dur"] - 0.02:
             warnings.append(f"b-roll {x['clip']} and {y['clip']} overlap at {y['at']:.2f} s")
     return placed, warnings
+
+
+def signature(edl: dict) -> str:
+    """A fingerprint of the edit's timeline (output size and fps, which piece of which file,
+    framing). Subtitles and the graphics layer carry the one they were made for, so render.py
+    can tell when they belong to an older cut."""
+    import hashlib
+    import json
+    segs = [{k: s.get(k) for k in ("source", "name", "in", "out", "frame", "role")} for s in edl["segments"]]
+    blob = json.dumps({"output": edl["output"], "segments": segs}, sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()[:12]

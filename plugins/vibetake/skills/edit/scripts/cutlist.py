@@ -265,13 +265,20 @@ def main() -> None:
             print("nothing protected")
         return
 
-    # A rebuild reuses the last run's choices unless they're given again.
-    prev = {}
+    # A rebuild reuses the last run's choices unless they're given again, and keeps everything
+    # placed on the edit (b-roll, sound effects, music, name…): they're anchored to words and
+    # cuts, so they follow the new cut. A new cut file (a variant) starts from the main edit's.
+    prev, prev_edl = {}, {}
+    main_edl = Path("02-work/edl.json")
+    for src in (Path(args.out), main_edl):
+        if src.exists():
+            try:
+                prev_edl = json.loads(src.read_text(encoding="utf-8"))
+            except ValueError:
+                prev_edl = {}
+            break
     if Path(args.out).exists():
-        try:
-            prev = json.loads(Path(args.out).read_text(encoding="utf-8")).get("params", {})
-        except ValueError:
-            prev = {}
+        prev = prev_edl.get("params", {})
     for k, v in DEFAULTS.items():
         if getattr(args, k) is None:
             setattr(args, k, prev.get(k, v))
@@ -430,6 +437,11 @@ def main() -> None:
         w, h = FORMATS[args.format]
     edl = {"version": 1, "output": {"width": w, "height": h, "fps": first_src.get("fps", 30)},
            "made_by": "cutlist", "params": vars(args), "segments": segments}
+    carried = {k: v for k, v in prev_edl.items() if k not in edl}
+    edl.update(carried)
+    if carried:
+        print("kept from the previous edit: " + ", ".join(
+            f"{k} ({len(v)})" if isinstance(v, list) else k for k, v in carried.items()))
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")

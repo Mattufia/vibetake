@@ -52,8 +52,10 @@ ingest.
 Before touching filmed material, however trivial the request seems. The user opens
 Claude Code in the folder where their files are: tidy it (it also creates `brand/`,
 `references/`, `music/` for the user's own material), then **start ingest at once,
-in the background** — it's the long part — and ask the questions (section 2) while
-it runs. After the answer, run both again: new files are picked up, the rest skipped.
+in the background**. As soon as its log says **analysis ready** (`material.md` and the
+sheets; transcription keeps running), classify, run `grade.py propose` (and `match.py
+solve` with several files) and ask the questions (section 2) — once, all together —
+while the transcript finishes. After the answer, run both again: new files are picked up.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/organize.py      # loose files → 00-raw/, brand/, references/, music/
@@ -220,6 +222,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   `02-work/color/grade.json`, framing to the output size, constant frame rate,
   12 ms audio fades so cuts never click, cuts on the source's frame grid so sync
   never drifts. It reports expected vs actual picture and sound durations.
+- **After any re-cut**, run `reframe.py`, then subtitles and graphics again (b-roll, effects
+  and music stay: they follow their words). `render.py` refuses a master with captions or
+  graphics made for another cut.
 - **Check the preview** (stills, the cuts around retakes) before the master.
 
 - **Cleanup follows the type profile**: full in a talking head, light in a vlog,
@@ -289,7 +294,7 @@ sound.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py clean                    # after ingest, once per file
-uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file <track>     # optional bed (--gain, --start, --clear)
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file <track>     # optional bed (--in, --start, --gain, --clear)
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and masters
 ```
 
@@ -314,8 +319,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   | `broadcast-eu` / `broadcast-us` (TV ads: confirm with the station) | −23 / −24 | −2 dBTP |
 - **The voice rules.** Music never competes with it (a gentle dip around 3 kHz
   leaves room for speech); sound effects (`sfx.py`, section 7) sit ~10 dB below it.
-- **Start the music where it has energy** (`--start`), not on a slow intro, and
-  fade it out at the end.
+- **Start the music where it has energy** (`--in` <seconds into the track>), not on a
+  slow intro, and fade it out at the end. `--start` is where it enters the edit.
 - **Music source**: a bed synthesized to the length (`musicgen.py`) for quick,
   informal videos; a real track for scripted, brand or music-driven ones. **Never
   anything the user can't publish**; third-party material (music, effects, stock,

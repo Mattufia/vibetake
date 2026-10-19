@@ -33,7 +33,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (AUDIO_EXT, HOME, VIDEO_EXT, Cache, Log, die, ffmpeg_progress, ffprobe,  # noqa: E402
-                     filter_path, find_font, run, tc, tool)
+                     filter_path, filter_works, find_font, pick_tonemap, run, tc, tool)
 
 STANDARD_FPS = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120]
 LOG_PATTERN = re.compile(
@@ -144,15 +144,7 @@ def detect(path: Path) -> dict:
 # ------------------------------------------------------------ normalization
 
 _ENCODER: tuple | None = None
-_TONEMAP: tuple | None = None
-HDR_TEST_SRC = ("testsrc2=s=320x180:d=0.3,format=yuv420p10le,"
-                "setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc")
-
-
-def _works(args: list[str], src: str = "testsrc2=s=320x180:d=0.3") -> bool:
-    p = run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-f", "lavfi", "-i", src, *args, "-f", "null", "-"],
-            check=False)
-    return p.returncode == 0
+_works = filter_works
 
 
 def pick_encoder() -> tuple[str, list[str]]:
@@ -174,18 +166,6 @@ def pick_encoder() -> tuple[str, list[str]]:
         ]
         _ENCODER = next(((n, a) for n, a in candidates if _works(a)), candidates[-1])
     return _ENCODER
-
-
-def pick_tonemap() -> tuple[str, str]:
-    """HDR -> SDR Rec.709. libplacebo (BT.2390, perceptual gamut mapping) or zscale+hable fallback."""
-    global _TONEMAP
-    if _TONEMAP is None:
-        lp = ("libplacebo=tonemapping=bt.2390:gamut_mode=perceptual:colorspace=bt709:"
-              "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p10le")
-        zs = ("zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,"
-              "zscale=t=bt709:m=bt709:r=tv,format=yuv420p10le")
-        _TONEMAP = ("libplacebo", lp) if _works(["-vf", lp], HDR_TEST_SRC) else ("zscale+hable", zs)
-    return _TONEMAP
 
 
 def normalize(meta: dict, out: Path, cache: Cache, log: Log) -> Path | None:
@@ -608,7 +588,10 @@ def main() -> None:
 
     note = None
     if tx:
-        log("waiting for transcription…")
+        # Picture and sound analysis are done: write the report now, so the color proposal and
+        # the questions can go ahead while transcription — the long part — keeps running.
+        write_report(out, metas, ext_report, "running — transcript.md arrives when it finishes")
+        log(f"analysis ready → {out / 'material.md'} (color can be proposed now); waiting for transcription…")
         tx.wait()
         tjson = out / "transcript.json"
         if tx.returncode == 0 and tjson.exists():

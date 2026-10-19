@@ -50,7 +50,7 @@ from scipy import ndimage, optimize
 from scipy.interpolate import PchipInterpolator
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, filter_path, find_font, tool  # noqa: E402
+from _common import die, filter_path, find_font, sdr_source, tool  # noqa: E402
 from grade import (LUMA, TEMP_DIR, TINT_DIR, apply_cube, balance_gains, faces_at, from_lab, grab,  # noqa: E402
                    load_material, read_cube, resolve, to_disp, to_lab, to_lin)
 
@@ -179,9 +179,9 @@ def is_log(m: dict, args) -> bool:
                                                      .get("flat") or getattr(args, "force_log", False)))
 
 
-def source(m: dict) -> str:
-    src = (m.get("normalized") or {}).get("file") if m.get("hdr") else None
-    return src or m["file"]
+def source(m: dict) -> tuple[str, str]:
+    """The SDR picture: (file, filter) — see _common.sdr_source."""
+    return sdr_source(m)
 
 
 def frame_size(m: dict) -> tuple[int, int]:
@@ -216,7 +216,8 @@ def pick_times(m: dict, faces: dict, n: int, ranges: list[tuple[float, float]]) 
 
 def load(m: dict, t: float, lut) -> np.ndarray:
     w, h = frame_size(m)
-    img = grab(source(m), max(0.0, min(t, m["duration"] - 0.05)), w, h)
+    src, pre = source(m)
+    img = grab(src, max(0.0, min(t, m["duration"] - 0.05)), w, h, pre)
     return apply_cube(img, lut) if lut is not None else img
 
 
@@ -610,7 +611,7 @@ def faces_sheet(mdir: Path, items, data: dict, results: dict, faces: dict, lut_f
         t = with_face[len(with_face) // 2]
         x, yb, bw, bh = max(faces_at(faces, m["name"], t), key=lambda b: b[3])[:4]
         W, H = m["display_width"], m["display_height"]
-        full = grab(source(m), t, W - W % 2, H - H % 2)
+        full = grab(source(m)[0], t, W - W % 2, H - H % 2, source(m)[1])
         if lut_for(m) is not None:
             full = apply_cube(full, lut_for(m))
         cy, cx = (yb + bh / 2) * full.shape[0], (x + bw / 2) * full.shape[1]

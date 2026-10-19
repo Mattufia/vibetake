@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -35,7 +36,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
-from _timeline import resolve_broll, total as timeline_total  # noqa: E402
+from _common import material_index, pre_filter  # noqa: E402
+from _timeline import resolve_broll, signature as timeline_sig, total as timeline_total  # noqa: E402
+
+MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
 from audio import BUS, TARGETS, master, music_graph  # noqa: E402
 from sfx import resolve as resolve_sfx, sfx_graph  # noqa: E402
 
@@ -145,8 +149,9 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     g = grade.get(seg.get("name", Path(seg["source"]).name)) or {}
     chain = []
     if not seg.get("_up"):          # an upscaled segment comes graded and framed already
-        if g.get("pre"):
-            chain.append(g["pre"])
+        pre = pre_filter(MATERIAL.get(seg.get("name", Path(seg["source"]).name)), g)
+        if pre:
+            chain.append(pre)
         if g.get("lut"):
             chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
         # Framing from reframe.py, or a plain center crop to the output aspect.
@@ -174,7 +179,8 @@ def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade
         k = first_input + j
         inputs += ["-ss", f"{b['in']:.4f}", "-t", f"{b['dur'] + 0.3:.4f}", "-i", b["source"]]
         g = grade.get(b["clip"]) or {}
-        chain = [x for x in (g.get("pre"), f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
+        chain = [x for x in (pre_filter(MATERIAL.get(b["clip"]), g),
+                             f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
         n = frames(b["dur"], fps)
         chain += [f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'", f"scale={W}:{H}", "setsar=1", f"fps={fps}",
                   f"zoompan=z='1+0.04*on/{n}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps={fps}",
@@ -294,11 +300,15 @@ def main() -> None:
                                        "(default: 02-work/graphics.mov or .webm if present)")
     ap.add_argument("--no-graphics", action="store_true")
     ap.add_argument("--no-sfx", action="store_true")
+    ap.add_argument("--allow-stale", action="store_true",
+                    help="render the master even with subtitles/graphics made for another cut")
     ap.add_argument("--upload-height", type=int, help="scale the master up to this height for upload "
                                                       "(e.g. 1440 for YouTube: it gets better codecs)")
     args = ap.parse_args()
 
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
+    MATERIAL.update(material_index())
+    sig = timeline_sig(edl)                    # before anything below touches the segments
     segs = edl["segments"]
     if not segs:
         die("the edit has no segments")
@@ -381,6 +391,30 @@ def main() -> None:
     fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
            "graphics": graphics, "sfx": sfx}
+    # Layers made for another version of the cut land at the wrong times: catch it here.
+    stale = []
+    if fin["subs"]:
+        mark = re.search(r"vibetake-timeline: (\w+)", fin["subs"].read_text(encoding="utf-8", errors="replace")[:400])
+        if mark and mark.group(1) != sig:
+            stale.append(f"subtitles ({fin['subs']}) were made for another cut: run subtitles.py again "
+                         "(a variant: subtitles.py --edl <its edl> --ass <its own .ass>, then --subs)")
+    meta = graphics.parent / "graphics.meta.json" if graphics else None
+    if meta and meta.exists():
+        gm = json.loads(meta.read_text(encoding="utf-8"))
+        if gm.get("timeline") and gm["timeline"] != sig:
+            stale.append("the graphics layer was made for another cut: graphics.py cues, then graphics.py render "
+                         "(or --no-graphics)")
+        elif abs(gm["width"] / gm["height"] - out["width"] / out["height"]) > 0.01:
+            stale.append(f"the graphics layer is {gm['width']}×{gm['height']}, another shape than this output "
+                         "(it would be stretched)")
+    unframed = [i for i, s in enumerate(segs) if not s.get("frame") and not s.get("_up")]
+    if unframed:
+        log(f"WARNING: {len(unframed)} segment(s) without framing (plain center crop) — run reframe.py after "
+            "every re-cut")
+    for w in stale:
+        log(f"WARNING: {w}")
+    if stale and not args.preview and not args.allow_stale:
+        die("not rendering the master with layers from another cut (fix the above, or --allow-stale)")
     log(f"audio: {'cleaned' if clean else 'original'} · music: {len(fin['music'])} · sfx: {len(sfx)} · "
         f"graphics: {graphics.name if graphics else 'none'} · "
         f"subtitles: {'burned-in' if fin['subs'] else 'none'} · loudness: {args.loudness}")

@@ -5,8 +5,8 @@
 
     uv run still.py <file> 12.5 01:03.2 1:02:03 [--out 01-ingest/stills]
 
-Times accept seconds, MM:SS(.s) or H:MM:SS(.s). For HDR footage pass the
-normalized copy (01-ingest/normalized/) so the still shows the SDR result.
+Times accept seconds, MM:SS(.s) or H:MM:SS(.s). HDR footage (per 01-ingest/material.json)
+is tone-mapped, so the still shows the SDR result.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import run, tool  # noqa: E402
+from _common import material_index, pre_filter, run, tool  # noqa: E402
 
 
 def seconds(t: str) -> float:
@@ -34,7 +34,9 @@ def main() -> None:
     for t in args.times:
         s = seconds(t)
         dst = out / f"{src.stem}_{s:09.3f}.png"
-        run([tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{s:.3f}", "-i", str(src), "-frames:v", "1", str(dst)])
+        pre = pre_filter(material_index().get(src.name), None)
+        run([tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{s:.3f}", "-i", str(src), "-frames:v", "1",
+             *(["-vf", pre] if pre else []), str(dst)])
         print(dst)
 
 

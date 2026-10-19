@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import DELIVERY, deliverable_name, die, project_font  # noqa: E402
-from _timeline import starts  # noqa: E402
+from _timeline import signature, starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
@@ -296,7 +296,8 @@ def main() -> None:
         else:
             body = "\\N".join(ass_escape(x) for x in wrap(" ".join(texts), 42))
             events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Main,,0,0,0,,{pos}{body}")
-    header = (f"[Script Info]\nScriptType: v4.00+\nPlayResX: {W}\nPlayResY: {H}\nWrapStyle: 2\n"
+    header = (f"[Script Info]\n; vibetake-timeline: {signature(edl)}\nScriptType: v4.00+\n"
+              f"PlayResX: {W}\nPlayResY: {H}\nWrapStyle: 2\n"
               "ScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
               "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
               "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "

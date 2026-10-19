@@ -219,3 +219,54 @@ def project_font(role: str = "display") -> dict | None:
         cands = [f for f in fonts if f["weight"] >= 400] or fonts
         return min(cands, key=lambda f: f["weight"])
     return max(fonts, key=lambda f: f["weight"])
+
+
+# --------------------------------------------------------------- HDR → SDR
+
+def filter_works(args: list[str], src: str = "testsrc2=s=320x180:d=0.3") -> bool:
+    p = run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-f", "lavfi", "-i", src, *args, "-f", "null", "-"],
+            check=False)
+    return p.returncode == 0
+
+
+_TONEMAP: tuple | None = None
+HDR_TEST_SRC = ("testsrc2=s=320x180:d=0.3,format=yuv420p10le,"
+                "setparams=color_primaries=bt2020:color_trc=arib-std-b67:colorspace=bt2020nc")
+
+
+def pick_tonemap() -> tuple[str, str]:
+    """HDR -> SDR Rec.709. libplacebo (BT.2390, perceptual gamut mapping) or zscale+hable fallback."""
+    global _TONEMAP
+    if _TONEMAP is None:
+        lp = ("libplacebo=tonemapping=bt.2390:gamut_mode=perceptual:colorspace=bt709:"
+              "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p10le")
+        zs = ("zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,"
+              "zscale=t=bt709:m=bt709:r=tv,format=yuv420p10le")
+        _TONEMAP = ("libplacebo", lp) if filter_works(["-vf", lp], HDR_TEST_SRC) else ("zscale+hable", zs)
+    return _TONEMAP
+
+
+def material_index(ingest: str | Path = "01-ingest") -> dict:
+    """material.json by file name ({} without an ingest)."""
+    p = Path(ingest) / "material.json"
+    return {m["name"]: m for m in json.loads(p.read_text(encoding="utf-8"))["files"]} if p.exists() else {}
+
+
+def sdr_source(m: dict) -> tuple[str, str]:
+    """(file, filter) giving the SDR picture of a file: HDR → its normalized copy, or the
+    original tone-mapped on the fly when the copy was cleaned up; anything else → as is."""
+    if not m.get("hdr"):
+        return m["file"], ""
+    norm = (m.get("normalized") or {}).get("file")
+    if norm and Path(norm).exists():
+        return norm, ""
+    return m["file"], pick_tonemap()[1]
+
+
+def pre_filter(m: dict | None, g: dict | None) -> str:
+    """What goes before a file's LUT at render time: the grade's pre-filter, or — for HDR
+    material without a grade — the tone mapping, so it never renders washed out."""
+    pre = (g or {}).get("pre") or ""
+    if m and m.get("hdr") and pick_tonemap()[1] not in pre:
+        pre = ",".join(x for x in (pick_tonemap()[1], pre) if x)
+    return pre

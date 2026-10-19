@@ -41,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import die  # noqa: E402
-from _timeline import resolve_broll, starts, total  # noqa: E402
+from _timeline import resolve_broll, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
 
 
@@ -270,6 +270,9 @@ def cmd_render(args) -> None:
                                 "--pixel-format=yuva444p10le", "--image-format=png"), cwd=PROJ)
     if p.returncode:
         die("remotion render failed (see above)")
+    cues = load(Path("02-work/cues.json"))
+    Path("02-work/graphics.meta.json").write_text(json.dumps(
+        {"timeline": cues.get("timeline"), "width": cues["width"], "height": cues["height"]}), encoding="utf-8")
     print(f"graphics layer → {out} (render.py lays it over the edit)")
 
 
@@ -293,6 +296,7 @@ def main() -> None:
     material = {m["name"]: m for m in load(ing / "material.json")["files"]} if (ing / "material.json").exists() \
         else {}
     cues = build(edl, tr, faces, material)
+    cues["timeline"] = signature(edl)          # render.py checks the layer belongs to this cut
     if not cues["lines"]:
         die("no transcript words inside the edit")
     out = Path(args.out)
