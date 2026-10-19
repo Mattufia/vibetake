@@ -36,7 +36,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
-from _common import channel_pan, material_index, pre_filter  # noqa: E402
+from _common import channel_pan, material_index, pre_filter, work_paths  # noqa: E402
 from _timeline import resolve_broll, signature as timeline_sig, total as timeline_total  # noqa: E402
 
 MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
@@ -286,7 +286,7 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("edl", nargs="?", default="02-work/edl.json")
+    ap.add_argument("edl", nargs="?", help="default: 02-work/edl.json (a variant: 02-work/edl_<variant>.json)")
     ap.add_argument("--out", help="output file (default: the next version in 03-delivery/)")
     ap.add_argument("--overwrite", action="store_true", help="replace the latest version instead of adding one")
     ap.add_argument("--variant", help="a variant of the current version (hookB, 4x5…): <name>_v<N>_<variant>.mp4, "
@@ -297,7 +297,7 @@ def main() -> None:
     ap.add_argument("--loudness", choices=tuple(TARGETS), default="social")
     ap.add_argument("--clean", default="01-ingest/audio/clean.json", help="cleaned audio index (audio.py clean)")
     ap.add_argument("--raw-audio", action="store_true", help="use the original audio even if cleaned exists")
-    ap.add_argument("--subs", default="02-work/subs.ass", help="burned-in subtitles (subtitles.py)")
+    ap.add_argument("--subs", help="burned-in subtitles (default: 02-work/subs.ass, or the variant's subs_<v>.ass)")
     ap.add_argument("--no-subs", action="store_true")
     ap.add_argument("--fontsdir", help="folder with the subtitle fonts (default: 02-work/fonts, from fonts.py)")
     ap.add_argument("--graphics", help="graphics layer with alpha, as long as the edit "
@@ -310,6 +310,13 @@ def main() -> None:
                                                       "(e.g. 1440 for YouTube: it gets better codecs)")
     args = ap.parse_args()
 
+    paths = work_paths(args.variant)
+    if not args.edl:
+        args.edl = str(paths["edl"])
+        if args.variant and not paths["edl"].exists():
+            die(f"the variant has no cut of its own ({paths['edl']}): cutlist.py --variant {args.variant} "
+                "(then reframe, subtitles and graphics with --variant too)")
+    args.subs = args.subs or str(paths["subs"])
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
     MATERIAL.update(material_index())
     sig = timeline_sig(edl)                    # before anything below touches the segments
@@ -381,12 +388,14 @@ def main() -> None:
     if not args.raw_audio and Path(args.clean).exists():
         clean = json.loads(Path(args.clean).read_text(encoding="utf-8"))
     subs = None if args.no_subs else Path(args.subs)
+    if args.variant and subs and not subs.exists():
+        log(f"WARNING: this variant has no captions of its own: subtitles.py --variant {args.variant}")
     if not args.fontsdir and Path("02-work/fonts").is_dir():
         args.fontsdir = "02-work/fonts"
     graphics = None
     if not args.no_graphics:
         graphics = Path(args.graphics) if args.graphics else next(
-            (p for p in (Path("02-work/graphics.mov"), Path("02-work/graphics.webm")) if p.exists()), None)
+            (p for p in (paths["layer"], paths["layer"].with_suffix(".webm")) if p.exists()), None)
         if graphics and not graphics.exists():
             die(f"{graphics} doesn't exist")
     sfx, sfx_warn = ([], []) if args.no_sfx else resolve_sfx(segs, out["fps"], edl.get("sfx", []))
@@ -402,7 +411,7 @@ def main() -> None:
         if mark and mark.group(1) != sig:
             stale.append(f"subtitles ({fin['subs']}) were made for another cut: run subtitles.py again "
                          "(a variant: subtitles.py --edl <its edl> --ass <its own .ass>, then --subs)")
-    meta = graphics.parent / "graphics.meta.json" if graphics else None
+    meta = graphics.with_suffix(".meta.json") if graphics else None
     if meta and meta.exists():
         gm = json.loads(meta.read_text(encoding="utf-8"))
         if gm.get("timeline") and gm["timeline"] != sig:

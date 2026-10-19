@@ -90,6 +90,7 @@ def main() -> None:
     vids = sorted(p.name for p in dl.glob("*.mp4"))
     checks[f"each render is a new version, --overwrite replaces the latest ({vids})"] = \
         vids == ["mi-proyecto_v1.mp4", "mi-proyecto_v2.mp4"]
+    shutil.copy(tmp / "02-work" / "edl.json", tmp / "02-work" / "edl_hookB.json")   # the variant's own cut
     run(tmp, str(SCRIPTS / "render.py"), "--no-grade", "--variant", "hookB")
     checks["a variant joins the latest version, no new one"] = (dl / "mi-proyecto_v2_hookB.mp4").exists() and         sorted(p.name for p in dl.glob("mi-proyecto_v*.mp4") if "_hookB" not in p.name) == vids
     (dl / "mi-proyecto_v2_hookB.mp4").unlink()

@@ -39,10 +39,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import DELIVERY, ffprobe, filter_path, find_font, frac, latest_video, run, tc, tool  # noqa: E402
+from _common import (DELIVERY, ffprobe, filter_path, find_font, frac, latest_video, run, tc, tool,  # noqa: E402
+                     work_paths, writing)
 from _timeline import total as timeline_total  # noqa: E402
 from audio import TARGETS, measure  # noqa: E402
-from subtitles import CHAR_W, SAFE_V as SUB_SAFE_V, SAFE_X_V  # noqa: E402
+from subtitles import SAFE_V as SUB_SAFE_V, SAFE_X_V  # noqa: E402
+
+WRT: dict = {}   # the video's writing system: caption line length and glyph width (set in main)
 
 # Keep in sync with references/platforms.md (values change; verify periodically).
 PLATFORMS = {
@@ -115,7 +118,7 @@ def intervals(err: str, start_key: str, end_key: str) -> list[tuple[float, float
     return list(zip(s, e + [float("inf")] * (len(s) - len(e))))
 
 
-def check_srt(path: Path, dur: float, r: Report) -> None:
+def check_srt(path: Path, dur: float, r: Report, line: int = 42) -> None:
     text = path.read_text(encoding="utf-8").strip()
     if not text:
         r.add("FAIL", "subtitles", f"{path.name} is empty")
@@ -126,13 +129,13 @@ def check_srt(path: Path, dur: float, r: Report) -> None:
         a, b = lines[1].split(" --> ")
         sec = lambda s: sum(float(x) * m for x, m in zip(s.replace(",", ".").split(":"), (3600, 60, 1)))  # noqa: E731
         cues.append((sec(a), sec(b), lines[2:]))
-    long_lines = [ln for _, _, ls in cues for ln in ls if len(ln) > 42]
+    long_lines = [ln for _, _, ls in cues for ln in ls if len(ln) > line]
     too_many = [ls for _, _, ls in cues if len(ls) > 2]
     bad_dur = [(a, b) for a, b, _ in cues if not 0.99 <= b - a <= 7.01]
     overlaps = [(x[0], y[0]) for x, y in zip(cues, cues[1:]) if y[0] < x[1] - 1e-3]
     outside = [a for a, b, _ in cues if b > dur + 0.05]
     r.ok(not (long_lines or too_many), "subtitles: line length",
-         f"{len(cues)} cues; lines over 42: {len(long_lines)}, cues over 2 lines: {len(too_many)}", "WARN")
+         f"{len(cues)} cues; lines over {line}: {len(long_lines)}, cues over 2 lines: {len(too_many)}", "WARN")
     r.ok(not bad_dur, "subtitles: cue duration", f"outside 1–7 s: {len(bad_dur)}", "WARN")
     r.ok(not overlaps, "subtitles: overlaps", f"{len(overlaps)} overlapping cues")
     r.ok(not outside, "subtitles: inside the video", f"{len(outside)} cue(s) end after the video")
@@ -277,18 +280,25 @@ def listen(video: Path, edl: dict, ing: Path, lang: str | None, r: Report) -> No
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", nargs="?", help="default: the latest version in 03-delivery/")
-    ap.add_argument("--edl", default="02-work/edl.json")
+    ap.add_argument("--edl")
+    ap.add_argument("--variant", help="check a variant (hookB, 4x5…): its file, cut and captions")
     ap.add_argument("--platform", action="append", choices=tuple(PLATFORMS), default=[])
     ap.add_argument("--loudness", choices=tuple(TARGETS), default="social")
     ap.add_argument("--srt", help="default: the video's name with .srt")
-    ap.add_argument("--subs", default="02-work/subs.ass")
+    ap.add_argument("--subs")
     ap.add_argument("--cleanup", action="store_true", help="delete disposable intermediates if nothing failed")
     ap.add_argument("--no-listen", action="store_true", help="skip transcribing the export again")
     ap.add_argument("--lang", help="language for the listening check (default: the transcript's)")
     ap.add_argument("--ingest", default="01-ingest")
     args = ap.parse_args()
 
+    paths = work_paths(args.variant)
+    tp = Path(args.ingest) / "transcript.json"
+    WRT.update(writing(args.lang or (json.loads(tp.read_text(encoding="utf-8")).get("lang") if tp.exists() else None)))
+    args.edl, args.subs = args.edl or str(paths["edl"]), args.subs or str(paths["subs"])
     video = Path(args.video) if args.video else (latest_video() or DELIVERY / "edit.mp4")
+    if args.variant and not args.video:
+        video = video.with_name(f"{video.stem}_{args.variant}.mp4")
     if not video.exists():
         sys.exit(f"ERROR: {video} not found")
     r = Report()
@@ -361,9 +371,10 @@ def main() -> None:
         r.add("FAIL", "sound", "no audio stream")
 
     # Subtitles
-    srt = Path(args.srt) if args.srt else video.with_name(re.sub(r"_v\d+$", "", video.stem) + ".srt")
+    srt = Path(args.srt) if args.srt else video.with_name(re.sub(r"_v\d+(_[^_]+)?$", lambda k: k.group(1) or "",
+                                                                 video.stem) + ".srt")
     if srt.exists():
-        check_srt(srt, vd, r)
+        check_srt(srt, vd, r, WRT["line"])
     else:
         r.add("WARN", "delivery: .srt", f"{srt.name} missing (platforms use it for accessibility and search)")
     ass = Path(args.subs)
@@ -376,7 +387,7 @@ def main() -> None:
             m = re.search(r"\\pos\((\d+),(\d+)\)", body)
             fs = int(f.group(1)) if (f := re.search(r"\\fs(\d+)", body)) else base
             visible = max(re.sub(r"\{[^}]*\}", "", body).split("\\N"), key=len)
-            half_w = len(visible) * CHAR_W * fs / 2 / W
+            half_w = len(visible) * WRT["glyph"] * fs / 2 / W
             x, y = int(m.group(1)) / W, int(m.group(2)) / H
             if not (SAFE_V[1] <= y <= SAFE_V[3] and x - half_w >= SAFE_V[0] - 0.01 and x + half_w <= SAFE_V[2] + 0.01):
                 out += 1

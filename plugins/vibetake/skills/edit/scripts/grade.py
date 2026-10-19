@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -33,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, ffprobe, filter_path, find_font, pick_tonemap, run, sdr_source, tc, tool  # noqa: E402
+from _common import HOME, die, ffprobe, filter_path, find_font, pick_tonemap, run, sdr_source, tc, tool  # noqa: E402
 
 GAMMA = 2.4                  # display-referred math (BT.1886)
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
@@ -357,6 +358,54 @@ def verdict(m: dict) -> list[str]:
     return v
 
 
+LUT_DIR = HOME / "luts"
+_LUTS: dict[str, np.ndarray] = {}
+
+
+def log_format(m: dict) -> str | None:
+    """The log format the metadata names (D-Log M, S-Log3…), without where it was found."""
+    hint = m.get("log_hint")
+    return hint.split(" (")[0].strip() if hint else None
+
+
+def lut_key(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def log_lut_path(m: dict, args) -> Path | None:
+    """The conversion LUT for a log file: --input-lut if given, else the one in
+    ~/.vibetake/luts/ named after its format (D-Log M.cube, slog3.cube…). None if the file
+    isn't log, or its LUT isn't there yet."""
+    flat = m.get("faces", {}).get("image", {}).get("flat")
+    if not (m.get("log_hint") or flat or getattr(args, "force_log", False)):
+        return None
+    if getattr(args, "input_lut", None):
+        return Path(args.input_lut)
+    fmt = log_format(m)
+    if not fmt or not LUT_DIR.is_dir():
+        return None
+    k = lut_key(fmt)
+    cubes = sorted(LUT_DIR.glob("*.cube"))
+    return (next((c for c in cubes if lut_key(c.stem) == k), None)
+            or next((c for c in cubes if lut_key(c.stem).startswith(k) or k.startswith(lut_key(c.stem))), None))
+
+
+def log_lut(m: dict, args) -> np.ndarray | None:
+    p = log_lut_path(m, args)
+    if p is None:
+        return None
+    if str(p) not in _LUTS:
+        _LUTS[str(p)] = read_cube(p)
+    return _LUTS[str(p)]
+
+
+def missing_lut_note(m: dict) -> str:
+    fmt = log_format(m)
+    return ("LOG footage without its conversion LUT: measured as-is, don't correct yet — "
+            + (f"put the official {fmt} LUT in {LUT_DIR / (fmt + '.cube')}" if fmt
+               else "which log format? pass its LUT with --input-lut"))
+
+
 def analysis_frames(m: dict, input_lut: np.ndarray | None, n: int = 10) -> tuple[list, list]:
     # HDR is measured tone-mapped (the working copy, or on the fly if it was cleaned up),
     # which is what the grade starts from.
@@ -375,17 +424,19 @@ def cmd_analyze(args) -> dict:
     fpath = Path(args.ingest) / "faces.json"
     if fpath.exists():
         faces = json.loads(fpath.read_text(encoding="utf-8"))
-    lut = read_cube(Path(args.input_lut)) if args.input_lut else None
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     report, lines = {}, ["# Color analysis", ""]
     for m in resolve(args.files, material):
         is_log = bool(m.get("log_hint") or (m.get("faces", {}).get("image", {}).get("flat")))
-        frames, times = analysis_frames(m, lut if is_log else None)
+        lut = log_lut(m, args)
+        frames, times = analysis_frames(m, lut)
         meas = measure(frames, [faces_at(faces, m["name"], t) for t in times])
         meas["verdict"] = verdict(meas)
         if is_log and lut is None:
-            meas["verdict"].insert(0, "LOG footage without its conversion LUT: measured as-is, don't correct yet")
+            meas["verdict"].insert(0, missing_lut_note(m))
+        elif lut is not None:
+            meas["lut"] = str(log_lut_path(m, args))
         report[m["name"]] = meas
         nt = meas.get("neutral", {})
         lines += [f"## {m['name']}",
@@ -538,7 +589,6 @@ def cmd_build(args) -> None:
         die(f"unknown look '{args.look}' (choose from {', '.join(LOOKS)})")
     report = cmd_analyze(args)
     material = load_material(Path(args.ingest))
-    lut = read_cube(Path(args.input_lut)) if args.input_lut else None
     items = resolve(args.files, material)
     faces = {}
     if (Path(args.ingest) / "faces.json").exists():
@@ -546,10 +596,11 @@ def cmd_build(args) -> None:
     level = args.level
     ctx = {}
     for m in items:
-        is_log = bool(args.input_lut and (m.get("log_hint") or m.get("faces", {}).get("image", {}).get("flat")
-                                          or args.force_log))
+        lut = log_lut(m, args)                      # this file's own conversion (formats can differ)
+        is_log = lut is not None
         frames, times = analysis_frames(m, None)
-        ctx[m["name"]] = {"is_log": is_log, "stop_size": log_stop_size(lut) if is_log else STOP_IN_LOG,
+        ctx[m["name"]] = {"is_log": is_log, "lut": lut, "lut_path": log_lut_path(m, args),
+                          "stop_size": log_stop_size(lut) if is_log else STOP_IN_LOG,
                           "frames": frames, "boxes": [faces_at(faces, m["name"], t) for t in times],
                           "match": None, "mfn": None}
     # Matching first (match.py: the groups, references and nudges decided by looking at its
@@ -569,7 +620,7 @@ def cmd_build(args) -> None:
             fr, bx = [], []
             for n in names:
                 c = ctx[n]
-                fn = grade_fn(g, s, c["is_log"], lut if c["is_log"] else None, None, 0, c["stop_size"], finish=fin,
+                fn = grade_fn(g, s, c["is_log"], c["lut"], None, 0, c["stop_size"], finish=fin,
                               match_fn=c["mfn"])
                 fr += [fn(f.reshape(-1, 3)).reshape(f.shape) for f in c["frames"]]
                 bx += c["boxes"]
@@ -611,7 +662,7 @@ def cmd_build(args) -> None:
             notes += [f"{'shared' if u != m['name'] else 'own'}: {x}" for x in own]
             after = through_for([m["name"]])(gains, stops, finish or None)
         if is_log:
-            notes.insert(0, f"log → Rec.709 with {Path(args.input_lut).name} ({stop_size:.3f}/stop)")
+            notes.insert(0, f"log → Rec.709 with {c['lut_path'].name} ({stop_size:.3f}/stop)")
         creative = None
         look_name = None if skipped else args.look
         if args.creative_lut and not skipped:
@@ -620,7 +671,7 @@ def cmd_build(args) -> None:
         if look_name:
             notes.append(f"look {args.look} {args.intensity:.0f}%")
         cube = out / f"{m['stem']}.cube"
-        write_cube(cube, grade_fn(gains, stops, is_log, lut if is_log else None, look_name, args.intensity,
+        write_cube(cube, grade_fn(gains, stops, is_log, c["lut"], look_name, args.intensity,
                                   stop_size, creative, finish, c["mfn"]), f"vibetake {m['name']}")
         pre = ""
         if m.get("hdr"):
@@ -722,7 +773,8 @@ def main() -> None:
         s.add_argument("files", nargs="*")
         s.add_argument("--ingest", default="01-ingest")
         s.add_argument("--out", default="02-work/color")
-        s.add_argument("--input-lut", help="the log format's official conversion LUT (.cube)")
+        s.add_argument("--input-lut", help="force this conversion LUT for every log file (default: each file's "
+                                          "format's LUT from ~/.vibetake/luts/)")
         if name == "propose":
             s.add_argument("--force-log", action="store_true", help="treat files as log even if not flagged")
         if name in ("build", "propose"):

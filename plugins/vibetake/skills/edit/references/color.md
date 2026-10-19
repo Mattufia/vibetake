@@ -5,7 +5,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py analyze            # measure only
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py propose            # Basic + Full with previews, recommendation
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none
        [--look natural|cinematic|warm|cold|bw|vintage --intensity 60]
-       [--input-lut <format>.cube] [--force-log]                 # log footage
+       [--input-lut <format>.cube] [--force-log]   # log: default, each file's LUT from ~/.vibetake/luts/
        [--creative-lut <user>.cube --creative-intensity 100]    # the user's LUT
        [--ambient balanced|neutral|keep] [--no-match] [--match-target <file>] [--zones auto|on|off]
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py preview

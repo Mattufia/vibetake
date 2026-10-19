@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, load_json as load  # noqa: E402
+from _common import die, load_json as load, work_paths  # noqa: E402
 from _timeline import resolve_broll, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
 
@@ -159,8 +159,11 @@ def cmd_sync(args) -> None:
                 shutil.copy2(work / name, data / name)
         if not (work / "graphics.json").exists() and not (data / "graphics.json").exists():
             (data / "graphics.json").write_text('{"elements": []}', encoding="utf-8")
-    for name in ("cues.json", "design.json", "graphics.json"):
-        src = work / name
+    paths = work_paths(getattr(args, "variant", None))
+    plan = paths["plan"] if paths["plan"].exists() else work / "graphics.json"   # a variant may reuse the plan
+    sources = {"cues.json": Path(getattr(args, "out", None) or paths["cues"]), "design.json": work / "design.json",
+               "graphics.json": plan}
+    for name, src in sources.items():
         if getattr(args, "covers_only", False) and not src.exists() and (data / name).exists():
             continue
         if not src.exists():
@@ -238,7 +241,7 @@ def layer_problems(layer: Path, t: float, cues: dict) -> list[str]:
 
 def cmd_still(args) -> None:
     cmd_sync(args)
-    cues = load(Path("02-work/cues.json"))
+    cues = load(Path(args.out))
     outdir = Path("02-work/graphics-stills")
     outdir.mkdir(parents=True, exist_ok=True)
     for t in args.times:
@@ -261,13 +264,13 @@ def cmd_still(args) -> None:
 
 def cmd_render(args) -> None:
     cmd_sync(args)
-    out = Path("02-work/graphics.mov").resolve()
+    out = work_paths(args.variant)["layer"].resolve()
     p = subprocess.run(remotion("render", "Graphics", str(out), "--codec=prores", "--prores-profile=4444",
                                 "--pixel-format=yuva444p10le", "--image-format=png"), cwd=PROJ)
     if p.returncode:
         die("remotion render failed (see above)")
-    cues = load(Path("02-work/cues.json"))
-    Path("02-work/graphics.meta.json").write_text(json.dumps(
+    cues = load(Path(args.out))
+    out.with_suffix(".meta.json").write_text(json.dumps(
         {"timeline": cues.get("timeline"), "width": cues["width"], "height": cues["height"]}), encoding="utf-8")
     print(f"graphics layer → {out} (render.py lays it over the edit)")
 
@@ -276,10 +279,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("cues", "init", "sync", "still", "render"))
     ap.add_argument("times", nargs="*", type=float, help="still: seconds on the edit's timeline")
-    ap.add_argument("--edl", default="02-work/edl.json")
+    ap.add_argument("--edl")
     ap.add_argument("--ingest", default="01-ingest")
-    ap.add_argument("--out", default="02-work/cues.json")
+    ap.add_argument("--out", help="the cue sheet (default: 02-work/cues.json; a variant: cues_<variant>.json)")
+    ap.add_argument("--variant", help="a variant of the video (hookB, 4x5…): its own cues and layer "
+                                      "(graphics_<variant>.mov); its own plan if graphics_<variant>.json exists")
     args = ap.parse_args()
+    paths = work_paths(args.variant)
+    args.edl, args.out = args.edl or str(paths["edl"]), args.out or str(paths["cues"])
     if args.cmd != "cues":
         if args.cmd == "still" and not args.times:
             die("still needs one or more times, e.g. graphics.py still 0.5 2.4")

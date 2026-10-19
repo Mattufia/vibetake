@@ -22,17 +22,20 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import DELIVERY, deliverable_name, die, project_font, wcag_luminance  # noqa: E402
+from _common import (CLAUSE_END, DELIVERY, SENTENCE_END, deliverable_name, die, project_font,  # noqa: E402
+                     tool, wcag_luminance, work_paths, writing)
 from _timeline import signature, starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
 SAFE_X_V = (0.06, 0.86)        # horizontal extent of the 9:16 safe zone
 CHAR_W = 0.68                  # average glyph width / font size for a heavy sans (Arial Black), with margin
+WR = writing(None)             # this video's writing system (set from the transcript's language in main)
 WHITE, YELLOW, BLACK = "&H00FFFFFF", "&H0000FFFF", "&H00000000"
 OUTLINE = 0.09                 # outline / font size: reads on any image without looking like a sticker
 
@@ -76,23 +79,33 @@ def srt_cues(words: list[dict]) -> list[dict]:
     for i, w in enumerate(words):
         cur.append(w)
         nxt = words[i + 1] if i + 1 < len(words) else None
-        text = " ".join(x["text"] for x in cur)
-        if (nxt is None or w["text"].endswith((".", "?", "!", "…")) or len(text) > 70
+        text = WR["join"].join(x["text"] for x in cur)
+        if (nxt is None or w["text"].endswith(SENTENCE_END) or len(text) > 2 * WR["line"] - 14
                 or nxt["t"] - w["end"] > 0.6 or w["end"] - cur[0]["t"] > 6):
             cues.append({"start": cur[0]["t"], "end": w["end"], "text": text})
             cur = []
     for i, c in enumerate(cues):
         limit = cues[i + 1]["start"] - 0.04 if i + 1 < len(cues) else c["end"] + 2
-        need = max(1.0, len(c["text"]) / 17)                       # ≥1 s and ≤17 characters per second
+        need = max(1.0, len(c["text"]) / WR["cps"])                # ≥1 s, within the reading speed
         c["end"] = round(min(max(c["end"], c["start"] + need), limit, c["start"] + 7), 3)
-        c["lines"] = wrap(c["text"], 42)
+        c["lines"] = wrap(c["text"], WR["line"])
     return cues
 
 
 def wrap(text: str, width: int) -> list[str]:
+    """Two balanced lines. Without spaces (Chinese, Japanese, Thai), it breaks between characters,
+    after a punctuation mark when one is near the middle."""
     if len(text) <= width:
         return [text]
+    if not WR["join"]:
+        mid = len(text) // 2
+        near = [i + 1 for i, c in enumerate(text[:-1]) if c in CLAUSE_END + SENTENCE_END
+                and abs(i + 1 - mid) <= mid // 2 and max(i + 1, len(text) - i - 1) <= width]
+        cut = min(near, key=lambda i: abs(i - mid)) if near else mid
+        return [text[:cut], text[cut:]]
     words = text.split()
+    if len(words) < 2:
+        return [text]
     best = min(range(1, len(words)), key=lambda i: abs(len(" ".join(words[:i])) - len(text) / 2))
     return [" ".join(words[:best]), " ".join(words[best:])]
 
@@ -107,9 +120,9 @@ def groups(words: list[dict], max_words: int, max_chars: int) -> list[list[dict]
     for i, w in enumerate(words):
         cur.append(w)
         nxt = words[i + 1] if i + 1 < len(words) else None
-        text = " ".join(x["text"] for x in cur)
-        if (nxt is None or len(cur) >= max_words or w["text"].endswith((".", "?", "!", "…", ",", ";", ":"))
-                or nxt["t"] - w["end"] > 0.3 or len(text) + 1 + len(nxt["text"]) > max_chars):
+        text = WR["join"].join(x["text"] for x in cur)
+        if (nxt is None or len(cur) >= max_words or w["text"].endswith(SENTENCE_END + CLAUSE_END)
+                or nxt["t"] - w["end"] > 0.3 or len(text) + len(WR["join"]) + len(nxt["text"]) > max_chars):
             out.append(cur)
             cur = []
     return out
@@ -178,23 +191,34 @@ def ass_time(t: float) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--edl", default="02-work/edl.json")
+    ap.add_argument("--edl")
+    ap.add_argument("--variant", help="a variant of the video (hookB, 4x5…): its own files next to the main ones" + " (and its own .srt)")
     ap.add_argument("--ingest", default="01-ingest")
     ap.add_argument("--style", choices=("highlight", "sentence"), default="highlight")
     ap.add_argument("--upper", action="store_true")
     ap.add_argument("--font", help="font name (default: the project's caption font, fonts.py / design.json)")
     ap.add_argument("--size", type=float, help="font size as a share of the frame height (default by format)")
     ap.add_argument("--srt", help="default: 03-delivery/<name>.srt (one per project, not versioned)")
-    ap.add_argument("--ass", default="02-work/subs.ass")
+    ap.add_argument("--ass")
     ap.add_argument("--no-burn", action="store_true", help="only the .srt (removes the burned-in file)")
     ap.add_argument("--off", default="", help="no burned-in captions here: 'hook' and/or timeline ranges "
                                               "'12.5-15' (where a graphic already shows the words); "
                                               "the .srt keeps everything")
     args = ap.parse_args()
 
+    paths = work_paths(args.variant)
+    args.edl, args.ass = args.edl or str(paths["edl"]), args.ass or str(paths["subs"])
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
     ing = Path(args.ingest)
     tr = json.loads((ing / "transcript.json").read_text(encoding="utf-8"))
+    WR.update(writing(tr.get("lang")))
+    if WR["rtl"] or not WR["join"]:
+        # Right-to-left text and scripts that need shaping are drawn right only by a libass
+        # built with FriBidi and HarfBuzz.
+        conf = subprocess.run([tool("ffmpeg"), "-hide_banner", "-buildconf"], capture_output=True, text=True).stdout
+        if "libfribidi" not in conf or "libharfbuzz" not in conf:
+            print("WARNING: this ffmpeg lacks FriBidi/HarfBuzz: right-to-left or complex text may be drawn wrong "
+                  "in burned-in captions — check a still, or ship the .srt only")
     faces = json.loads((ing / "faces.json").read_text(encoding="utf-8"))["files"] if (ing / "faces.json").exists() \
         else {}
     material = {m["name"]: m for m in json.loads((ing / "material.json").read_text(encoding="utf-8"))["files"]} \
@@ -210,7 +234,8 @@ def main() -> None:
         args.font = pf["name"]
 
     cues = srt_cues(words)
-    srt = Path(args.srt) if args.srt else DELIVERY / f"{deliverable_name(edl)}.srt"
+    srt = Path(args.srt) if args.srt else DELIVERY / (f"{deliverable_name(edl)}"
+                                                      f"{'_' + args.variant if args.variant else ''}.srt")
     srt.parent.mkdir(parents=True, exist_ok=True)
     srt.write_text("".join(f"{i}\n{srt_time(c['start'])} --> {srt_time(c['end'])}\n" + "\n".join(c["lines"]) + "\n\n"
                            for i, c in enumerate(cues, 1)), encoding="utf-8")
@@ -233,9 +258,10 @@ def main() -> None:
     from _timeline import resolve_broll
     broll, _ = resolve_broll(edl["segments"], fps, edl.get("broll", []))
     if args.style == "highlight":
-        blocks = groups(words, 3, 16 if vertical else 28)
+        blocks = groups(words, 3 if WR["join"] else 6,
+                        round(WR["line"] * (16 if vertical else 28) / 42))
     else:
-        blocks = groups(words, 12, 42)
+        blocks = groups(words, 12, WR["line"])
     off = []
     for part in filter(None, (p.strip() for p in args.off.split(","))):
         if part == "hook":
@@ -270,14 +296,15 @@ def main() -> None:
         if any(a - 1e-3 <= (start + g[-1]["end"]) / 2 <= b + 1e-3 for a, b in off):
             skipped += 1
             continue
-        lines = 1 if args.style == "highlight" else len(wrap(" ".join(w["text"] for w in g), 42))
+        lines = 1 if args.style == "highlight" else len(wrap(WR["join"].join(w["text"] for w in g), WR["line"]))
         half = fs * 1.25 * lines / 2 / H
         y, clash = place(face_band((start + end) / 2, edl, t0, faces, material, broll), default, half, safe)
         clashes += clash
         texts = [w["text"].upper() if args.upper else w["text"] for w in g]
         # Width: shrink the font for a group that wouldn't fit the safe width (a long word).
-        longest = max(wrap(" ".join(texts), 42) if args.style == "sentence" else [" ".join(texts)], key=len)
-        fs_g = min(fs, int(safe_w * W / (len(longest) * CHAR_W)))
+        joined = WR["join"].join(texts)
+        longest = max(wrap(joined, WR["line"]) if args.style == "sentence" else [joined], key=len)
+        fs_g = min(fs, int(safe_w * W / (len(longest) * WR["glyph"])))
         # A smaller font keeps the outline in proportion (it's set in pixels, not relative).
         bord = max(2, round(outline * fs_g / fs))
         pos = (f"{{\\an5\\pos({int(center_x * W)},{int(y * H)})"
@@ -288,11 +315,11 @@ def main() -> None:
             for i, w in enumerate(g):
                 ws = start if i == 0 else w["t"]
                 we = g[i + 1]["t"] if i + 1 < len(g) else end
-                body = " ".join((f"{on}{ass_escape(tx)}{back}" if j == i else ass_escape(tx))
+                body = WR["join"].join((f"{on}{ass_escape(tx)}{back}" if j == i else ass_escape(tx))
                                 for j, tx in enumerate(texts))
                 events.append(f"Dialogue: 0,{ass_time(ws)},{ass_time(we)},Main,,0,0,0,,{pos}{body}")
         else:
-            body = "\\N".join(ass_escape(x) for x in wrap(" ".join(texts), 42))
+            body = "\\N".join(ass_escape(x) for x in wrap(joined, WR["line"]))
             events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Main,,0,0,0,,{pos}{body}")
     header = (f"[Script Info]\n; vibetake-timeline: {signature(edl)}\nScriptType: v4.00+\n"
               f"PlayResX: {W}\nPlayResY: {H}\nWrapStyle: 2\n"

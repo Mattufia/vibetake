@@ -306,3 +306,37 @@ def channel_pan(layout: dict | None) -> str:
         return ""
     live = layout["live"]
     return "pan=mono|c0=" + "+".join(f"{1 / len(live):.3f}*c{c}" for c in live)
+
+
+def work_paths(variant: str | None = None) -> dict[str, Path]:
+    """Where a version of the edit keeps its pieces. A variant (hookB, 4x5…) has its own cut,
+    captions and graphics layer next to the main video's, never over them."""
+    v = f"_{variant}" if variant else ""
+    w = Path("02-work")
+    return {"edl": w / f"edl{v}.json", "subs": w / f"subs{v}.ass", "cues": w / f"cues{v}.json",
+            "plan": w / f"graphics{v}.json", "layer": w / f"graphics{v}.mov"}
+
+
+# ------------------------------------------------------ writing systems
+
+SENTENCE_END = (".", "?", "!", "…", "。", "！", "？", "｡", "؟", "۔", "।")
+CLAUSE_END = (",", ";", ":", "，", "、", "；", "：", "،", "؛")
+# Caption rules per writing system: how words join (Chinese, Japanese and Thai have no spaces),
+# characters per line, reading speed (characters per second), glyph width (share of the font
+# size; CJK glyphs are full width) and direction. Values from common streaming subtitle guides
+# (per-language timed-text style guides) — verify when a language matters.
+WRITING = {
+    "default": {"join": " ", "line": 42, "cps": 17, "glyph": 0.68, "rtl": False},
+    "zh": {"join": "", "line": 16, "cps": 9, "glyph": 1.0},
+    "ja": {"join": "", "line": 13, "cps": 4, "glyph": 1.0},
+    "ko": {"line": 16, "cps": 12, "glyph": 1.0},
+    "th": {"join": "", "line": 35, "cps": 15, "glyph": 0.6},
+    "ar": {"rtl": True, "glyph": 0.6}, "fa": {"rtl": True, "glyph": 0.6},
+    "ur": {"rtl": True, "glyph": 0.6}, "he": {"rtl": True, "glyph": 0.6},
+}
+
+
+def writing(lang: str | None) -> dict:
+    """The caption rules for a language code (es, zh, ar…): its writing system's, else Latin-like."""
+    base = (lang or "").lower().split("-")[0]
+    return {**WRITING["default"], **WRITING.get(base, {})}

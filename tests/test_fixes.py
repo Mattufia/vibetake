@@ -119,6 +119,18 @@ def main() -> None:
     subs.write_text(ass.format(sig=signature(edl)), encoding="utf-8")
     checks["captions made for this cut render"] = script(
         tmp, "render.py", "--out", "ok.mp4", "--no-grade", check=False).returncode == 0
+    # Variants: their own cut and captions; the main video's are never used for them.
+    nov = script(tmp, "render.py", "--variant", "hookB", "--out", "v0.mp4", "--no-grade", check=False)
+    checks["variant without its own cut: refused, with what to run"] = (
+        nov.returncode != 0 and "cutlist.py --variant hookB" in nov.stdout + nov.stderr)
+    vedl = dict(edl, segments=[dict(edl["segments"][0], **{"in": 1.0, "out": 2.5})])
+    (tmp / "02-work" / "edl_hookB.json").write_text(json.dumps(vedl))
+    (tmp / "02-work" / "subs_hookB.ass").write_text(ass.format(sig=signature(vedl)), encoding="utf-8")
+    subs.write_text(ass.format(sig="0123abcd4567"), encoding="utf-8")          # the main one, stale for it
+    var = script(tmp, "render.py", "--variant", "hookB", "--out", "v1.mp4", "--no-grade", check=False)
+    checks["variant renders with its own cut and captions"] = var.returncode == 0 and abs(
+        float(json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_format", "-of", "json", str(tmp / "v1.mp4")],
+                                        capture_output=True, text=True).stdout)["format"]["duration"]) - 1.5) < 0.1
     subs.unlink()
     (tmp / "02-work" / "graphics.meta.json").write_text(json.dumps({"timeline": "feedbeef0000", "width": 320,
                                                                     "height": 180}))
@@ -166,6 +178,49 @@ def main() -> None:
     l1 = json.loads((tmp / "a1" / "color.json").read_text())["clip.mp4"]["median_luma"]
     l2 = json.loads((tmp / "a2" / "color.json").read_text())["clip.mp4"]["median_luma"]
     checks[f"log LUT not applied to a non-log file ({l1} = {l2})"] = abs(l1 - l2) < 0.01
+
+    # 5. Each log file gets its own format's LUT from ~/.vibetake/luts/; a missing one is named.
+    home = tmp / "vbhome"
+    (home / "luts").mkdir(parents=True)
+    (home / "luts" / "D-Log M.cube").write_text((tmp / "dark.cube").read_text())
+    ident = np.stack([rr, gg, bb], -1).reshape(-1, 3)
+    (home / "luts" / "slog3.cube").write_text(f"LUT_3D_SIZE {n}\n" + "\n".join(f"{x:.5f} {y:.5f} {z:.5f}"
+                                                                             for x, y, z in ident))
+    logp = tmp / "logp"
+    (logp / "01-ingest").mkdir(parents=True)
+    for name in ("dji.mp4", "sony.mp4", "fuji.mp4"):
+        shutil.copy(tmp / "clip.mp4", logp / name)
+    (logp / "01-ingest" / "material.json").write_text(json.dumps({"files": [
+        {"name": n, "file": n, "kind": "video", "stem": Path(n).stem, "duration": 4.0, "display_width": 320,
+         "display_height": 180, "hdr": None, "log_hint": h, "faces": {}}
+        for n, h in (("dji.mp4", "D-Log M (comment)"), ("sony.mp4", "S-Log3 (comment)"),
+                     ("fuji.mp4", "F-Log2 (comment)"))]}))
+    import os
+    env = {**os.environ, "VIBETAKE_HOME": str(home)}
+    subprocess.run(["uv", "run", str(SCRIPTS / "grade.py"), "analyze"], cwd=logp, env=env, capture_output=True,
+                   check=True)
+    rep = json.loads((logp / "02-work" / "color" / "color.json").read_text(encoding="utf-8"))
+    checks["log: D-Log M file → D-Log M.cube"] = rep["dji.mp4"].get("lut", "").endswith("D-Log M.cube")
+    checks["log: S-Log3 file → slog3.cube (name matched loosely)"] = rep["sony.mp4"].get("lut", "").endswith("slog3.cube")
+    checks["log: two formats measured each through its own LUT"] = (
+        rep["dji.mp4"]["median_luma"] < rep["sony.mp4"]["median_luma"] - 0.1)
+    checks["log: a missing LUT says which and where"] = any("F-Log2" in v and "luts" in v
+                                                            for v in rep["fuji.mp4"]["verdict"])
+
+    # 6. Captions per writing system.
+    import subtitles
+    subtitles.WR.update(subtitles.writing("zh"))
+    zh = "我们来看一下怎么剪辑，这个方法很简单。"
+    lines = subtitles.wrap(zh, subtitles.WR["line"])
+    checks[f"Chinese: lines broken without spaces, at the comma ({lines})"] = (
+        len(lines) == 2 and lines[0].endswith("，") and "".join(lines) == zh)
+    subtitles.WR.update(subtitles.writing("ja"))
+    words = [{"text": t, "t": i * 0.3, "end": i * 0.3 + 0.25} for i, t in enumerate(["今日", "は", "いい", "天気", "です。"])]
+    cue = subtitles.srt_cues(words)[0]
+    checks[f"Japanese: words joined without spaces ({cue['text']})"] = cue["text"] == "今日はいい天気です。"
+    checks["Arabic: right-to-left; Spanish: Latin rules"] = (subtitles.writing("ar")["rtl"]
+                                                             and subtitles.writing("es")["line"] == 42)
+    subtitles.WR.update(subtitles.writing("es"))
 
     checks = {k: bool(v) for k, v in checks.items()}
     for name, ok in checks.items():

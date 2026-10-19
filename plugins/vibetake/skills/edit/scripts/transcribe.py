@@ -36,7 +36,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, ffprobe, tc, tool  # noqa: E402
+from _common import SENTENCE_END, die, ffprobe, tc, tool  # noqa: E402
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
@@ -176,7 +176,7 @@ def sentences_of(words: list[dict]) -> list[list[dict]]:
     for i, w in enumerate(words):
         cur.append(w)
         nxt = words[i + 1] if i + 1 < len(words) else None
-        if (nxt is None or w["word"].strip().endswith((".", "?", "!", "…"))
+        if (nxt is None or w["word"].strip().endswith(SENTENCE_END)
                 or nxt["start"] - w["end"] >= SPLIT_PAUSE_S):
             out += split_long(cur)
             cur = []
@@ -306,6 +306,9 @@ def write_outputs(out: Path, result: dict, ld: dict) -> None:
           "⟨…⟩ filler candidate · ↻ possible retake (usually keep the later take) · ⚠ low confidence · "
           "S… a stretch without speech: action or a meaningful pause? look at the contact sheets; "
           "keep it like a line (--keep …,S2) or protect it", ""]
+    if not (ld.get("always") or ld.get("contextual")):
+        md += [f"No filler list for '{result.get('lang')}': fillers aren't marked — judge them yourself "
+               "(references/fillers.json takes a new language).", ""]
     silences: list[dict] = []
 
     def gap(name: str, a: float, b: float) -> None:

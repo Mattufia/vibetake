@@ -52,7 +52,7 @@ from scipy.interpolate import PchipInterpolator
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import die, filter_path, find_font, sdr_source, tool  # noqa: E402
 from grade import (LUMA, TEMP_DIR, TINT_DIR, apply_cube, balance_gains, faces_at, from_lab, grab,  # noqa: E402
-                   load_material, read_cube, resolve, to_disp, to_lab, to_lin)
+                   load_material, log_lut, log_lut_path, resolve, to_disp, to_lab, to_lin)
 
 WIDTH = 640                      # analysis width
 FRAMES = 6                       # frames measured per shot (4 when there are many shots)
@@ -173,11 +173,6 @@ def group_of(setup: dict, name: str) -> str | None:
 
 
 # ----------------------------------------------------------------- frames
-
-def is_log(m: dict, args) -> bool:
-    return bool(getattr(args, "input_lut", None) and (m.get("log_hint") or m.get("faces", {}).get("image", {})
-                                                     .get("flat") or getattr(args, "force_log", False)))
-
 
 def source(m: dict) -> tuple[str, str]:
     """The SDR picture: (file, filter) — see _common.sdr_source."""
@@ -633,7 +628,8 @@ def cache_key(items, args, setup: dict, edl: dict | None) -> str:
     parts = [[m["name"], Path(m["file"]).stat().st_size if Path(m["file"]).exists() else 0,
               Path(m["file"]).stat().st_mtime if Path(m["file"]).exists() else 0] for m in items]
     parts += [getattr(args, "input_lut", None), getattr(args, "force_log", False), getattr(args, "match_target", None),
-              getattr(args, "zones", "auto"), setup, FRAMES, KNOTS.tolist(), [used_ranges(m, edl) for m in items]]
+              getattr(args, "zones", "auto"), setup, FRAMES, KNOTS.tolist(), [used_ranges(m, edl) for m in items],
+              [str(log_lut_path(m, args)) for m in items]]
     return hashlib.sha1(json.dumps(parts, default=str).encode()).hexdigest()[:16]
 
 
@@ -652,8 +648,7 @@ def solve(items: list[dict], args) -> dict:
             return old["files"]
     ingest = Path(getattr(args, "ingest", "01-ingest"))
     faces = json.loads((ingest / "faces.json").read_text(encoding="utf-8")) if (ingest / "faces.json").exists() else {}
-    lut = read_cube(Path(args.input_lut)) if getattr(args, "input_lut", None) else None
-    lut_for = lambda m: lut if is_log(m, args) else None  # noqa: E731
+    lut_for = lambda m: log_lut(m, args)  # noqa: E731  (each log file's own conversion)
 
     data = {}
     n = FRAMES if len(items) <= 8 else 4
@@ -833,8 +828,7 @@ def cmd_add(args) -> None:
     s = load_setup(mdir)
     x, y = (float(v) for v in args.at.split(","))
     m = resolve([args.file], load_material(Path(args.ingest)))[0]
-    lut = read_cube(Path(args.input_lut)) if args.input_lut and is_log(m, args) else None
-    reg = snap(to_lab(load(m, args.t, lut)), x, y, args.tolerance)
+    reg = snap(to_lab(load(m, args.t, log_lut(m, args))), x, y, args.tolerance)
     if reg is None:
         die(f"nothing to measure at {args.at} in {m['name']} @ {args.t}s: pick a flatter spot, or raise --tolerance")
     entry = s["added"].setdefault(args.name, {})

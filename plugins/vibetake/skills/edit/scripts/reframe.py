@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die  # noqa: E402
+from _common import die, work_paths  # noqa: E402
 
 RATE = 10            # path samples per second
 DEADZONE = 0.12      # share of the crop width/height the face may move without the camera following
@@ -127,7 +127,8 @@ def fixed_center(target: np.ndarray, size: float) -> float:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--edl", default="02-work/edl.json")
+    ap.add_argument("--edl")
+    ap.add_argument("--variant", help="a variant of the video (hookB, 4x5…): its own files next to the main ones")
     ap.add_argument("--ingest", default="01-ingest")
     ap.add_argument("--mode", choices=("auto", "fixed", "operator"), default="auto",
                     help="auto: fixed when one position holds the face, operator when it moves")
@@ -136,6 +137,7 @@ def main() -> None:
     ap.add_argument("--bump", type=float, default=0.06, help="impact zoom on entering a segment (0 = none)")
     ap.add_argument("--drift", type=float, default=0.03, help="slow push-in across a segment (0 = none)")
     args = ap.parse_args()
+    args.edl = args.edl or str(work_paths(args.variant)["edl"])
 
     edl_path = Path(args.edl)
     edl = json.loads(edl_path.read_text(encoding="utf-8"))

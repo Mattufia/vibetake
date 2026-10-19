@@ -23,11 +23,13 @@ Order: **correction in log (balance, exposure as an offset) → the format's
 official conversion LUT to Rec.709 → optional look → graphics on top.**
 Keep 10-bit until the final master.
 
-LUTs stay in the user's folder, never in the plugin (vendor licenses usually don't
-allow redistribution) — `~/.vibetake/luts/` is a good home — and are passed with
-`--input-lut`. If it's missing, tell the user where the official one is published and
-ask for the file (the color question asks for it). Without it, don't grade the log
-footage.
+LUTs live in the user's folder, never in the plugin (vendor licenses usually don't
+allow redistribution): **`~/.vibetake/luts/`, named after the format** (`D-Log M.cube`,
+`S-Log3.cube`…). Each log file gets its own format's LUT automatically — two cameras
+in different log formats in one project just work. `--input-lut` forces one for all.
+If a format's LUT is missing, `grade.py analyze` says which and where to put it: tell
+the user where the official one is published and ask for the file in the color
+question, once. Without it, don't grade that footage.
 
 ## Formats
 

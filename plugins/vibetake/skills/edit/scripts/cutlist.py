@@ -47,7 +47,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, seconds, tc, tool  # noqa: E402
+from _common import CLAUSE_END, SENTENCE_END, die, seconds, tc, tool, work_paths  # noqa: E402
 
 FORMATS = {"vertical": (1080, 1920), "horizontal": (1920, 1080), "square": (1080, 1080)}
 SNAP_S = 0.04
@@ -68,9 +68,9 @@ def join_kind(last_word: str, follows: bool) -> str:
     """What kind of pause a join needs. A jump to another file or back in time reads as a
     new sentence; otherwise the punctuation of the last kept word decides."""
     w = last_word.strip()
-    if not follows or w.endswith((".", "?", "!", "…")):
+    if not follows or w.endswith(SENTENCE_END):
         return "sentence"
-    return "comma" if w.endswith((",", ";", ":")) else "word"
+    return "comma" if w.endswith(CLAUSE_END) else "word"
 
 
 def transcript_sig(tr: dict) -> str:
@@ -265,8 +265,10 @@ def main() -> None:
     ap.add_argument("--unprotect", help="a protection id (P2) or 'all'")
     ap.add_argument("--list-protected", action="store_true")
     ap.add_argument("--ingest", default="01-ingest")
-    ap.add_argument("--out", default="02-work/edl.json")
+    ap.add_argument("--out", help="default: 02-work/edl.json (a variant: 02-work/edl_<variant>.json)")
+    ap.add_argument("--variant", help="a variant of the video (hookB, 4x5…): its own files next to the main ones")
     args = ap.parse_args()
+    args.out = args.out or str(work_paths(args.variant)["edl"])
 
     ingest = Path(args.ingest)
     tr = json.loads((ingest / "transcript.json").read_text(encoding="utf-8"))

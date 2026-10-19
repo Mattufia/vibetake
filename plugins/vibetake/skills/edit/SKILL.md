@@ -341,7 +341,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 - After the edit and the framing are final (it reads both); `render.py` burns
   `02-work/subs.ass` on top of everything.
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
-  characters per second, 1–7 s — platforms use it even when captions are burned in.
+  characters per second, 1–7 s (Latin; Chinese, Japanese, Korean, Thai and right-to-left
+  scripts use their own limits, from the language) — platforms use it even when burned in.
 - **Burned-in (`highlight`)**: groups of 2–3 words, white with a black outline, the
   word being said in the design's accent (a dark accent gets a light outline, same
   thickness); `sentence` for sober types. Change them with the script's options,
@@ -435,8 +436,10 @@ copy to publish with**.
   round of changes is a new version. `render.py --overwrite` only to fix the
   latest before it was delivered (a QA FAIL). The `.srt`, covers and copy are one
   per project and are overwritten. Other formats and alternative hooks are
-  variants of the same version (`--variant 4x5|hookB`), each with its own framing
-  and margins checked, and a line in the delivery saying what differs.
+  variants of the same version: **the same `--variant <v>` on every step** —
+  `cutlist.py`, `reframe.py`, `subtitles.py`, `graphics.py cues|render`, `render.py`,
+  `qa.py` — so each has its own cut, framing, captions (and `.srt`) and graphics
+  layer, never the main video's; a line in the delivery saying what differs.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
   past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.

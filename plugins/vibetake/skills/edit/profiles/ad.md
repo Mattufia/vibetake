@@ -13,9 +13,9 @@ Brand ads, UGC ads, product promos.
   the destination question ("two openings to test which works better?"). A variant
   must open *differently* — another line or moment of the material, its own shot and
   its own headline — never the same video with only the headline text changed (that
-  tests nothing and looks identical). Its own edl (`cutlist.py --out
-  02-work/edl_hookB.json --keep "L7,L1-…"`) → `render.py 02-work/edl_hookB.json
-  --variant hookB`. In the delivery, one line per variant: what it opens with, and
+  tests nothing and looks identical). Every step with `--variant hookB`, starting with
+  `cutlist.py --variant hookB --keep "L7,L1-…"` (SKILL.md section 11). In the delivery,
+  one line per variant: what it opens with, and
   "upload both in the same ad set; the platform shows more of the one that works".
 - **Other deliverables**: offer in one line 6/15/30 s cuts and other aspect ratios
   (4:5, 1:1, 16:9). If the request says it's for paid campaigns, make the ratios that
