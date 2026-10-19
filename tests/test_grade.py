@@ -12,7 +12,7 @@
 3. Simulated log: the warm scene encoded with a generic log curve, graded with
    that curve's inverse as the "official LUT": the cast is corrected in log and
    the result lands close to the original exposure.
-4. A look-only .cube is written and is a valid 3D LUT.
+4. The user's creative LUT is applied after the correction.
 """
 from __future__ import annotations
 
@@ -89,26 +89,21 @@ def main() -> None:
     checks[f"neutral: the whole cast removed (chroma {neutral['cast_after']} < 2)"] = neutral["cast_after"] < 2
     checks["clean scene left alone (unity gains)"] = plan["clean.mp4"]["params"]["gains"] == [1.0, 1.0, 1.0]
 
-    grade(tmp, "build", "log.mov", "--input-lut", "from_log.cube", "--force-log", "--correct", "on")
+    grade(tmp, "build", "log.mov", "--input-lut", "from_log.cube", "--force-log", "--ambient", "neutral")
     log = read(tmp, "grade.json")["log.mov"]["check"]
     clean_luma = a["clean.mp4"]["median_luma"]
     checks["log: cast corrected before the LUT (< 2.5)"] = log["cast_after"] < 2.5
     checks[f"log: exposure near the original (±0.05 of {clean_luma})"] = abs(log["median_luma_after"]
                                                                              - clean_luma) < 0.05
 
-    grade(tmp, "look", "--look", "cinematic", "--intensity", "70", "--file", "cine.cube")
-    txt = (tmp / "cine.cube").read_text()
-    checks["look-only .cube is a 33³ LUT"] = "LUT_3D_SIZE 33" in txt and txt.count("\n") >= 33 ** 3 + 4
-
-    # Creative: a user LUT applies; a reference image pulls the palette toward it.
-    grade(tmp, "build", "clean.mp4", "--creative-lut", "cine.cube", "--out", "creative")
-    checks["creative LUT builds a grade"] = (tmp / "creative" / "clean.cube").exists()
-    grade(tmp, "build", "clean.mp4", "--reference", "warm.mp4", "--reference-intensity", "100", "--out", "ref")
-    ff(tmp, "-i", "clean.mp4", "-vf", "format=rgb48le,lut3d=file=ref/clean.cube", *X264, "matched.mp4")
-    grade(tmp, "analyze", "matched.mp4", "--out", "ref")
-    warm_b = a["warm.mp4"]["neutral"]["b"]
-    matched_b = json.loads((tmp / "ref" / "color.json").read_text())["matched.mp4"]["neutral"]["b"]
-    checks[f"reference pulls toward the warm image (b {matched_b} → near {warm_b})"] = matched_b > warm_b * 0.5
+    # Creative: the user's LUT (here, one that warms) is applied after the correction.
+    write_cube(tmp / "user.cube", lambda d: np.clip(d * np.array([1.08, 1.0, 0.86]), 0, 1))
+    grade(tmp, "build", "clean.mp4", "--creative-lut", "user.cube", "--out", "creative")
+    ff(tmp, "-i", "clean.mp4", "-vf", "format=rgb48le,lut3d=file=creative/clean.cube", *X264, "looked.mp4")
+    grade(tmp, "analyze", "looked.mp4", "--out", "creative")
+    looked_b = json.loads((tmp / "creative" / "color.json").read_text())["looked.mp4"]["neutral"]["b"]
+    clean_b = a["clean.mp4"]["neutral"]["b"]
+    checks[f"the user's creative LUT is applied (b {clean_b} → {looked_b})"] = looked_b > clean_b + 3
 
     # Levels: "none" touches nothing; propose writes a recommendation for the color question.
     grade(tmp, "build", "warm.mp4", "--level", "none", "--out", "none")

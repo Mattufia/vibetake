@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import DELIVERY, deliverable_name, die, project_font  # noqa: E402
+from _common import DELIVERY, deliverable_name, die, project_font, wcag_luminance  # noqa: E402
 from _timeline import signature, starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
@@ -43,11 +43,9 @@ def ass_color(hex_: str) -> str:
 
 
 def luminance(hex_: str) -> float:
-    """WCAG relative luminance (0 black, 1 white)."""
+    """WCAG relative luminance of a hex color (0 black, 1 white)."""
     h = hex_.lstrip("#")
-    r, g, b = (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-               for c in (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)))
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return wcag_luminance(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 
 def timeline_words(edl: dict, tr: dict) -> list[dict]:

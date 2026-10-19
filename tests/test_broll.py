@@ -2,7 +2,7 @@
 # requires-python = ">=3.10,<3.14"
 # dependencies = ["numpy>=1.26"]
 # ///
-"""B-roll tests: anchored placement, overlay, sound underneath, re-cut, hook candidates.
+"""B-roll tests: anchored placement, overlay, sound underneath, re-cut.
 
     uv run tests/test_broll.py
 
@@ -26,7 +26,6 @@ import numpy as np
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "plugins" / "vibetake" / "skills" / "edit" / "scripts"
-FIX = ROOT / "tests" / "fixtures"
 FF = shutil.which("ffmpeg")
 W, H, FPS = 320, 180, 30
 
@@ -97,13 +96,6 @@ def main() -> None:
     m = re.search(r"\[(\d+):(\d+\.\d)–(\d+):(\d+\.\d)\]", out)
     checks[f"--cut centers the b-roll on the join ({m.group(0) if m else out.strip()[:40]})"] = bool(
         m and float(m.group(2)) == 1.5 and float(m.group(4)) == 2.5)
-
-    # Hook candidates on the retake fixture: the promise/conflict line ranks first.
-    hk = tmp / "hk"
-    (hk / "01-ingest").mkdir(parents=True)
-    shutil.copy(FIX / "retakes_es.transcript.json", hk / "01-ingest" / "transcript.json")
-    out = run(hk, "uv", "run", str(SCRIPTS / "hook.py"), "--top", "1")
-    checks["hook: 'el error que todos cometen' ranks first"] = "error que todos cometen" in out
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")

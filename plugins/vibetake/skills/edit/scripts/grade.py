@@ -8,9 +8,8 @@
     uv run grade.py propose [files...]   # Basic and Full side by side + previews + recommendation
     uv run grade.py build   [files...] [--level none|basic|full] [--look cinematic --intensity 60]
                             [--input-lut <format>.cube] [--no-match] [--match-target <file>] [--out 02-work/color]
-                            [--creative-lut <user>.cube] [--reference <image> (experimental)]
+                            [--creative-lut <user>.cube] [--ambient balanced|neutral|keep]
     uv run grade.py preview [files...] [--out 02-work/color]
-    uv run grade.py look --look cinematic --intensity 60 --file <name>.cube   # look alone, for other editors
 
 Without files, uses every video in 01-ingest/material.json. Order inside the grade:
 input transform (HDR tone mapping as a pre-filter; a log format's LUT) → shot matching
@@ -48,7 +47,7 @@ TINT_DIR = np.array([1.0, -0.2]) / math.hypot(1.0, -0.2)
 TEMP_KEEP = 12.0
 AMBIENTS = ("balanced", "neutral", "keep")
 LEVELS_STRENGTH = 0.7               # how far milky blacks / dull whites are pulled to full range
-SKIN_MAX_SHIFT = 8.0                # degrees; global skin correction stays small (no mask yet)
+SKIN_MAX_SHIFT = 8.0                # degrees; global skin correction, so kept small
 LEVELS = ("none", "basic", "full")
 MAX_STOPS = 1.0
 LUT_SIZE = 33
@@ -440,14 +439,9 @@ def from_lab(lab):
     return to_disp(np.clip(xyz @ np.linalg.inv(_XYZ).T, 0, None))
 
 
-def lab_stats(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    lab = to_lab(np.concatenate([f.reshape(-1, 3) for f in frames])[::7])
-    return lab.mean(0), lab.std(0) + 1e-3
-
-
 def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity, stop_size: float = STOP_IN_LOG,
-             creative=None, transfer=None, finish: dict | None = None, match_fn=None):
-    """creative: (table, intensity) of a user LUT. transfer: (src_mean, src_std, ref_mean, ref_std) in Lab.
+             creative=None, finish: dict | None = None, match_fn=None):
+    """creative: (table, intensity) of a user LUT.
     finish: level extras after the correction — levels (black, white), skin (center, shift deg),
     vibrance, contrast. match_fn: the shot's match (match.py), right after the input transform;
     the correction then works in display light, the same for every matched shot."""
@@ -476,10 +470,6 @@ def grade_fn(gains, stops: float, is_log: bool, input_lut, look_name, intensity,
         if finish.get("vibrance"):
             x = vibrance(x, finish["vibrance"])
         x = np.clip(x, 0, 1)
-        if transfer is not None:
-            sm, ss, rm, rs, t = transfer
-            moved = from_lab((to_lab(x) - sm) / ss * rs + rm)
-            x = np.clip(x + (np.clip(moved, 0, 1) - x) * t, 0, 1)
         if creative is not None:
             table, t = creative
             x = x + (apply_cube(x, table) - x) * t
@@ -492,11 +482,11 @@ def plan_correction(r: dict, args, level: str, levels_ok: bool, through) -> tupl
     Returns gains, stops, finish, notes, the measurement after."""
     # White balance by ambient: the temperature of the light (warm ↔ cool) is the place's mood,
     # the tint (green ↔ magenta) is almost always an error (fluorescents, cheap LEDs, mixed light).
-    ambient = "neutral" if args.correct == "on" else getattr(args, "ambient", "balanced")
+    ambient = getattr(args, "ambient", "balanced")
     gains, stops, notes, finish = [1.0, 1.0, 1.0], 0.0, [], {}
     n = r.get("neutral")
     target = None
-    if n and level != "none" and args.correct != "off":
+    if n and level != "none":
         temp, tint = ab_split(n["a"], n["b"])
         keep_temp = 0.0 if ambient == "neutral" else temp
         if ambient == "balanced" and abs(temp) > TEMP_KEEP:
@@ -509,9 +499,7 @@ def plan_correction(r: dict, args, level: str, levels_ok: bool, through) -> tupl
                          f"temperature {temp:+.1f} → {keep_temp:+.1f}")
         else:
             target = None
-    correct = level != "none" and (args.correct == "on" or (args.correct == "auto"
-                                                            and any("exposed" in v for v in r["verdict"])))
-    if correct and ("underexposed" in r["verdict"] or "overexposed" in r["verdict"]):
+    if level != "none" and ("underexposed" in r["verdict"] or "overexposed" in r["verdict"]):
         # Half of the way to a 0.4 median: conservative, the scene may be meant to be dark/bright.
         stops = float(np.clip(math.log2(0.4 / max(r["median_luma"], 0.02)) * GAMMA / 2, -MAX_STOPS, MAX_STOPS))
         notes.append(f"exposure {stops:+.2f} stops")
@@ -624,25 +612,16 @@ def cmd_build(args) -> None:
             after = through_for([m["name"]])(gains, stops, finish or None)
         if is_log:
             notes.insert(0, f"log → Rec.709 with {Path(args.input_lut).name} ({stop_size:.3f}/stop)")
-        creative = transfer = None
+        creative = None
         look_name = None if skipped else args.look
         if args.creative_lut and not skipped:
             creative = (read_cube(Path(args.creative_lut)), args.creative_intensity / 100)
             notes.append(f"creative LUT {Path(args.creative_lut).name} {args.creative_intensity:.0f}%")
-        if args.reference and not skipped:
-            # Experimental: move the shot's Lab mean/spread toward the reference image's.
-            base = grade_fn(gains, stops, is_log, lut if is_log else None, None, 0, stop_size, finish=finish,
-                            match_fn=c["mfn"])
-            sm, ss = lab_stats([base(f.reshape(-1, 3)).reshape(f.shape) for f in frames])
-            rm, rs = lab_stats([reference_image(Path(args.reference))])
-            transfer = (sm, ss, rm, rs, args.reference_intensity / 100)
-            notes.append(f"matched to reference {Path(args.reference).name} {args.reference_intensity:.0f}% "
-                         "(experimental)")
         if look_name:
             notes.append(f"look {args.look} {args.intensity:.0f}%")
         cube = out / f"{m['stem']}.cube"
         write_cube(cube, grade_fn(gains, stops, is_log, lut if is_log else None, look_name, args.intensity,
-                                  stop_size, creative, transfer, finish, c["mfn"]), f"vibetake {m['name']}")
+                                  stop_size, creative, finish, c["mfn"]), f"vibetake {m['name']}")
         pre = ""
         if m.get("hdr"):
             pre = pick_tonemap()[1]
@@ -683,9 +662,8 @@ def cmd_propose(args) -> None:
     report = None
     for level in ("basic", "full"):
         sub = argparse.Namespace(**{**vars(args), "level": level, "out": str(out / level), "look": None,
-                                    "correct": "auto", "force_log": args.force_log,
-                                    "creative_lut": None, "reference": None, "creative_intensity": 100,
-                                    "reference_intensity": 60, "intensity": 60, "n": 2})
+                                    "force_log": args.force_log, "creative_lut": None,
+                                    "creative_intensity": 100, "intensity": 60, "n": 2})
         cmd_build(sub)
         cmd_preview(sub)
         report = report or json.loads((out / level / "color.json").read_text(encoding="utf-8"))
@@ -697,27 +675,11 @@ def cmd_propose(args) -> None:
              f"- Basic: shots matched + exposure, white balance, black/white points → previews in {out / 'basic'}",
              f"- Full: Basic + skin (global, gentle), contrast and vibrance → previews in {out / 'full'}",
              "- None: only the shots matched (a single file: the material as is)",
-             "- Custom: free text (a look, the user's LUT, a reference image)"]
+             "- Custom: free text (a look, the user's LUT; a reference image: look at it and pick a look)"]
     if len(report) > 1 and not args.no_match:
         lines.append(f"- Shot matching: {Path(args.match_dir) / 'match.md'}, sheet.jpg and faces.jpg — check them")
     (out / "propose.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
-
-
-def reference_image(path: Path) -> np.ndarray:
-    info = ffprobe(path)
-    v = next(s for s in info["streams"] if s.get("codec_type") == "video")
-    w = 480
-    h = int(round(w * v["height"] / v["width"] / 2)) * 2
-    return grab(str(path), 0, w, h)
-
-
-def cmd_look(args) -> None:
-    if args.look not in LOOKS:
-        die(f"unknown look '{args.look}' (choose from {', '.join(LOOKS)})")
-    path = Path(args.file or f"{args.look}_{int(args.intensity)}.cube")
-    write_cube(path, lambda x: look(x, args.look, args.intensity), f"vibetake {args.look} {args.intensity:.0f}%")
-    print(path)
 
 
 # ------------------------------------------------------------------- preview
@@ -781,24 +743,15 @@ def main() -> None:
                            help="noise reduction, only when asked (grain can be wanted): light or medium")
             s.add_argument("--moire", action="store_true",
                            help="soften false color (moiré) in the chroma — only if a 100%% still of the raw shows it")
-            s.add_argument("--correct", choices=("auto", "on", "off"), default="auto",
-                           help="auto: strong casts fully, mild ones partly, exposure when clearly off")
             s.add_argument("--look", choices=LOOKS)
             s.add_argument("--intensity", type=float, default=60)
             s.add_argument("--force-log", action="store_true", help="treat files as log even if not flagged")
             s.add_argument("--creative-lut", help="a user's creative LUT (Rec.709 in and out), after correction")
             s.add_argument("--creative-intensity", type=float, default=100)
-            s.add_argument("--reference", help="image (or video frame) whose palette to approach — experimental")
-            s.add_argument("--reference-intensity", type=float, default=60)
         if name == "preview":
             s.add_argument("--n", type=int, default=3, help="frames per file")
-    s = sub.add_parser("look")
-    s.add_argument("--look", required=True, choices=LOOKS)
-    s.add_argument("--intensity", type=float, default=60)
-    s.add_argument("--file")
     args = ap.parse_args()
-    {"analyze": cmd_analyze, "propose": cmd_propose, "build": cmd_build, "preview": cmd_preview,
-     "look": cmd_look}[args.cmd](args)
+    {"analyze": cmd_analyze, "propose": cmd_propose, "build": cmd_build, "preview": cmd_preview}[args.cmd](args)
 
 
 if __name__ == "__main__":

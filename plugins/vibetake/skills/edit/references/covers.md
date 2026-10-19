@@ -3,8 +3,8 @@
 **Three different concepts**, designed for this video — not one layout with three
 texts. Each is a free canvas (a React component, rendered as a still per platform),
 so a concept can be anything: the video's own idea turned into an image, the
-person's expression with a short line, something bold. The user picks, or asks for
-changes; they don't want to be consulted before.
+person's expression with a short line, something bold. Made without asking first;
+the user picks, or asks for changes.
 
 | Platform | File | Size | What must survive |
 |---|---|---|---|
@@ -85,5 +85,5 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py preview               # at real size
   their criteria — composition, intensity, how much text — never copy them.
 - Brand assets only as provided (`brand/`); never searched for or recreated.
 
-**Without Node** (Remotion can't run): `cover.py make` — one fixed layout (headline,
-cut-out person, brand background); say that the designed concepts need Node.
+**Without Node** (Remotion can't run): draw each concept as a canvas page, like the
+graphics (`from-scratch.md`), with the same design and the same checks; say so.

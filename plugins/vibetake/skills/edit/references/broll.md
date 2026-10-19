@@ -16,10 +16,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/broll.py clear
    sheets and write in the catalog what each clip shows** (`description`) and which
    ranges are usable (`usable`: skip shaky starts, focus hunting, the hand reaching
    for the stop button).
-2. Free stock banks (planned): Pexels and Pixabay, with the user's own free API key
-   stored in their folder, never in the plugin. Commercial use without attribution,
-   but no resale; in ads avoid clips with recognizable brands or people. Keep the
-   source URL of every clip used.
+2. Stock the user downloads by hand (Pexels, Pixabay: commercial use without
+   attribution, no resale; in ads avoid recognizable brands or people). Keep the source
+   URL of every clip in `project.md`.
 
 ## Placement
 

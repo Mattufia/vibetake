@@ -3,7 +3,7 @@
 # ///
 """Dump the metadata that identifies a camera and its color mode.
 
-    uv run camera_report.py <clip> [--mode "D-Log M"]
+    uv run tools/camera_report.py <clip> [--mode "D-Log M"]
 
 Paste the output into an issue to add or verify a camera in
 references/log-formats.md. Use an original file straight from the camera
@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "vibetake" / "skills" / "edit" / "scripts"))
 from _common import ffprobe, run, tool  # noqa: E402
 
 INTERESTING = re.compile(r"make|model|log|gamma|color|colour|profile|picture|transfer|primar|matrix|"

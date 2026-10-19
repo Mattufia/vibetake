@@ -107,11 +107,6 @@ def main() -> None:
     checks["subtitles: no project font → refuses (no system font fallback)"] = p.returncode != 0 and "fonts.py" in p.stderr
     (tmp / "02-work" / "fonts.bak").rename(tmp / "02-work" / "fonts.json")
     (tmp / "02-work" / "design.bak").rename(tmp / "02-work" / "design.json")
-    subprocess.run([FF, "-v", "error", "-y", "-f", "lavfi", "-i", "color=gray:s=640x360", "-frames:v", "1", "f.png"],
-                   cwd=tmp, check=True)
-    p = run(tmp, S("cover.py"), "make", "--image", "f.png", "--no-cutout", "--title", "Hola mundo", "--platform", "youtube")
-    checks["covers: project font and design colors by default"] = p.returncode == 0 and \
-        (tmp / "03-delivery" / "cover_youtube_1.jpg").exists()
 
     # Remotion layer.
     if not shutil.which("node"):

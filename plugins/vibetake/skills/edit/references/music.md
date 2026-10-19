@@ -30,16 +30,6 @@ on its music: use a real track there.
 - Not **YouTube Audio Library**: the license changes per track, standard tracks
   are only for YouTube and many need attribution.
 
-## 3. Planned (researched, not built)
-
-- **Openverse** (keyless API, filter `license=cc0`, `category=music`): automatic
-  search of public-domain music; quality varies a lot, always listen first.
-- **Freesound** (free API key, filter `license:"Creative Commons 0"`): loops and
-  sound effects.
-- **Local generation with ACE-Step 1.5** on the GPU (reported as MIT-licensed and
-  usable commercially, 4–8 GB VRAM): verify the license on the official model card
-  before using it; the only option for real-sounding music made to measure.
-
 ## Level
 
 How it's mixed under the voice: SKILL.md section 5. The bed sits at ~−28 LUFS;

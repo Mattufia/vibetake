@@ -7,8 +7,8 @@ Conversations with two or more voices: podcasts, interviews, panels.
 - **Pacing**: respect natural pauses and reactions; only cut long dead air and
   derailments. Clips for a feed follow the `talking-head` profile.
 - **Cleanup**: light in the full episode (stumbles, long fillers), full in clips.
-- **Picture**: follow whoever is speaking (speaker per segment); reaction shots
-  are allowed.
+- **Picture**: with a camera per person, choose the angle per segment by hand (the one
+  speaking, or a reaction) — there's no automatic speaker detection.
 - **Music**: intro/outro only; none under the conversation.
 - **Subtitles**: `.srt` for the full episode; burned-in for clips.
 - **Graphics**: measured level; lower thirds with name and role the first time each person speaks; clips cut for a feed go dynamic like `talking-head`.
@@ -16,4 +16,5 @@ Conversations with two or more voices: podcasts, interviews, panels.
   levels per voice must match.
 - **Color**: Basic: matching the cameras is the priority (two angles that don't match are very visible — one
   match group; `--no-skin` if the angles show different people); Full if skin is off.
-- **Framing**: the operator follows the main face; with two people in one shot, keep both in frame rather than following one (multicam angle choice comes later).
+- **Framing**: the operator follows the main face; with two people in one shot, set that
+  segment's framing by hand (`frame` in `edl.json`) so both stay in.

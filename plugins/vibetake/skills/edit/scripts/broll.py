@@ -21,23 +21,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
-import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, tc  # noqa: E402
-from _timeline import resolve_broll, total  # noqa: E402
-
-
-def norm(t: str) -> str:
-    t = unicodedata.normalize("NFD", t.lower())
-    return re.sub(r"[^\w]", "", "".join(c for c in t if unicodedata.category(c) != "Mn"))
-
-
-def load(p: Path) -> dict:
-    return json.loads(p.read_text(encoding="utf-8"))
+from _common import die, load_json as load, tc  # noqa: E402
+from _timeline import anchor_from, resolve_broll, total  # noqa: E402
 
 
 def cmd_list(args) -> None:
@@ -68,24 +57,11 @@ def cmd_place(args) -> None:
     edl = load(edl_path)
     material = {m["name"]: m for m in load(Path(args.ingest) / "material.json")["files"]}
     clip = material.get(args.clip) or die(f"{args.clip} isn't in material.json")
-    if args.cut is not None:
-        segs = edl["segments"]
-        if not 1 <= args.cut < len(segs):
-            die(f"--cut must be between 1 and {len(segs) - 1} (the cut before that segment, 0-based)")
-        s = segs[args.cut]
-        anchor = {"name": s["name"], "time": s["in"]}
-        offset = args.offset if args.offset is not None else -args.dur / 2     # centered on the cut
+    anchor = anchor_from(args, edl)
+    if args.offset is not None:
+        offset = args.offset
     else:
-        tr = load(Path(args.ingest) / "transcript.json")
-        line = int(args.line.lstrip("Ll"))
-        sent = next((s for s in tr["sentences"] if s["line"] == line), None) or die(f"no line L{line}")
-        words = [w for seg in tr["files"][sent["file"]]["segments"] for w in seg["words"]
-                 if sent["start"] - 1e-3 <= w["start"] and w["end"] <= sent["end"] + 1e-3]
-        w = words[0] if not args.word else next((w for w in words if norm(w["word"]) == norm(args.word)), None)
-        if w is None:
-            die(f"'{args.word}' isn't in L{line}: {''.join(x['word'] for x in words).strip()}")
-        anchor = {"name": sent["file"], "time": w["start"]}
-        offset = args.offset if args.offset is not None else -0.1
+        offset = -args.dur / 2 if args.cut is not None else -0.1     # centered on a cut; just before a word
     if args.in_ + args.dur > clip["duration"] + 1e-3:
         die(f"{args.clip} is {clip['duration']:.2f} s long: --in {args.in_} --dur {args.dur} goes past its end")
     item = {"clip": args.clip, "source": clip["file"], "in": args.in_, "dur": args.dur,

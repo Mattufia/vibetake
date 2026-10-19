@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, filter_path, tool  # noqa: E402
+from _common import die, filter_path, tool, wcag_luminance as luminance  # noqa: E402
 
 
 def hex_to_rgb(h: str) -> np.ndarray:
@@ -36,12 +36,6 @@ def hex_to_rgb(h: str) -> np.ndarray:
 
 def rgb_to_hex(c) -> str:
     return "#" + "".join(f"{int(round(max(0, min(255, v)))):02X}" for v in c)
-
-
-def luminance(c: np.ndarray) -> float:
-    s = c / 255
-    lin = np.where(s <= 0.03928, s / 12.92, ((s + 0.055) / 1.055) ** 2.4)
-    return float(0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2])
 
 
 def contrast(a: np.ndarray, b: np.ndarray) -> float:

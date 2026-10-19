@@ -9,8 +9,9 @@ Screencasts and step-by-step instructional videos.
 - **Cleanup**: medium — fillers and dead time, not explanations.
 - **Music**: none or a very low bed.
 - **Subtitles**: `.srt` by default; burned-in only for feed.
-- **Graphics**: measured level (dynamic for short social tutorials); zoom into the area where the action happens, highlight the
-  cursor/click, step number on screen, callouts for shortcuts and values.
+- **Graphics**: measured level (dynamic for short social tutorials); callouts drawn in the
+  graphics layer — a ring on the click, the step number, shortcuts and values. Where text
+  would be too small, a deliberate zoom into that area set by hand (that segment's `frame`).
 - **Traps**: on-screen text (UI, code, values) must stay legible after any
   reframe or zoom; a vertical crop of a screen recording is usually unreadable —
   say so and propose zoom-ins instead.

@@ -7,7 +7,6 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none
        [--look natural|cinematic|warm|cold|bw|vintage --intensity 60]
        [--input-lut <format>.cube] [--force-log]                 # log footage
        [--creative-lut <user>.cube --creative-intensity 100]    # the user's LUT
-       [--reference <image> --reference-intensity 60]           # experimental
        [--ambient balanced|neutral|keep] [--no-match] [--match-target <file>] [--zones auto|on|off]
 uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py preview
 uv run ${CLAUDE_SKILL_DIR}/scripts/match.py solve                     # sheet + matching (again after each change)
@@ -16,7 +15,6 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/match.py skip <files...> [--restore]
 uv run ${CLAUDE_SKILL_DIR}/scripts/match.py add --name <ref> --file <file> --t <s> --at <x>,<y>
 uv run ${CLAUDE_SKILL_DIR}/scripts/match.py drop --name <ref> [--file <file>] [--restore]
 uv run ${CLAUDE_SKILL_DIR}/scripts/match.py set --file <file> exposure=+0.2 black=-2 temp=-4 ... [--clear]
-uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py look --look cinematic --intensity 60 --file 03-delivery/<name>.cube
 ```
 
 Without files, every video in `01-ingest/material.json` is used. Output in
@@ -57,8 +55,9 @@ code measures, fits and checks. With several shots, before the color question:
 4. Optional — **point at what repeats** when skin isn't enough or there's no person (a
    wall, a sign, hair, a garment): `match.py add --name wall --file A.mp4 --t 3.2 --at
    0.42,0.31`, once per file of the group (x, y as 0–1 of the frame; the point is
-   snapped to the surface around it — flat, evenly lit spots). `drop` what you see is
-   lit differently in one shot.
+   snapped to the surface around it — flat, evenly lit spots; `--tolerance` widens or
+   narrows what counts as the same surface, `--priority` weighs it when references
+   clash). `drop` what you see is lit differently in one shot.
 5. `match.py solve` again → check `sheet.jpg`, `faces.jpg` (faces at full resolution:
    flat or plastic skin shows there) and `match.md`. If a shot still looks off, nudge
    it: `match.py set --file B.mp4 exposure=+0.2 black=-2 white=+3 temp=-4 tint=+2
@@ -113,8 +112,7 @@ The user picks it in the color question's free text; never carried over from ano
   after) and refines when needed.
 - `grade.json` says, per file, the pre-filter and LUT that `render.py` applies.
 - Previews: before/after with waveform and vectorscope, a few frames per file.
-- Faces are only used to measure. A person mask for skin (dilated outward, with a
-  wide feather) is planned, not available yet.
+- Faces are only used to measure: the grade is always on the whole frame.
 
 ## Repairs (only when needed)
 

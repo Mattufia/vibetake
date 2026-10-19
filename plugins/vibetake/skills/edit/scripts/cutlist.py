@@ -47,7 +47,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, tc, tool  # noqa: E402
+from _common import die, seconds, tc, tool  # noqa: E402
 
 FORMATS = {"vertical": (1080, 1920), "horizontal": (1920, 1080), "square": (1080, 1080)}
 SNAP_S = 0.04
@@ -147,11 +147,6 @@ def valley(db: np.ndarray, gap_a: float, gap_b: float) -> tuple[float, float] | 
         dist = max(v[0] - gap_b, gap_a - v[1], 0)
         return (overlap, -dist)
     return max(found, key=score)
-
-
-def seconds(t: str) -> float:
-    parts = [float(x) for x in t.strip().split(":")]
-    return sum(x * 60 ** i for i, x in enumerate(reversed(parts)))
 
 
 def load_protected() -> dict:

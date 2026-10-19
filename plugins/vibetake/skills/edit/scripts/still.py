@@ -15,12 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import material_index, pre_filter, run, tool  # noqa: E402
-
-
-def seconds(t: str) -> float:
-    parts = [float(p) for p in t.split(":")]
-    return sum(p * 60 ** i for i, p in enumerate(reversed(parts)))
+from _common import material_index, pre_filter, run, seconds, tool  # noqa: E402
 
 
 def main() -> None:

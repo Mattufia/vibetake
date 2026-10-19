@@ -28,8 +28,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, tc, tool  # noqa: E402
-from _timeline import to_timeline, total  # noqa: E402
+from _common import die, load_json as load, tc, tool  # noqa: E402
+from _timeline import anchor_from, to_timeline, total  # noqa: E402
 
 SR = 48000
 TARGET_RMS_DB = -30.0      # cleaned voice sits at about -20: SFX ~10 dB under it
@@ -133,10 +133,6 @@ def level_db(y: np.ndarray) -> float:
     return float(TARGET_RMS_DB - cur)
 
 
-def load(p: Path) -> dict:
-    return json.loads(p.read_text(encoding="utf-8"))
-
-
 def cmd_make(args) -> None:
     out = Path(args.dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -148,24 +144,6 @@ def cmd_make(args) -> None:
         print(f"- {k}: {len(y) / SR:.2f} s, event at {ev:.2f} s")
     (out / "index.json").write_text(json.dumps(index, indent=1), encoding="utf-8")
     print(f"sounds → {out}")
-
-
-def anchor_from(args, edl: dict) -> dict:
-    if args.cut is not None:
-        segs = edl["segments"]
-        if not 1 <= args.cut < len(segs):
-            die(f"--cut must be between 1 and {len(segs) - 1} (the cut before that segment, 0-based)")
-        return {"name": segs[args.cut]["name"], "time": segs[args.cut]["in"]}
-    tr = load(Path(args.ingest) / "transcript.json")
-    from broll import norm
-    line = int(args.line.lstrip("Ll"))
-    sent = next((s for s in tr["sentences"] if s["line"] == line), None) or die(f"no line L{line}")
-    words = [w for seg in tr["files"][sent["file"]]["segments"] for w in seg["words"]
-             if sent["start"] - 1e-3 <= w["start"] and w["end"] <= sent["end"] + 1e-3]
-    w = words[0] if not args.word else next((w for w in words if norm(w["word"]) == norm(args.word)), None)
-    if w is None:
-        die(f"'{args.word}' isn't in L{line}: {''.join(x['word'] for x in words).strip()}")
-    return {"name": sent["file"], "time": w["start"]}
 
 
 def cmd_place(args) -> None:

@@ -270,3 +270,30 @@ def pre_filter(m: dict | None, g: dict | None) -> str:
     if m and m.get("hdr") and pick_tonemap()[1] not in pre:
         pre = ",".join(x for x in (pick_tonemap()[1], pre) if x)
     return pre
+
+
+# ------------------------------------------------------------------- small
+
+def seconds(t: str) -> float:
+    """'12.5', '1:03.2' or '1:02:03' → seconds."""
+    parts = [float(x) for x in t.strip().split(":")]
+    return sum(x * 60 ** i for i, x in enumerate(reversed(parts)))
+
+
+def frac(s: str | None) -> float:
+    """ffprobe's '30000/1001' → 29.97 (0 when missing or malformed)."""
+    try:
+        n, d = (s or "0/0").split("/")
+        return float(n) / float(d) if float(d) else 0.0
+    except ValueError:
+        return 0.0
+
+
+def load_json(p: Path) -> dict:
+    return json.loads(Path(p).read_text(encoding="utf-8"))
+
+
+def wcag_luminance(rgb) -> float:
+    """WCAG relative luminance of an sRGB color given as 0-255 values (0 black, 1 white)."""
+    r, g, b = (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (float(v) / 255 for v in rgb))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b

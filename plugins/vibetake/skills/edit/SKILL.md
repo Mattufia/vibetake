@@ -210,9 +210,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   (`--bump`, +6%, settles in ~0.15 s) and pushes in slowly while it lasts
   (`--drift`, +3%). `--punch off` disables all of it (testimonial, corporate,
   screen recordings); `--bump 0 --drift 0` keeps only the alternation.
-- **Hook (feed)**: `hook.py` shortlists lines that could open the video into
-  `02-work/hooks.md`; read them in context and choose. First with `--keep
-  "L9,L1-L12"` (also kept in place) or `"L9,L1-L8,L10-L12"` (moved).
+- **Hook (feed)**: pick the line that works on its own and opens a loop (1.5–4 s) — a
+  promise, a conflict, a surprise — reading `transcript.md` in context. First with
+  `--keep "L9,L1-L12"` (also kept in place) or `"L9,L1-L8,L10-L12"` (moved).
 - **B-roll**: own material first; `broll.py list` catalogs it, `place` anchors a
   clip to a word or a cut, `render.py` lays it over the speech. Commands and rules
   (what to illustrate, length, coverage, never over the hook): **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
@@ -229,8 +229,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 
 - **Cleanup follows the type profile**: full in a talking head, light in a vlog,
   almost none in a testimonial, none inside an acted scene.
-- **J/L cuts**: the audio comes in before or carries on after the picture. It's
-  what makes the cut go unnoticed.
+- **Sound across a cut**: b-roll keeps the speech running underneath, which hides the
+  cut; place it there before reaching for anything else.
 
 ## 4. Color
 
@@ -250,7 +250,7 @@ the other questions, as levels:
 | **Basic** | shots matched + exposure (when clearly off), white balance (the light's warmth or coolness stays — it's the place's mood; green/magenta tints go), black and white points |
 | **Full** | Basic + skin toward the skin line (global and gentle, capped at a few degrees: similar colors like wood barely move), contrast and vibrance tidy-up |
 | **Only match shots** | the shots made alike, nothing else (one file: the material as is) — e.g. the user grades it elsewhere |
-| **Custom** (free text) | a look (`natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity), the user's LUT, a reference image (experimental) — on top of Basic unless told otherwise |
+| **Custom** (free text) | a look (`natural`, `cinematic`, `warm`, `cold`, `bw`, `vintage`, with intensity), the user's LUT; a reference image: look at it and pick the closest look — on top of Basic unless told otherwise |
 
 **Recommended**: Full when skin is clearly off the line (>10°); Basic when only
 exposure, balance or matching need work; Only match shots (one file: untouched) when nothing else needs fixing.
@@ -278,8 +278,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/grade.py build --level basic|full|none # afte
 - **Repairs only when needed, before the correction**: `--moire` if a 100% still
   of the raw shows false color on fabrics; `--denoise light|medium` only if asked
   (grain can be wanted — offer it in the delivery instead).
-- Commands, options (looks, log LUTs, the user's LUT, reference image, look-only
-  .cube export) and what each measurement means:
+- Commands, options (looks, log LUTs, the user's LUT) and what each measurement means:
   **`${CLAUDE_SKILL_DIR}/references/color.md`**.
 
 ## 5. Voice, music and SFX

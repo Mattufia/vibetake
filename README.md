@@ -67,7 +67,7 @@ Edit this video for Instagram Reels and TikTok.
 ```
 ```text
 Edit this video for YouTube. It's in Spanish; the brand is Acme, the logo is in the folder.
-Names to spell right: Mattu, Vibetake, DaVinci.
+Names to spell right: Vibetake, DaVinci, Ana Pérez.
 ```
 ```text
 Cut a 30-second ad from this, vertical, with a strong hook and a call to action.
@@ -97,7 +97,7 @@ and the kind of video, and tells you what it chose.
 |---|---|
 | `my-video_v1.mp4` | the video (each round of changes is a new version: `_v2`, `_v3`…) |
 | `my-video.srt` | subtitles as a file, for the platforms' accessibility and search |
-| `cover_<platform>_<n>.jpg` | 2–3 covers per platform (YouTube thumbnail, Reels/TikTok cover) |
+| `cover_<platform>_<n>.jpg` | three cover concepts per platform (YouTube thumbnail, Reels/TikTok cover) |
 | `copy.txt` | the text to publish with, per platform: caption, hashtags, title, chapters |
 | `qa/qa.md` | the final check, plus reminders for the upload (e.g. Instagram's "highest quality") |
 
@@ -149,21 +149,22 @@ Say what and at what second ("at 0:42 a word is cut", "the subtitles cover my fa
 ```text
 uv run tests/test_ingest.py       # ingest traps, synthetic clips
 uv run tests/test_transcribe.py   # retakes, fillers, word timing (needs the Whisper model)
-uv run tests/test_grade.py        # color: cast correction, log path, looks, creative
+uv run tests/test_grade.py        # color: ambient white balance, log path, levels, the user's LUT
+uv run tests/test_match.py        # shot matching: groups, references, darks kept, skip, nudges, rules
 uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
 uv run tests/test_reframe.py      # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
-uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts; hook ranking
+uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts
 uv run tests/test_audio.py        # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
 uv run tests/test_subs.py         # .srt rules, word groups, face avoidance, burn-in
 uv run tests/test_qa.py           # delivery QA: a good file passes, planted faults are caught
 uv run tests/test_graphics.py     # cue sheet, synthesized SFX on their word, graphics layer, captions off
-uv run tests/test_cover.py        # covers per platform: head size, crop-safe layouts, no text on the face
 uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audio, listening check
 uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
 uv run tests/test_organize.py     # loose files → 00-raw/ and brand/, nothing overwritten, undo
 uv run tests/test_cut_rules.py    # reactions vs fillers, silent stretches, natural pace, protected ranges
 uv run tests/test_design.py       # project fonts and icons, palette, Remotion layer with design + safe-zone check (network, Node)
 uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
+uv run tests/test_fixes.py        # regressions: re-cut keeps placements, stale layers, HDR without grade, mixed log
 ```
 
 Generates synthetic clips for each ingest trap (VFR, HDR, rotation, two audio

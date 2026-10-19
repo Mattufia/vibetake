@@ -40,13 +40,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die  # noqa: E402
+from _common import die, load_json as load  # noqa: E402
 from _timeline import resolve_broll, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
-
-
-def load(p: Path) -> dict:
-    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def build(edl: dict, tr: dict, faces: dict, material: dict) -> dict:

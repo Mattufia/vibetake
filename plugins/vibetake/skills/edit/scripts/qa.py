@@ -39,10 +39,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import DELIVERY, ffprobe, filter_path, find_font, latest_video, run, tc, tool  # noqa: E402
+from _common import DELIVERY, ffprobe, filter_path, find_font, frac, latest_video, run, tc, tool  # noqa: E402
 from _timeline import total as timeline_total  # noqa: E402
 from audio import TARGETS, measure  # noqa: E402
-from subtitles import CHAR_W  # noqa: E402
+from subtitles import CHAR_W, SAFE_V as SUB_SAFE_V, SAFE_X_V  # noqa: E402
 
 # Keep in sync with references/platforms.md (values change; verify periodically).
 PLATFORMS = {
@@ -53,7 +53,7 @@ PLATFORMS = {
     "x": {"aspect": None, "max_s": 140},
     "linkedin": {"aspect": None, "max_s": 600},
 }
-SAFE_V = (0.06, 0.13, 0.86, 0.77)          # x0, y0, x1, y1 of the 9:16 safe zone
+SAFE_V = (SAFE_X_V[0], SUB_SAFE_V[0], SAFE_X_V[1], SUB_SAFE_V[1])   # x0, y0, x1, y1 of the 9:16 safe zone
 COPY_LIMITS = {      # caption characters, title characters (verify: they change)
     "reels": {"caption": 2200}, "tiktok": {"caption": 4000},
     "youtube": {"title": 100, "title_soft": 60, "description": 5000}, "shorts": {"title": 100},
@@ -87,11 +87,6 @@ class Report:
     @property
     def failed(self) -> bool:
         return any(s == "FAIL" for s, _, _ in self.rows)
-
-
-def frac(s: str | None) -> float:
-    n, _, d = (s or "0/0").partition("/")
-    return float(n) / float(d) if d and float(d) else 0.0
 
 
 def faststart(path: Path) -> bool | None:
@@ -402,13 +397,12 @@ def main() -> None:
                  "(VP9/AV1), which look better even watched at 1080p: render.py --upload-height 1440", "WARN")
     thumbs = [p for p in video.parent.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png")
               and re.search(r"cover|thumb|portada", p.stem, re.I)]
-    r.ok(bool(thumbs), "delivery: thumbnails", f"{len(thumbs)} found (2–3 designed covers expected)", "WARN")
+    r.ok(bool(thumbs), "delivery: thumbnails", f"{len(thumbs)} found (three concepts expected)", "WARN")
     for p in args.platform:
         if p not in COVER_SIZES:
             continue
         mine = sorted(video.parent.glob(f"cover_{p}_*.jpg"))
-        r.ok(len(mine) >= 2, f"{p}: covers", f"{len(mine)} (2–3 variants expected; cover.py make --platform {p})",
-             "WARN")
+        r.ok(len(mine) >= 3, f"{p}: covers", f"{len(mine)} (three concepts expected; cover.py render)", "WARN")
         for c in mine:
             w, h = image_size(c)
             r.ok((w, h) == COVER_SIZES[p], f"{p}: {c.name} size", f"{w}×{h} (expected "

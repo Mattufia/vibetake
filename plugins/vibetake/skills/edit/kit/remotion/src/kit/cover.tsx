@@ -15,7 +15,8 @@ export const COVER_SIZES: Record<Platform, { width: number; height: number }> = 
 };
 
 /** The part that must hold the headline and the face (0-1 of the canvas): the profile
- * grid's central 3:4 on vertical platforms; on YouTube everything but the duration badge. */
+ * grid's central 3:4 on vertical platforms; on YouTube everything but the duration badge.
+ * Same boxes as PLATFORMS in scripts/cover.py: change both together. */
 export const KEEP: Record<Platform, { x0: number; y0: number; x1: number; y1: number; avoid?: number[] }> = {
   youtube: { x0: 0.04, y0: 0.06, x1: 0.96, y1: 0.94, avoid: [0.8, 0.82, 1, 1] },
   reels: { x0: 0.06, y0: 0.125, x1: 0.94, y1: 0.875 },

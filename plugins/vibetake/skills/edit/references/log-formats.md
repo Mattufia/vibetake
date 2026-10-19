@@ -23,16 +23,17 @@ Order: **correction in log (balance, exposure as an offset) → the format's
 official conversion LUT to Rec.709 → optional look → graphics on top.**
 Keep 10-bit until the final master.
 
-LUTs live in the user's folder, never in the plugin (vendor licenses usually don't
-allow redistribution): `~/.vibetake/luts/<format>.cube`. If it's missing, tell the
-user where the official one is published and ask for the file. Without a LUT,
-offer an approximate conversion (contrast/saturation expansion) and label it as
-approximate in the delivery.
+LUTs stay in the user's folder, never in the plugin (vendor licenses usually don't
+allow redistribution) — `~/.vibetake/luts/` is a good home — and are passed with
+`--input-lut`. If it's missing, tell the user where the official one is published and
+ask for the file (the color question asks for it). Without it, don't grade the log
+footage.
 
 ## Formats
 
 All entries are **unverified** until someone confirms them with an original file
-(`scripts/camera_report.py <clip> --mode "<mode>"`, then add what it shows).
+(`tools/camera_report.py <clip> --mode "<mode>"` in the plugin's repository, then add
+what it shows).
 
 | Format | Used by (hints) | Where the official LUT is | Status |
 |---|---|---|---|

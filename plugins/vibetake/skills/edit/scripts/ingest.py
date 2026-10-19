@@ -33,7 +33,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (AUDIO_EXT, HOME, VIDEO_EXT, Cache, Log, die, ffmpeg_progress, ffprobe,  # noqa: E402
-                     filter_path, filter_works, find_font, pick_tonemap, run, tc, tool)
+                     filter_path, filter_works, find_font, frac, pick_tonemap, run, tc, tool)
 
 STANDARD_FPS = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120]
 LOG_PATTERN = re.compile(
@@ -47,14 +47,6 @@ FACE_FPS = 2
 
 
 # ---------------------------------------------------------------- detection
-
-def frac(s: str | None) -> float:
-    try:
-        n, d = (s or "0/0").split("/")
-        return float(n) / float(d) if float(d) else 0.0
-    except ValueError:
-        return 0.0
-
 
 def check_vfr(path: Path, duration: float) -> tuple[bool, float]:
     """Packet timestamps at the start, middle and end (10 s each). Returns (is_vfr, measured fps)."""

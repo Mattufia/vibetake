@@ -75,3 +75,32 @@ def signature(edl: dict) -> str:
     segs = [{k: s.get(k) for k in ("source", "name", "in", "out", "frame", "role")} for s in edl["segments"]]
     blob = json.dumps({"output": edl["output"], "segments": segs}, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()[:12]
+
+
+def word_key(t: str) -> str:
+    """A word reduced to letters and digits, without accents or case: 'Ventas,' == 'ventas'."""
+    import re
+    import unicodedata
+    t = unicodedata.normalize("NFD", t.lower())
+    return re.sub(r"[^\w]", "", "".join(c for c in t if unicodedata.category(c) != "Mn"))
+
+
+def anchor_from(args, edl: dict) -> dict:
+    """Where b-roll or a sound effect is anchored: the cut before segment --cut N, or a word of
+    a transcript line (--line L5 [--word x]) — moments of the source, so re-cuts don't move them."""
+    from pathlib import Path
+    from _common import die, load_json
+    if getattr(args, "cut", None) is not None:
+        segs = edl["segments"]
+        if not 1 <= args.cut < len(segs):
+            die(f"--cut must be between 1 and {len(segs) - 1} (the cut before that segment, 0-based)")
+        return {"name": segs[args.cut]["name"], "time": segs[args.cut]["in"]}
+    tr = load_json(Path(args.ingest) / "transcript.json")
+    line = int(args.line.lstrip("Ll"))
+    sent = next((s for s in tr["sentences"] if s["line"] == line), None) or die(f"no line L{line}")
+    words = [w for seg in tr["files"][sent["file"]]["segments"] for w in seg["words"]
+             if sent["start"] - 1e-3 <= w["start"] and w["end"] <= sent["end"] + 1e-3]
+    w = words[0] if not args.word else next((w for w in words if word_key(w["word"]) == word_key(args.word)), None)
+    if w is None:
+        die(f"'{args.word}' isn't in L{line}: {''.join(x['word'] for x in words).strip()}")
+    return {"name": sent["file"], "time": w["start"]}

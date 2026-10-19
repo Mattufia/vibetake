@@ -1,8 +1,8 @@
 # This video's design
 
 Every video gets its own visual identity, decided for it — never a house style,
-never a preset. It's decided on your own (the user asked not to be consulted) and
-shown in the delivery, where changes are asked for. It lives in
+never a preset. Decide it yourself and show it in the delivery, where changes are
+asked for. It lives in
 `02-work/design.json` and everything the viewer sees follows it: the graphics layer,
 the burned-in subtitles and the covers.
 
