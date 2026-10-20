@@ -13,6 +13,9 @@ there). Outputs:
     02-work/subs.ass        burned-in captions that render.py draws over everything:
                             groups of 2–3 words with the word being said highlighted
                             (--style sentence: whole phrases, no highlight)
+    02-work/captions.json   with --engine remotion (default), instead of subs.ass: the same groups,
+                            timing and placement, drawn and animated by the graphics layer
+                            (graphics.py render), editable in Remotion Studio
 Placement: inside the safe zone, never over the face. Where the face is in the final
 frame (after reframing) decides it: low by default, moved when the face is there.
 Names, brands and numbers are listed at the end: check them by ear.
@@ -22,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -35,6 +39,7 @@ SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margin
 SAFE_H = (0.08, 0.92)
 SAFE_X_V = (0.06, 0.86)        # horizontal extent of the 9:16 safe zone
 CHAR_W = 0.68                  # average glyph width / font size for a heavy sans (Arial Black), with margin
+LONG_S = 180                   # --engine auto: longer than this with no graphics plan → ass
 WR = writing(None)             # this video's writing system (set from the transcript's language in main)
 WHITE, YELLOW, BLACK = "&H00FFFFFF", "&H0000FFFF", "&H00000000"
 OUTLINE = 0.09                 # outline / font size: reads on any image without looking like a sticker
@@ -200,6 +205,10 @@ def main() -> None:
     ap.add_argument("--size", type=float, help="font size as a share of the frame height (default by format)")
     ap.add_argument("--srt", help="default: 03-delivery/<name>.srt (one per project, not versioned)")
     ap.add_argument("--ass")
+    ap.add_argument("--engine", choices=("auto", "ass", "remotion"), default="auto",
+                    help="remotion: drawn in the graphics layer, animated, editable in Studio; ass: burned by render.py "
+                         "(fast, no Node); auto (default): remotion, except a long video (> 3 min) with no "
+                         "graphics plan, where a full-length layer only for captions isn't worth its render")
     ap.add_argument("--no-burn", action="store_true", help="only the .srt (removes the burned-in file)")
     ap.add_argument("--off", default="", help="no burned-in captions here: 'hook' and/or timeline ranges "
                                               "'12.5-15' (where a graphic already shows the words); "
@@ -209,6 +218,15 @@ def main() -> None:
     paths = work_paths(args.variant)
     args.edl, args.ass = args.edl or str(paths["edl"]), args.ass or str(paths["subs"])
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
+    if args.engine == "auto":
+        length = sum(s["out"] - s["in"] for s in edl["segments"])
+        plan = paths["plan"].exists() or Path("02-work/graphics.json").exists()
+        args.engine = "ass" if length > LONG_S and not plan else "remotion"
+        print(f"captions engine: {args.engine}"
+              + (f" ({length / 60:.0f} min, no graphics plan)" if args.engine == "ass" else ""))
+    if args.engine == "remotion" and not shutil.which("node"):
+        print("no Node (Remotion can't run): captions burned with ASS instead", file=sys.stderr)
+        args.engine = "ass"
     ing = Path(args.ingest)
     tr = json.loads((ing / "transcript.json").read_text(encoding="utf-8"))
     WR.update(writing(tr.get("lang")))
@@ -241,8 +259,11 @@ def main() -> None:
                            for i, c in enumerate(cues, 1)), encoding="utf-8")
 
     ass = Path(args.ass)
-    if args.no_burn:
+    cap_json = paths["captions"]
+    if args.no_burn or args.engine == "remotion":
         ass.unlink(missing_ok=True)
+    if args.no_burn:
+        cap_json.unlink(missing_ok=True)
         print(f"{len(cues)} captions → {srt} (no burned-in captions)")
         return
     W, H, fps = edl["output"]["width"], edl["output"]["height"], edl["output"]["fps"]
@@ -274,21 +295,23 @@ def main() -> None:
     # A dark accent would vanish on the black outline: then the highlighted word gets a
     # light outline (the design's paper, or white) of the same thickness, never thicker.
     hl_color, hl_edge = YELLOW, ""
+    hl_hex, edge_hex = "#FFFF00", ""
     dj = Path("02-work/design.json")
     if dj.exists():
         try:
             cols = json.loads(dj.read_text(encoding="utf-8")).get("colors", {})
             acc = cols.get("accent", "")
             if re.fullmatch(r"#?[0-9A-Fa-f]{6}", acc or ""):
-                hl_color = ass_color(acc)
+                hl_color, hl_hex = ass_color(acc), "#" + acc.lstrip("#")
                 if luminance(acc) < 0.18:
                     paper = cols.get("paper", "")
                     ok = re.fullmatch(r"#?[0-9A-Fa-f]{6}", paper or "") and luminance(paper) > 0.5
-                    hl_edge = ass_color(paper if ok else "#FFFFFF")
+                    edge_hex = "#" + (paper if ok else "#FFFFFF").lstrip("#")
+                    hl_edge = ass_color(edge_hex)
         except ValueError:
             pass
     outline = max(2, round(fs * OUTLINE))
-    events, clashes, skipped = [], 0, 0
+    events, clashes, skipped, rgroups = [], 0, 0, []
     for gi, g in enumerate(blocks):
         start = g[0]["t"]
         nxt = blocks[gi + 1][0]["t"] if gi + 1 < len(blocks) else g[-1]["end"] + 0.5
@@ -309,6 +332,8 @@ def main() -> None:
         bord = max(2, round(outline * fs_g / fs))
         pos = (f"{{\\an5\\pos({int(center_x * W)},{int(y * H)})"
                + (f"\\fs{fs_g}\\bord{bord}\\shad{max(1, bord // 3)}" if fs_g < fs else "") + "}")
+        rgroups.append({"start": round(start, 3), "end": round(end, 3), "y": round(y, 4), "size": round(fs_g / H, 4),
+                        "words": [{"text": tx, "t": w["t"], "end": w["end"]} for tx, w in zip(texts, g)]})
         on = f"{{\\c{hl_color}&" + (f"\\3c{hl_edge}&" if hl_edge else "") + "}"
         back = f"{{\\c{WHITE}&" + (f"\\3c{BLACK}&" if hl_edge else "") + "}"
         if args.style == "highlight":
@@ -330,11 +355,20 @@ def main() -> None:
               f"Style: Main,{args.font},{fs},{WHITE},{WHITE},{BLACK},&H80000000,-1,0,0,0,100,100,0,0,1,"
               f"{outline},{max(1, outline // 3)},5,{int(W * 0.08)},{int(W * 0.14 if vertical else W * 0.08)},0,1\n\n"
               "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-    ass.parent.mkdir(parents=True, exist_ok=True)
-    ass.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+    if args.engine == "remotion":
+        cap_json.parent.mkdir(parents=True, exist_ok=True)
+        cap_json.write_text(json.dumps({
+            "timeline": signature(edl), "style": args.style, "font": args.font, "x": round(center_x, 4),
+            "width": round(safe_w, 4), "join": WR["join"], "rtl": WR["rtl"], "highlight": hl_hex, "edge": edge_hex,
+            "outline": OUTLINE, "groups": rgroups}, ensure_ascii=False, indent=1), encoding="utf-8")
+        ass = cap_json
+    else:
+        cap_json.unlink(missing_ok=True)
+        ass.parent.mkdir(parents=True, exist_ok=True)
+        ass.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
     review = [c["text"] for c in cues if re.search(r"\d|(?<=\s)[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+", c["text"])]
-    print(f"{len(cues)} captions → {srt} · {len(blocks) - skipped} burned-in groups ({args.style}) → {ass}"
+    print(f"{len(cues)} captions → {srt} · {len(blocks) - skipped} burned-in groups ({args.style}, {args.engine}) → {ass}"
           + (f" · {skipped} left out (--off)" if skipped else ""))
     if clashes:
         print(f"WARNING: {clashes} group(s) couldn't avoid the face inside the safe zone (left low)")

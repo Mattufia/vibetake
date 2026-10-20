@@ -63,7 +63,7 @@ same words). The `.srt` keeps everything.
 
 The face, the graphics and the captions each keep their own band, all inside the
 safe zone (`safe-margins.md` for 9:16). `cues.json` → `face` says where the head
-is; captions sit low unless they had to move around the face (check `subs.ass`
+is; captions sit low unless they had to move around the face (check `captions.json` or `subs.ass`
 placement). In vertical talking heads the graphics band is usually chest height or
 the top third, whichever the face leaves free. **Check stills after the zooms**:
 the face moves with punch-ins and the impact zoom. A small brand mark in a safe
@@ -98,12 +98,33 @@ corner from the moment the brand is introduced is optional, per brand.
    phone screen) is a React component of its own in `02-work/remotion/src/custom/`,
    built on the kit's pieces and the design tokens — SVG is written inline exactly as
    in HTML, and its paths can be animated.
+   **Before writing a custom component, load the installed Remotion skill that covers
+   it** (if it's in the skill list; by hand otherwise), take its technique and keep
+   the kit's conventions (`src/custom/`, design tokens, one transparent layer):
+   - a map, a route, a city, a "we're here" pin, a flyover → `remotion-maps`
+     (real tiles and an animated camera; MapLibre needs no key, Mapbox only with the
+     user's key) — far better than a drawn map;
+   - 3D, light leaks, motion blur, text highlights, audio visualization, Lottie, GIFs,
+     transitions between scenes → `remotion-markup` (one file per topic: `3d.md`,
+     `light-leaks.md`, `motion-blur.md`, `text-highlights.md`, `lottie.md`…);
+   - an API detail none of them answers → `remotion-docs`; `remotion-best-practices`
+     routes the rest.
+   Captions come from `subtitles.py` (by default this layer draws them,
+   `src/kit/Captions.tsx` — not `remotion-captions`) and the layer renders with `graphics.py`; the other Remotion
+   skills (create, studio, saas, render) assume a standalone project — not this one.
 3. **Look before rendering it all**: `graphics.py init` once, then `graphics.py still
    <t> …` — the layer over the real frame, with warnings for the safe zone and the
    face. Fix and look again.
 4. `graphics.py render` → `02-work/graphics.mov` (ProRes 4444 with alpha);
    `render.py` lays it over b-roll and under subtitles. Re-run `graphics.py cues` and
-   the render whenever the edit changes.
+   the render whenever the edit changes (`subtitles.py`
+   first: `sync` refuses captions made for another cut).
+5. **Captions in the layer** (`subtitles.py`, default engine): drawn on top of every
+   element. The Graphics composition's `captionStyle` adjusts them without touching the
+   timing: `animation` (pop · karaoke · bounce · none), `yShift`, `scale`,
+   `highlightColor`, `textColor`, `box`, `upper`. In Studio (`npm run studio` in
+   `02-work/remotion`) they're in the props panel; saving writes them into `src/Root.tsx`,
+   which `graphics.py init` then leaves alone.
 
 **Without Node** (Remotion can't run): say so; graphics are then drawn as a canvas page
 with a deterministic `frame(t)` (`references/from-scratch.md`), with the same design.

@@ -97,7 +97,7 @@ def main() -> None:
         "kind": "video", "duration": 6, "display_width": 320, "display_height": 180, "fps": 25}]}))
     run(tmp, S("transcribe.py"), "--rebuild-md", "--lang", "es")
     run(tmp, S("cutlist.py"), "--format", "vertical", "--pace", "natural")
-    p = run(tmp, S("subtitles.py"))
+    p = run(tmp, S("subtitles.py"), "--engine", "ass")
     ass = (tmp / "02-work" / "subs.ass").read_text(encoding="utf-8") if p.returncode == 0 else ""
     checks["subtitles: the project's caption font and the design's accent"] = (
         "Style: Main,Bricolage Grotesque ExtraBold," in ass and "&H003DFFC6&" in ass)

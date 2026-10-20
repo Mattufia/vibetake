@@ -14,6 +14,7 @@ and subtitles --off.
 3. cues.json: every word's timeline time matches subtitles' mapping, cuts are listed.
 4. A graphics layer with alpha shows where it's opaque and leaves the rest untouched.
 5. subtitles --off drops burned-in captions in the range and keeps the .srt whole.
+6. subtitles (default engine remotion) writes the groups as captions.json (for the layer), no .ass.
 """
 from __future__ import annotations
 
@@ -145,7 +146,7 @@ def main() -> None:
 
     # 5. subtitles --off.
     a0, a1 = cues["lines"][0]["start"], cues["lines"][0]["end"]
-    run(tmp, str(SCRIPTS / "subtitles.py"), "--off", f"{a0}-{a1}", "--font", "Arial Black")
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--engine", "ass", "--off", f"{a0}-{a1}", "--font", "Arial Black")
     ass = (tmp / "02-work" / "subs.ass").read_text(encoding="utf-8")
 
     def secs(s: str) -> float:
@@ -156,6 +157,49 @@ def main() -> None:
     srt = next((tmp / "03-delivery").glob("*.srt")).read_text(encoding="utf-8")
     first = cues["lines"][0]["words"][0]["text"]
     checks["subs --off: the .srt keeps it"] = re.search(re.escape(first), srt) is not None
+
+    # 6. --engine remotion: the same groups as JSON for the layer, no .ass; back to ass removes it.
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--font", "Arial Black")   # remotion is the default
+    cj_path = tmp / "02-work" / "captions.json"
+    cj = json.loads(cj_path.read_text(encoding="utf-8")) if cj_path.exists() else {"groups": []}
+    g = cj["groups"]
+    checks[f"captions.json: {len(g)} groups for this cut, no subs.ass"] = (
+        g and cj["timeline"] == cues["timeline"] and not (tmp / "02-work" / "subs.ass").exists()
+        and all(a["end"] <= b["start"] + 1e-3 for a, b in zip(g, g[1:]))
+        and all(x["start"] <= x["words"][0]["t"] + 1e-3 and 0 < x["y"] < 1 and 0 < x["size"] < 0.2 for x in g))
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--engine", "ass", "--font", "Arial Black")
+    checks["--engine ass again: subs.ass back, captions.json gone"] = (
+        (tmp / "02-work" / "subs.ass").exists() and not cj_path.exists())
+
+    # 7. --engine auto: a long video with no graphics plan → ass; with a plan → the layer.
+    long = dict(edl, segments=edl["segments"] + [dict(edl["segments"][-1], out=edl["segments"][-1]["in"] + 200)])
+    (tmp / "02-work" / "edl_long.json").write_text(json.dumps(long), encoding="utf-8")
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--variant", "long", "--font", "Arial Black")
+    no_plan = (tmp / "02-work" / "subs_long.ass").exists() and not (tmp / "02-work" / "captions_long.json").exists()
+    (tmp / "02-work" / "graphics.json").write_text('{"elements": []}', encoding="utf-8")
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--variant", "long", "--font", "Arial Black")
+    checks["auto engine: long without graphics → ass; with a plan → the layer"] = (
+        no_plan and (tmp / "02-work" / "captions_long.json").exists()
+        and not (tmp / "02-work" / "subs_long.ass").exists())
+    (tmp / "02-work" / "graphics.json").unlink()
+
+    # 8. graphics.py init: Root.tsx edited in Studio is kept; untouched, it follows the kit.
+    proj = tmp / "02-work" / "remotion"
+    kit_root = (SCRIPTS.parent / "kit" / "remotion" / "src" / "Root.tsx").read_text(encoding="utf-8")
+    (proj / "node_modules").mkdir(parents=True, exist_ok=True)     # skip npm: the stamp says it's installed
+    (proj / "node_modules" / ".vibetake-package.json").write_text(
+        (SCRIPTS.parent / "kit" / "remotion" / "package.json").read_text(encoding="utf-8"), encoding="utf-8")
+    run(tmp, str(SCRIPTS / "graphics.py"), "init")
+    root = proj / "src" / "Root.tsx"
+    fresh = root.read_text(encoding="utf-8") == kit_root
+    root.write_text(kit_root.replace("yShift: 0", "yShift: 0.1"), encoding="utf-8")       # a Studio edit
+    run(tmp, str(SCRIPTS / "graphics.py"), "init")
+    kept = "yShift: 0.1" in root.read_text(encoding="utf-8")
+    for p in (root, proj / ".vibetake-root.tsx"):                                          # an older kit, untouched
+        p.write_text("// old kit, captionStyle\n", encoding="utf-8")
+    run(tmp, str(SCRIPTS / "graphics.py"), "init")
+    checks["init: Studio edits to Root.tsx kept, an untouched one updated"] = (
+        fresh and kept and root.read_text(encoding="utf-8") == kit_root)
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")

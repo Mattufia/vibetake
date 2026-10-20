@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -92,6 +93,20 @@ def main() -> None:
     checks["subtitle rules broken → WARN"] = (status(out, "subtitles: line length") == "WARN"
                                               and status(out, "subtitles: cue duration") == "WARN"
                                               and status(out, "subtitles: inside the video") == "FAIL")
+
+    # Captions drawn by the graphics layer: checked too, with Studio's yShift/scale applied.
+    (tmp / "02-work" / "remotion" / "src").mkdir(parents=True)
+    (tmp / "02-work" / "captions.json").write_text(json.dumps({"x": 0.46, "width": 0.7, "join": " ", "groups": [
+        {"start": 0.5, "end": 2, "y": 0.68, "size": 0.045, "words": [
+            {"text": "Una", "t": 0.5, "end": 0.8}, {"text": "línea", "t": 0.8, "end": 1.2}]}]}), encoding="utf-8")
+    _, out = qa(tmp, "good.mp4")
+    ok_in = status(out, "subtitles: drawn in the layer") == "PASS"
+    (tmp / "02-work" / "remotion" / "src" / "Root.tsx").write_text(
+        'defaultProps={{ captionStyle: { animation: "pop", yShift: 0.2, scale: 1.4 } }}', encoding="utf-8")
+    _, out = qa(tmp, "good.mp4")
+    checks["layer captions: inside → PASS; moved down in Studio → WARN"] = (
+        ok_in and status(out, "subtitles: drawn in the layer") == "WARN")
+    shutil.rmtree(tmp / "02-work")
 
     # Too long for Shorts.
     ff(tmp, "-f", "lavfi", "-i", "color=gray:s=108x192:r=30:d=200", "-f", "lavfi", "-i", AUDIO.format(d=200),

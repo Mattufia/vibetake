@@ -222,6 +222,44 @@ def main() -> None:
                                                              and subtitles.writing("es")["line"] == 42)
     subtitles.WR.update(subtitles.writing("es"))
 
+    # 5. A short opening word followed by a pause ("Si … necesitás plata") isn't dropped at tight pace.
+    sp = tmp / "short"
+    (sp / "01-ingest").mkdir(parents=True)
+    ff(sp, "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*220*t)*(between(t,0.76,0.83)+between(t,1.16,1.8))':s=48000:d=2.5",
+       "si.wav")
+    ws = [{"start": 0.76, "end": 0.83, "word": " Si"}, {"start": 1.16, "end": 1.56, "word": " necesitás"},
+          {"start": 1.56, "end": 1.8, "word": " plata."}]
+    (sp / "01-ingest" / "transcript.json").write_text(json.dumps({"order": ["si.wav"], "files": {"si.wav": {
+        "track": 0, "duration": 2.5, "segments": [{"start": 0.76, "end": 1.8, "text": "Si necesitás plata.",
+                                                    "words": ws}]}}, "sentences": [
+        {"file": "si.wav", "start": 0.76, "end": 1.8, "fillers": [], "line": 1}]}), encoding="utf-8")
+    (sp / "01-ingest" / "material.json").write_text(json.dumps({"files": [
+        {"name": "si.wav", "file": str(sp / "si.wav"), "kind": "audio"}]}))
+    script(sp, "cutlist.py", "--keep", "L1", "--pace", "tight")
+    segs = json.loads((sp / "02-work" / "edl.json").read_text(encoding="utf-8"))["segments"]
+    checks["a short word before a pause is kept at tight pace"] = segs and segs[0]["text"].startswith("Si")
+
+    # 5b. After a long pause ("Sí." … 3 s thinking … the answer) it's kept on its own: no dead air.
+    lp = tmp / "short-long"
+    (lp / "01-ingest").mkdir(parents=True)
+    ff(lp, "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*220*t)*(between(t,0.76,0.83)+between(t,3.9,4.6))':s=48000:d=5",
+       "si.wav")
+    ws = [{"start": 0.76, "end": 0.83, "word": " Sí."}, {"start": 3.9, "end": 4.3, "word": " Claro"},
+          {"start": 4.3, "end": 4.6, "word": " que sí."}]
+    (lp / "01-ingest" / "transcript.json").write_text(json.dumps({"order": ["si.wav"], "files": {"si.wav": {
+        "track": 0, "duration": 5, "segments": [{"start": 0.76, "end": 4.6, "text": "Sí. Claro que sí.",
+                                                  "words": ws}]}}, "sentences": [
+        {"file": "si.wav", "start": 0.76, "end": 0.83, "fillers": [], "line": 1},
+        {"file": "si.wav", "start": 3.9, "end": 4.6, "fillers": [], "line": 2}]}), encoding="utf-8")
+    (lp / "01-ingest" / "material.json").write_text(json.dumps({"files": [
+        {"name": "si.wav", "file": str(lp / "si.wav"), "kind": "audio"}]}))
+    script(lp, "cutlist.py", "--keep", "L1-L2", "--pace", "tight")
+    segs = json.loads((lp / "02-work" / "edl.json").read_text(encoding="utf-8"))["segments"]
+    total = sum(s["out"] - s["in"] for s in segs)
+    checks[f"short word after a long pause: kept alone, no dead air ({total:.2f}s total)"] = (
+        len(segs) == 2 and segs[0]["text"].startswith("Sí") and segs[0]["out"] - segs[0]["in"] >= 0.249
+        and total < 2.0)
+
     checks = {k: bool(v) for k, v in checks.items()}
     for name, ok in checks.items():
         print(("PASS " if ok else "FAIL ") + name)

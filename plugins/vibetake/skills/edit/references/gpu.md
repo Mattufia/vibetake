@@ -17,6 +17,9 @@ once.
 settings and why in `platforms.md` (Export settings). Say in the delivery what the
 master was encoded with.
 
+**Decoding**: ingest and render read the clips with `-hwaccel auto` (the GPU's
+decoder, CPU if there's none); same frames, and 4K HEVC no longer holds the render back.
+
 ## CUDA libraries for transcription (NVIDIA)
 
 faster-whisper needs cuBLAS and cuDNN, which come as pip wheels (`nvidia-cublas-cu12`,

@@ -393,6 +393,30 @@ def main() -> None:
                 out += 1
         r.ok(not out, "subtitles: burned-in inside the safe zone",
              f"{len(events)} caption events, {out} outside (height or width)", "WARN")
+    cj = paths["captions"]
+    if cj.exists() and H > W:
+        # Drawn by the graphics layer: same check, with what Studio may have changed
+        # (captionStyle's yShift and scale, saved into Root.tsx) applied.
+        cap = json.loads(cj.read_text(encoding="utf-8"))
+        root = Path("02-work/remotion/src/Root.tsx")
+        rt = root.read_text(encoding="utf-8") if root.exists() else ""
+        num = lambda k, d: float(m.group(1)) if (m := re.search(rf'["\']?{k}["\']?\s*:\s*(-?[\d.]+)', rt)) else d
+        shift, scale = num("yShift", 0.0), num("scale", 1.0)
+        x, width = cap.get("x", 0.5), cap.get("width", 0.84)
+        out = 0
+        for g in cap["groups"]:
+            fs = g["size"] * H * scale
+            text = (cap.get("join") or "").join(w["text"] for w in g["words"])
+            text_w = len(text) * WRT["glyph"] * fs / W
+            lines = max(1, -(-text_w // width))                       # it wraps inside its box
+            half_h = lines * 1.2 * fs / 2 / H
+            y = g["y"] + shift
+            half_w = min(text_w, width) / 2
+            if not (SAFE_V[1] <= y - half_h and y + half_h <= SAFE_V[3]
+                    and x - half_w >= SAFE_V[0] - 0.01 and x + half_w <= SAFE_V[2] + 0.01):
+                out += 1
+        r.ok(not out, "subtitles: drawn in the layer, inside the safe zone",
+             f"{len(cap['groups'])} groups, {out} outside (yShift {shift:+.2f}, scale {scale:g})", "WARN")
 
     # Platforms
     size_mb = video.stat().st_size / 1e6

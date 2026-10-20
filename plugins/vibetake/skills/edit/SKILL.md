@@ -340,10 +340,17 @@ chosen viewing with clean audio → `.srt` only. The type profile can override.
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--off hook]
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --engine ass  # burned by render.py, no graphics layer
 ```
 
-- After the edit and the framing are final (it reads both); `render.py` burns
-  `02-work/subs.ass` on top of everything.
+- **Engine** (`auto` by default): `remotion` writes `02-work/captions.json` (same groups, timing, face and safe-zone
+  placement) and the graphics layer draws them: animated (`pop`, `karaoke`,
+  `bounce`, `none`), and position, size, colors, box and case editable in Remotion
+  Studio (Graphics → `captionStyle`); then `graphics.py init|render` after it, even
+  with no graphics plan (references/graphics.md). `ass` writes `02-work/subs.ass`, burned by
+  `render.py` on top of everything: fast, no Node. `auto` picks `ass` only for a video over
+  3 min with no graphics plan (or without Node), `remotion` otherwise.
+- After the edit and the framing are final (it reads both).
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
   characters per second, 1–7 s (Latin; Chinese, Japanese, Korean, Thai and right-to-left
   scripts use their own limits, from the language) — platforms use it even when burned in.
@@ -391,6 +398,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word vent
   on the same word; face, graphics and captions keep their own bands. Remotion renders
   only the graphics layer (alpha); `still` checks frames over the real image first.
   Scene plan, idea → graphic, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
+  A map, 3D or another effect a Remotion skill covers: load that skill first (`remotion-maps`,
+  `remotion-markup`), as `graphics.md` says.
 
 ## 8. Generating video from scratch (no filmed material)
 

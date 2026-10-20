@@ -116,6 +116,20 @@ def cmd_init(args) -> None:
         own = rel.parts[:2] in (("src", "custom"), ("src", "data"), ("src", "covers"))
         if own and (dst.exists() or any((PROJ / rel.parts[0] / rel.parts[1]).glob("*"))):
             continue
+        # Studio saves the caption props into Root.tsx: kept only when it was edited there
+        # (it differs from the kit copy it was installed from); untouched, it follows the kit.
+        if rel.as_posix() == "src/Root.tsx" and dst.exists():
+            mine, kit = dst.read_text(encoding="utf-8"), f.read_text(encoding="utf-8")
+            base = PROJ / ".vibetake-root.tsx"
+            edited = mine != base.read_text(encoding="utf-8") if base.exists() else (
+                mine != kit and "captionStyle" in mine)
+            if edited:
+                if not base.exists() or base.read_text(encoding="utf-8") != kit:
+                    print("note: src/Root.tsx was edited in Studio and kept; the kit's Root.tsx changed "
+                          "since — merge it by hand if a new feature needs it")
+                continue
+        if rel.as_posix() == "src/Root.tsx":
+            (PROJ / ".vibetake-root.tsx").write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
     stamp = PROJ / "node_modules" / ".vibetake-package.json"
@@ -163,14 +177,26 @@ def cmd_sync(args) -> None:
     plan = paths["plan"] if paths["plan"].exists() else work / "graphics.json"   # a variant may reuse the plan
     sources = {"cues.json": Path(getattr(args, "out", None) or paths["cues"]), "design.json": work / "design.json",
                "graphics.json": plan}
+    cap = paths["captions"]
     for name, src in sources.items():
         if getattr(args, "covers_only", False) and not src.exists() and (data / name).exists():
+            continue
+        if name == "graphics.json" and not src.exists() and cap.exists():
+            (data / name).write_text('{"elements": []}', encoding="utf-8")   # captions only, no graphics
             continue
         if not src.exists():
             die(f"02-work/{name} is missing" + (" (graphics.py cues)" if name == "cues.json" else
                 " — write this video's design first (references/design.md)" if name == "design.json" else
                 " — write the scene plan (references/graphics.md)"))
         shutil.copy2(src, data / name)
+    # Captions drawn by the layer (subtitles.py --engine remotion), for this same cut.
+    if cap.exists():
+        cj, cu = json.loads(cap.read_text(encoding="utf-8")), json.loads((data / "cues.json").read_text(encoding="utf-8"))
+        if cj.get("timeline") != cu.get("timeline"):
+            die(f"{cap} was made for another cut: run subtitles.py --engine remotion again")
+        shutil.copy2(cap, data / "captions.json")
+    else:
+        (data / "captions.json").write_text('{"groups": []}', encoding="utf-8")
     # Fonts: every project font, loaded by family and weight.
     pub = PROJ / "public" / "fonts"
     pub.mkdir(parents=True, exist_ok=True)

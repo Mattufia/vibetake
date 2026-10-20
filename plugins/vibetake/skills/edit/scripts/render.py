@@ -58,6 +58,8 @@ PREVIEW = [
     ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-q:v", "45"]),
     ("libx264", ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]),
 ]
+HWDEC = ["-hwaccel", "auto"]   # decode on the GPU when there is one; falls back to the CPU
+HWDEC_MAX = 16   # ponytail: each 4K HEVC decoder holds ~165 MB of VRAM; past this, a chunk decodes on the CPU
 INTERMEDIATE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "8", "-pix_fmt", "yuv420p"]
 TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
 
@@ -177,7 +179,7 @@ def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade
     inputs, graphs, cur = [], [], base
     for j, b in enumerate(items):
         k = first_input + j
-        inputs += ["-ss", f"{b['in']:.4f}", "-t", f"{b['dur'] + 0.3:.4f}", "-i", b["source"]]
+        inputs += [*HWDEC, "-ss", f"{b['in']:.4f}", "-t", f"{b['dur'] + 0.3:.4f}", "-i", b["source"]]
         g = grade.get(b["clip"]) or {}
         chain = [x for x in (pre_filter(MATERIAL.get(b["clip"]), g),
                              f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
@@ -237,7 +239,7 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
             if s.get("_up"):
                 inputs += ["-t", f"{dur + 0.25:.4f}", "-i", s["_up"]]          # upscale.py's picture
             else:
-                inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
+                inputs += [*(HWDEC if k < HWDEC_MAX else []), "-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
             vid, idx = idx, idx + 1
             c = clean.get(s.get("name", Path(s["source"]).name))
             has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
@@ -388,7 +390,8 @@ def main() -> None:
     if not args.raw_audio and Path(args.clean).exists():
         clean = json.loads(Path(args.clean).read_text(encoding="utf-8"))
     subs = None if args.no_subs else Path(args.subs)
-    if args.variant and subs and not subs.exists():
+    in_layer = not args.no_subs and paths["captions"].exists()     # subtitles.py --engine remotion
+    if args.variant and subs and not subs.exists() and not in_layer:
         log(f"WARNING: this variant has no captions of its own: subtitles.py --variant {args.variant}")
     if not args.fontsdir and Path("02-work/fonts").is_dir():
         args.fontsdir = "02-work/fonts"
@@ -401,6 +404,8 @@ def main() -> None:
     sfx, sfx_warn = ([], []) if args.no_sfx else resolve_sfx(segs, out["fps"], edl.get("sfx", []))
     for w in sfx_warn:
         log(f"WARNING: {w}")
+    if in_layer and not graphics:
+        log("WARNING: the captions are drawn by the graphics layer and there is none: graphics.py render")
     fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
            "graphics": graphics, "sfx": sfx}
@@ -430,7 +435,7 @@ def main() -> None:
         die("not rendering the master with layers from another cut (fix the above, or --allow-stale)")
     log(f"audio: {'cleaned' if clean else 'original'} · music: {len(fin['music'])} · sfx: {len(sfx)} · "
         f"graphics: {graphics.name if graphics else 'none'} · "
-        f"subtitles: {'burned-in' if fin['subs'] else 'none'} · loudness: {args.loudness}")
+        f"subtitles: {'burned-in' if fin['subs'] else 'in the graphics layer' if in_layer and graphics else 'none'} · loudness: {args.loudness}")
 
     pre = dst.with_name(dst.stem + ".premaster" + dst.suffix)
     cpu_name, cpu = (PREVIEW if args.preview else MASTER)[-1]
