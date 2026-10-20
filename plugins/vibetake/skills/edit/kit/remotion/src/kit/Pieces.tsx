@@ -20,8 +20,9 @@ export const Icon: React.FC<{ name: string; sizePx: number; startFrame: number; 
   if (anim === "draw") {
     const d = interpolate(frame - startFrame, [0, Math.round(0.6 * fps)], [1, 0],
       { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
-    svg = svg.replace(/<(path|line|polyline|circle|rect)\b/g, '<$1 pathLength="1"');
-    svg = svg.replace(/<svg\b[^>]*>/, (t) => `${t}<style>path,line,polyline,circle,rect{stroke-dasharray:1;stroke-dashoffset:${d}}</style>`);
+    // Inline per shape: a <style> tag here would be global and reset every other drawing icon.
+    svg = svg.replace(/<(path|line|polyline|circle|rect)\b/g,
+      `<$1 pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:${d}"`);
     style = {};
   }
   return <div style={{ width: sizePx, height: sizePx, color: colorToken ? color(colorToken) : undefined, ...style }}
