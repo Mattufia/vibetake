@@ -15,7 +15,7 @@ the main video of the same version (an alternative hook, a 4:5 cut…).
 Per segment: seek into the original, color (HDR pre-filter + the file's LUT from
 02-work/color/grade.json), frame to the output size, constant frame rate, and a
 12 ms audio fade at each edge so cuts never click. Segments are joined in one pass
-(in chunks for long edits). Every segment is cut to a whole number of frames for
+(over 2 min, in chunks of about a minute). Every segment is cut to a whole number of frames for
 both picture and sound, so sync never drifts.
 
 Master: hardware encoder at constant quality with its best preset when it works,
@@ -44,7 +44,25 @@ from audio import BUS, TARGETS, master, music_graph  # noqa: E402
 from sfx import resolve as resolve_sfx, sfx_graph  # noqa: E402
 
 FADE_S = 0.012
-CHUNK = 40
+CHUNK = 40          # most segments in one pass (one decoder each)
+CHUNK_S = 60.0      # most seconds of edit in one pass: long takes split too, not only many cuts
+ONE_PASS_S = 120.0  # an edit up to this long (and ≤ CHUNK segments) renders in a single pass
+
+
+def chunks(segs: list[dict]) -> list[list[dict]]:
+    """Consecutive segments in groups of ≤ CHUNK segments and ≤ CHUNK_S seconds (a single
+    segment longer than that is a group of its own)."""
+    if len(segs) <= CHUNK and sum(s["out"] - s["in"] for s in segs) <= ONE_PASS_S:
+        return [segs]
+    groups, cur, length = [], [], 0.0
+    for s in segs:
+        d = s["out"] - s["in"]
+        if cur and (len(cur) >= CHUNK or length + d > CHUNK_S):
+            groups.append(cur)
+            cur, length = [], 0.0
+        cur.append(s)
+        length += d
+    return groups + [cur]
 MASTER = [
     ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", "18", "-b:v", "0",
                     "-profile:v", "high"]),
@@ -447,7 +465,8 @@ def main() -> None:
         log(f"WARNING: {enc_name} failed mid-render ({str(e).splitlines()[0][:120]}) — finishing with {cpu_name}")
         return cpu
     used_encoder = [enc_name]
-    if len(segs) <= CHUNK:
+    groups = chunks(segs)
+    if len(groups) == 1:
         try:
             total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
         except RuntimeError as e:
@@ -459,11 +478,10 @@ def main() -> None:
         work = Path("02-work") / "render"
         work.mkdir(parents=True, exist_ok=True)
         parts, total = [], 0.0
-        n = math.ceil(len(segs) / CHUNK)
-        for i in range(n):
+        n = len(groups)
+        for i, g in enumerate(groups):
             part = work / f"part_{i:03d}.mkv"
-            total += render_chunk(segs[i * CHUNK:(i + 1) * CHUNK], out, grade, INTERMEDIATE, part, log,
-                                  args.preview, f"chunk {i + 1}/{n}", clean)
+            total += render_chunk(g, out, grade, INTERMEDIATE, part, log, args.preview, f"chunk {i + 1}/{n}", clean)
             parts.append(part)
         lst = work / "parts.txt"
         lst.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")

@@ -82,6 +82,36 @@ def main() -> None:
     checks["duration: picture = sound = sum of frame-rounded segments"] = (
         abs(vd - expected) < 1.5 / FPS and abs(ad - expected) < 0.03)
 
+    # 1b. A long edit of few long takes renders in chunks of about a minute: same sync and length.
+    ff(tmp, "-f", "lavfi", "-i", f"color=black:s=320x180:r={FPS}:d=150,"
+       "drawbox=c=white:t=fill:enable='lt(mod(t-0.5+10,1),0.066)'",
+       "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*1000*t)*lt(mod(t-0.5+10,1),0.066)':s=48000:d=150",
+       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "long.mp4")
+    cuts = [(0.3, 70.8), (71.2, 140.7)]
+    write_edl(tmp / "02-work" / "edl.json", tmp / "long.mp4", cuts)
+    rlog = script(tmp, "render.py", "--out", "long_out.mp4", "--no-grade")
+    logL = ff(tmp, "-i", "long_out.mp4", "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-f", "null", "-")
+    ysL = [float(v) for v in __import__("re").findall(r"YAVG=([\d.]+)", logL)]
+    flashesL = [i / FPS for i in range(len(ysL)) if ysL[i] > 100 and (i == 0 or ysL[i - 1] <= 100)]
+    xL = pcm(tmp / "long_out.mp4")
+    envL = np.abs(xL[:len(xL) // 48 * 48]).reshape(-1, 48).mean(1)
+    beepsL = [i / 1000 for i in range(1, len(envL)) if envL[i] > 0.03 and envL[i - 1] <= 0.03]
+    pairsL = [min(abs(f - b) for b in beepsL) for f in flashesL] if beepsL else [9]
+    want = sum(sum(1 for k in range(151) if a <= k + 0.5 < b) for a, b in cuts)
+    d = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json",
+                                   str(tmp / "long_out.mp4")], capture_output=True, text=True, check=True).stdout)["streams"]
+    vdL, adL = (float(s["duration"]) for s in d)
+    expectedL = sum(round((b - a) * FPS) / FPS for a, b in cuts)
+    checks[f"2 long takes (2:20): in chunks, {len(flashesL)}/{want} flashes in sync, length right"] = (
+        "chunk 2/" in rlog and len(flashesL) == want and max(pairsL) < 1 / FPS
+        and abs(vdL - expectedL) < 1.5 / FPS and abs(adL - expectedL) < 0.03)
+    sys.path.insert(0, str(SCRIPTS))
+    import render
+    seg = lambda d: {"in": 0, "out": d}
+    checks["chunks: short edit in one pass; long takes and many cuts split"] = (
+        len(render.chunks([seg(30)] * 3)) == 1 and len(render.chunks([seg(70), seg(70)])) == 2
+        and len(render.chunks([seg(1)] * 50)) == 2 and all(len(g) <= 40 for g in render.chunks([seg(1)] * 50)))
+
     # 2. Continuous tone cut at arbitrary phases.
     ff(tmp, "-f", "lavfi", "-i", "color=gray:s=320x180:r=30:d=8", "-f", "lavfi", "-i",
        "sine=f=440:r=48000:d=8,volume=0.5", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
