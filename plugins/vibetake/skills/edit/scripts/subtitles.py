@@ -13,7 +13,7 @@ there). Outputs:
     02-work/subs.ass        burned-in captions that render.py draws over everything:
                             groups of 2–3 words with the word being said highlighted
                             (--style sentence: whole phrases, no highlight)
-    02-work/captions.json   with --engine remotion, instead of subs.ass: the same groups,
+    02-work/captions.json   with --engine remotion (default), instead of subs.ass: the same groups,
                             timing and placement, drawn and animated by the graphics layer
                             (graphics.py render), editable in Remotion Studio
 Placement: inside the safe zone, never over the face. Where the face is in the final
@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -203,13 +204,16 @@ def main() -> None:
     ap.add_argument("--size", type=float, help="font size as a share of the frame height (default by format)")
     ap.add_argument("--srt", help="default: 03-delivery/<name>.srt (one per project, not versioned)")
     ap.add_argument("--ass")
-    ap.add_argument("--engine", choices=("ass", "remotion"), default="ass",
-                    help="ass: burned by render.py (fast); remotion: drawn in the graphics layer, animated")
+    ap.add_argument("--engine", choices=("ass", "remotion"), default="remotion",
+                    help="remotion: drawn in the graphics layer, animated, editable in Studio; ass: burned by render.py (fast, no Node)")
     ap.add_argument("--no-burn", action="store_true", help="only the .srt (removes the burned-in file)")
     ap.add_argument("--off", default="", help="no burned-in captions here: 'hook' and/or timeline ranges "
                                               "'12.5-15' (where a graphic already shows the words); "
                                               "the .srt keeps everything")
     args = ap.parse_args()
+    if args.engine == "remotion" and not shutil.which("node"):
+        print("no Node (Remotion can't run): captions burned with ASS instead", file=sys.stderr)
+        args.engine = "ass"
 
     paths = work_paths(args.variant)
     args.edl, args.ass = args.edl or str(paths["edl"]), args.ass or str(paths["subs"])

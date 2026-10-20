@@ -340,15 +340,15 @@ chosen viewing with clean audio → `.srt` only. The type profile can override.
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py [--style highlight|sentence] [--upper] [--off hook]
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
-uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --engine remotion   # drawn by the graphics layer
+uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --engine ass  # burned by render.py, no graphics layer
 ```
 
-- **Engine**: `ass` (default) is burned by `render.py`, fast, no Node. `remotion`
-  writes `02-work/captions.json` instead (same groups, timing, face and safe-zone
+- **Engine**: `remotion` (default) writes `02-work/captions.json` (same groups, timing, face and safe-zone
   placement) and the graphics layer draws them: animated (`pop`, `karaoke`,
   `bounce`, `none`), and position, size, colors, box and case editable in Remotion
-  Studio (Graphics → `captionStyle`). Prefer it for ads and feed videos with
-  graphics; then `graphics.py init|render` after it (references/graphics.md).
+  Studio (Graphics → `captionStyle`); then `graphics.py init|render` after it, even
+  with no graphics plan (references/graphics.md). `--engine ass` is burned by
+  `render.py`: fast, no Node — the fallback without Node, or a quick draft.
 
 - After the edit and the framing are final (it reads both); `render.py` burns
   `02-work/subs.ass` on top of everything.

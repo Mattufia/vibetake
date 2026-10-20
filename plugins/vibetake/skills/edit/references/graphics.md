@@ -109,7 +109,7 @@ corner from the moment the brand is introduced is optional, per brand.
      `light-leaks.md`, `motion-blur.md`, `text-highlights.md`, `lottie.md`…);
    - an API detail none of them answers → `remotion-docs`; `remotion-best-practices`
      routes the rest.
-   Captions come from `subtitles.py` (`--engine remotion` to have this layer draw them,
+   Captions come from `subtitles.py` (by default this layer draws them,
    `src/kit/Captions.tsx` — not `remotion-captions`) and the layer renders with `graphics.py`; the other Remotion
    skills (create, studio, saas, render) assume a standalone project — not this one.
 3. **Look before rendering it all**: `graphics.py init` once, then `graphics.py still
@@ -117,9 +117,9 @@ corner from the moment the brand is introduced is optional, per brand.
    face. Fix and look again.
 4. `graphics.py render` → `02-work/graphics.mov` (ProRes 4444 with alpha);
    `render.py` lays it over b-roll and under subtitles. Re-run `graphics.py cues` and
-   the render whenever the edit changes (with `--engine remotion` captions, `subtitles.py`
+   the render whenever the edit changes (`subtitles.py`
    first: `sync` refuses captions made for another cut).
-5. **Captions in the layer** (`subtitles.py --engine remotion`): drawn on top of every
+5. **Captions in the layer** (`subtitles.py`, default engine): drawn on top of every
    element. The Graphics composition's `captionStyle` adjusts them without touching the
    timing: `animation` (pop · karaoke · bounce · none), `yShift`, `scale`,
    `highlightColor`, `textColor`, `box`, `upper`. In Studio (`npm run studio` in
