@@ -314,7 +314,8 @@ def work_paths(variant: str | None = None) -> dict[str, Path]:
     v = f"_{variant}" if variant else ""
     w = Path("02-work")
     return {"edl": w / f"edl{v}.json", "subs": w / f"subs{v}.ass", "cues": w / f"cues{v}.json",
-            "plan": w / f"graphics{v}.json", "layer": w / f"graphics{v}.mov"}
+            "plan": w / f"graphics{v}.json", "layer": w / f"graphics{v}.mov",
+            "captions": w / f"captions{v}.json"}
 
 
 # ------------------------------------------------------ writing systems

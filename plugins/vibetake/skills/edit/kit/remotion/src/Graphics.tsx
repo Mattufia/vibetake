@@ -10,6 +10,7 @@ import { KineticText } from "./kit/KineticText";
 import { Surface } from "./kit/Surface";
 import { Counter, Icon, Wipe } from "./kit/Pieces";
 import { CUSTOM } from "./custom";
+import { Captions, CaptionStyle } from "./kit/Captions";
 
 type El = {
   type: "headline" | "label" | "counter" | "list" | "cta" | "icon" | "custom";
@@ -108,7 +109,7 @@ const Element: React.FC<{ el: El }> = ({ el }) => {
   return <Placed el={el} startFrame={start} endFrame={end}>{body}</Placed>;
 };
 
-export const Graphics: React.FC = () => {
+export const Graphics: React.FC<{ captionStyle: CaptionStyle }> = ({ captionStyle }) => {
   const { fps } = useVideoConfig();
   // Nothing is drawn (or measured) before the project's fonts are in: text fits by measuring them.
   const [ready, setReady] = useState(false);
@@ -129,6 +130,7 @@ export const Graphics: React.FC = () => {
           </Sequence>
         );
       })}
+      <Captions style={captionStyle} />
     </AbsoluteFill>
   );
 };

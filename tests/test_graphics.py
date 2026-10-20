@@ -14,6 +14,7 @@ and subtitles --off.
 3. cues.json: every word's timeline time matches subtitles' mapping, cuts are listed.
 4. A graphics layer with alpha shows where it's opaque and leaves the rest untouched.
 5. subtitles --off drops burned-in captions in the range and keeps the .srt whole.
+6. subtitles --engine remotion writes the groups as captions.json (for the layer), no .ass.
 """
 from __future__ import annotations
 
@@ -156,6 +157,19 @@ def main() -> None:
     srt = next((tmp / "03-delivery").glob("*.srt")).read_text(encoding="utf-8")
     first = cues["lines"][0]["words"][0]["text"]
     checks["subs --off: the .srt keeps it"] = re.search(re.escape(first), srt) is not None
+
+    # 6. --engine remotion: the same groups as JSON for the layer, no .ass; back to ass removes it.
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--engine", "remotion", "--font", "Arial Black")
+    cj_path = tmp / "02-work" / "captions.json"
+    cj = json.loads(cj_path.read_text(encoding="utf-8")) if cj_path.exists() else {"groups": []}
+    g = cj["groups"]
+    checks[f"captions.json: {len(g)} groups for this cut, no subs.ass"] = (
+        g and cj["timeline"] == cues["timeline"] and not (tmp / "02-work" / "subs.ass").exists()
+        and all(a["end"] <= b["start"] + 1e-3 for a, b in zip(g, g[1:]))
+        and all(x["start"] <= x["words"][0]["t"] + 1e-3 and 0 < x["y"] < 1 and 0 < x["size"] < 0.2 for x in g))
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--font", "Arial Black")
+    checks["--engine ass again: subs.ass back, captions.json gone"] = (
+        (tmp / "02-work" / "subs.ass").exists() and not cj_path.exists())
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")

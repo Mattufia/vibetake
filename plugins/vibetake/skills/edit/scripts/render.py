@@ -390,7 +390,8 @@ def main() -> None:
     if not args.raw_audio and Path(args.clean).exists():
         clean = json.loads(Path(args.clean).read_text(encoding="utf-8"))
     subs = None if args.no_subs else Path(args.subs)
-    if args.variant and subs and not subs.exists():
+    in_layer = not args.no_subs and paths["captions"].exists()     # subtitles.py --engine remotion
+    if args.variant and subs and not subs.exists() and not in_layer:
         log(f"WARNING: this variant has no captions of its own: subtitles.py --variant {args.variant}")
     if not args.fontsdir and Path("02-work/fonts").is_dir():
         args.fontsdir = "02-work/fonts"
@@ -403,6 +404,8 @@ def main() -> None:
     sfx, sfx_warn = ([], []) if args.no_sfx else resolve_sfx(segs, out["fps"], edl.get("sfx", []))
     for w in sfx_warn:
         log(f"WARNING: {w}")
+    if in_layer and not graphics:
+        log("WARNING: the captions are drawn by the graphics layer and there is none: graphics.py render")
     fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
            "graphics": graphics, "sfx": sfx}
@@ -432,7 +435,7 @@ def main() -> None:
         die("not rendering the master with layers from another cut (fix the above, or --allow-stale)")
     log(f"audio: {'cleaned' if clean else 'original'} · music: {len(fin['music'])} · sfx: {len(sfx)} · "
         f"graphics: {graphics.name if graphics else 'none'} · "
-        f"subtitles: {'burned-in' if fin['subs'] else 'none'} · loudness: {args.loudness}")
+        f"subtitles: {'burned-in' if fin['subs'] else 'in the graphics layer' if in_layer and graphics else 'none'} · loudness: {args.loudness}")
 
     pre = dst.with_name(dst.stem + ".premaster" + dst.suffix)
     cpu_name, cpu = (PREVIEW if args.preview else MASTER)[-1]
