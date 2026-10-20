@@ -35,13 +35,14 @@ up front, with a real transcription test on the GPU. The machine profile goes to
 ### 1. Put your files in a folder — as they are
 
 One folder per video, with everything loose inside: the clips, separate audio (a
-lavalier, a recorder), photos, and if you have them, the logo, fonts or a LUT. No
+lavalier, a recorder), references you like (covers, other videos, screenshots), and if you have them, the logo, fonts or a LUT. No
 need to sort anything: the first thing Vibetake does is tidy the folder itself.
 
 ```text
 my-video/                         my-video/
-  DJI_0001.MP4                      00-raw/     ← clips, audio, photos, card folders
+  DJI_0001.MP4                      00-raw/     ← clips, audio, card folders
   DJI_0002.MP4          →           brand/      ← logo, fonts, LUTs
+                                    references/ ← styles you like (never shown)
   mic.wav                           01-ingest/  02-work/  03-delivery/
   logo.png                          script.docx ← anything else stays where it was
   script.docx
@@ -51,7 +52,7 @@ It only moves files inside the same folder (instant, nothing is copied or
 re-encoded), never overwrites, and tells you what it moved. To put everything back
 as it was: ask "undo the organizing". Several clips are fine: they're ordered by
 recording time and treated as one sequence; separate audio is synced automatically.
-Add more files later and only the new ones are moved.
+Add more files later and only the new ones are moved. A photo it can't tell apart (a shot for the video, or a reference?) stays where it is, and it asks you.
 
 ### 2. Open Claude Code in that folder and ask
 

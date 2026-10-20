@@ -44,7 +44,8 @@ def main() -> None:
     checks = {}
     tmp = Path(tempfile.mkdtemp(prefix="vibetake-org-"))
     for n in ("DJI_0001.MP4", "DJI_0002.MP4", "mic.wav", "foto.jpg", "guion.docx", "Montserrat-Black.ttf",
-              "camara.cube", "musica-fondo.mp3", "referencia-portada.jpg"):
+              "camara.cube", "musica-fondo.mp3", "referencia-portada.jpg", "ref_reel competencia.mp4",
+              "Screenshot_20261020-101500.jpg", "preferido.mp4", "sistema.wav"):
         (tmp / n).write_bytes(b"x")
     png(tmp / "logo-acme.png", alpha=False)
     png(tmp / "sello.png", alpha=True)
@@ -58,11 +59,16 @@ def main() -> None:
     out = run(tmp, "--dry-run")
     checks["dry run moves nothing"] = tree(tmp) == before and "would move" in out
 
-    run(tmp)
+    first = run(tmp)
     after = tree(tmp)
     checks["video and audio → 00-raw/"] = {"00-raw/DJI_0001.MP4", "00-raw/DJI_0002.MP4", "00-raw/mic.wav"} <= after
+    checks["whole words only: 'preferido' isn't a ref, 'sistema' isn't music"] = {
+        "00-raw/preferido.mp4", "00-raw/sistema.wav"} <= after
     checks["a folder with footage moves whole"] = "00-raw/Camara B/C0001.MP4" in after
-    checks["photos → 00-raw/"] = {"00-raw/foto.jpg", "00-raw/captura.png"} <= after
+    checks["a reference video and screenshots → references/, never footage"] = {
+        "references/ref_reel competencia.mp4", "references/captura.png",
+        "references/Screenshot_20261020-101500.jpg"} <= after
+    checks["an unsure photo stays where it was, listed"] = "foto.jpg" in after and "? foto.jpg" in first
     checks["logo by name or transparency, fonts, LUTs → brand/"] = {
         "brand/logo-acme.png", "brand/sello.png", "brand/Montserrat-Black.ttf", "brand/camara.cube"} <= after
     checks["documents and other folders stay"] = {"guion.docx", "notas/ideas.txt"} <= after
@@ -76,7 +82,13 @@ def main() -> None:
     out = run(tmp)
     checks["new loose file moves, nothing overwritten"] = (tmp / "00-raw" / "DJI_0001 (2).MP4").read_bytes() == b"new" \
         and (tmp / "00-raw" / "DJI_0001.MP4").read_bytes() == b"x"
-    checks["already organized → nothing to do"] = "already organized" in run(tmp)
+    again = run(tmp)
+    checks["already organized → nothing to do, the unsure photo still asked"] = (
+        "already organized" in again and "? foto.jpg" in again)
+    out = run(tmp, "--move", "references", "foto.jpg")
+    checks["--move: where the user said, nothing left unsure"] = (
+        (tmp / "references" / "foto.jpg").exists() and "? " not in out)
+    checks["--move: an unknown folder is refused"] = "--move: the folder" in run(tmp, "--move", "fotos", "guion.docx")
 
     run(tmp, "--undo")
     restored = tree(tmp)

@@ -26,6 +26,10 @@ Applied:
 - **Material**: whether everything is in (`brand/`, `references/`, `music/`) — in
   the same moment, never as a separate stop. Nothing else to ask → don't stop for it:
   mention the folders in the delivery.
+- **Unsure files** (organize.py lists them: photos that could be footage or a
+  reference): in the same question, by name. The answer moves them
+  (`organize.py --move references|00-raw <files>`); until then they're used for
+  nothing — never guessed.
 
 Example (in the user's language):
 
@@ -37,6 +41,8 @@ skin leaning red · before/after: 02-work/color/basic/ and 02-work/color/full/
 → Have you added everything you'd like me to use? Brand assets in brand/, style
   references in references/, your own music in music/. Anything missing, I'll source
   myself — typefaces, music and icons; your logo only if you provide it.
+→ I left IMG_2045.jpg and IMG_2046.jpg where they were: are they for the video or
+  style references?
 ```
 
 - **Don't ask what the request already says.** Often there's no question at all.

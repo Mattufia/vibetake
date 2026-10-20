@@ -60,7 +60,12 @@ while the transcript finishes. After the answer, run both again: new files are p
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/organize.py      # loose files → 00-raw/, brand/, references/, music/
 uv run ${CLAUDE_SKILL_DIR}/scripts/ingest.py 00-raw --lang <code> --glossary "<names, brands, terms>" --out 01-ingest
+uv run ${CLAUDE_SKILL_DIR}/scripts/organize.py --move references <files>   # where the user said they go
 ```
+
+Only what's clear moves. Photos that could be material or a reference are left where
+they are, listed as **unsure**, and used for nothing: they go in the one question
+(section 2), and the answer moves them (`--move`). Never guess them into a folder.
 
 **Always pass the language explicitly.** Build the **glossary** from the request
 and what's known about the project (people, brands, products, jargon): it's what
@@ -143,7 +148,7 @@ Ask only what can't be deduced with confidence **and** is expensive to fix if wr
 usually the **destination** (unless the request says it) and the **color level**
 (section 4); the type only with low confidence; subtitles never. **One moment**, every
 open question together with **whether all the material is in** (`brand/`,
-`references/`, `music/`), in the user's language. Brand assets are never searched for
+`references/`, `music/`) and where the **unsure** files go, in the user's language. Brand assets are never searched for
 or recreated. Nothing to ask → don't stop; "your call" → the recommended options,
 flagged in the delivery. How, wording, example: **`${CLAUDE_SKILL_DIR}/references/questions.md`**.
 
@@ -384,6 +389,7 @@ system fonts): typefaces picked for it and downloaded, colors from the footage a
 the brand, real icons. One line on it in the delivery; changes come from there.
 
 ```
+uv run ${CLAUDE_SKILL_DIR}/scripts/refs.py                      # the user's references, to look at first
 uv run ${CLAUDE_SKILL_DIR}/scripts/design.py palette            # the footage's colors
 uv run ${CLAUDE_SKILL_DIR}/scripts/fonts.py get "<Family>" --weights 500,800   # checks the video's characters
 uv run ${CLAUDE_SKILL_DIR}/scripts/icons.py brand whatsapp      # or: icons.py ui check --set phosphor
@@ -393,7 +399,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word vent
 ```
 
 - **Design** (`02-work/design.json`, also used by subtitles and covers):
-  **`${CLAUDE_SKILL_DIR}/references/design.md`**.
+  **`${CLAUDE_SKILL_DIR}/references/design.md`**. The user's `references/` come first
+  (`refs.py`, then look at each): criteria for the whole video, never copied, never shown.
 - **Elements enter on the frame of the word that names them**, each with its sound
   on the same word; face, graphics and captions keep their own bands. Remotion renders
   only the graphics layer (alpha); `still` checks frames over the real image first.

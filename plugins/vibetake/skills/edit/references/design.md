@@ -15,8 +15,17 @@ the burned-in subtitles and the covers.
   it; one that ignores it looks pasted on. A neutral image (white walls, grey floor)
   takes an accent that cuts through it; a colorful one takes a quiet design that
   doesn't fight.
+- **The user's references** (`references/`: `refs.py`, then look at every photo and
+  sheet): someone else's covers, graphics, captions or edits they like. Take criteria,
+  never the thing: the palette's temperature and contrast, the type's weight and case,
+  how graphics enter and how much text is on screen, the caption style (box, case,
+  size, animation → `captionStyle`), and from a reference video its rhythm — shot
+  changes per minute and average shot length (`refs.py` measures them) set how tight
+  the cut and how frequent the punch-ins. Never their logos, their wording, their
+  layout copied whole, and a reference never appears in the video. In the delivery,
+  one line per reference: what was taken from it.
 - **The brand**, if there is one (logo, colors, typeface in the folder or the
-  request): it rules over everything above.
+  request): it rules over everything above, references included.
 - **The idea**: one line in `concept` that ties the look to the content ("a chat
   that never gets answered: dark bubbles, an acid-lime unread badge"). The best
   graphics borrow their language from what the video is about.

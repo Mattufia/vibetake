@@ -81,7 +81,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py preview               # at real size
   design is fine when it makes a better cover; say why in the delivery.
 - **Three ideas that really differ**: what's shown, how it's framed, what it says —
   not three colors of the same layout.
-- **References**: if `references/` has images (covers or styles the user likes), take
+- **References**: if `references/` has covers or styles the user likes (`refs.py`), take
   their criteria — composition, intensity, how much text — never copy them.
 - Brand assets only as provided (`brand/`); never searched for or recreated.
 
