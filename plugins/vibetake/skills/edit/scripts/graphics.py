@@ -116,10 +116,20 @@ def cmd_init(args) -> None:
         own = rel.parts[:2] in (("src", "custom"), ("src", "data"), ("src", "covers"))
         if own and (dst.exists() or any((PROJ / rel.parts[0] / rel.parts[1]).glob("*"))):
             continue
-        # Studio saves the caption props into Root.tsx: keep the user's edits.
-        # ponytail: a kit change to Root.tsx then won't reach this project; merge by hand if ever needed.
-        if rel.as_posix() == "src/Root.tsx" and dst.exists() and "captionStyle" in dst.read_text(encoding="utf-8"):
-            continue
+        # Studio saves the caption props into Root.tsx: kept only when it was edited there
+        # (it differs from the kit copy it was installed from); untouched, it follows the kit.
+        if rel.as_posix() == "src/Root.tsx" and dst.exists():
+            mine, kit = dst.read_text(encoding="utf-8"), f.read_text(encoding="utf-8")
+            base = PROJ / ".vibetake-root.tsx"
+            edited = mine != base.read_text(encoding="utf-8") if base.exists() else (
+                mine != kit and "captionStyle" in mine)
+            if edited:
+                if not base.exists() or base.read_text(encoding="utf-8") != kit:
+                    print("note: src/Root.tsx was edited in Studio and kept; the kit's Root.tsx changed "
+                          "since — merge it by hand if a new feature needs it")
+                continue
+        if rel.as_posix() == "src/Root.tsx":
+            (PROJ / ".vibetake-root.tsx").write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
     stamp = PROJ / "node_modules" / ".vibetake-package.json"

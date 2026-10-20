@@ -39,6 +39,7 @@ SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margin
 SAFE_H = (0.08, 0.92)
 SAFE_X_V = (0.06, 0.86)        # horizontal extent of the 9:16 safe zone
 CHAR_W = 0.68                  # average glyph width / font size for a heavy sans (Arial Black), with margin
+LONG_S = 180                   # --engine auto: longer than this with no graphics plan → ass
 WR = writing(None)             # this video's writing system (set from the transcript's language in main)
 WHITE, YELLOW, BLACK = "&H00FFFFFF", "&H0000FFFF", "&H00000000"
 OUTLINE = 0.09                 # outline / font size: reads on any image without looking like a sticker
@@ -204,20 +205,28 @@ def main() -> None:
     ap.add_argument("--size", type=float, help="font size as a share of the frame height (default by format)")
     ap.add_argument("--srt", help="default: 03-delivery/<name>.srt (one per project, not versioned)")
     ap.add_argument("--ass")
-    ap.add_argument("--engine", choices=("ass", "remotion"), default="remotion",
-                    help="remotion: drawn in the graphics layer, animated, editable in Studio; ass: burned by render.py (fast, no Node)")
+    ap.add_argument("--engine", choices=("auto", "ass", "remotion"), default="auto",
+                    help="remotion: drawn in the graphics layer, animated, editable in Studio; ass: burned by render.py "
+                         "(fast, no Node); auto (default): remotion, except a long video (> 3 min) with no "
+                         "graphics plan, where a full-length layer only for captions isn't worth its render")
     ap.add_argument("--no-burn", action="store_true", help="only the .srt (removes the burned-in file)")
     ap.add_argument("--off", default="", help="no burned-in captions here: 'hook' and/or timeline ranges "
                                               "'12.5-15' (where a graphic already shows the words); "
                                               "the .srt keeps everything")
     args = ap.parse_args()
-    if args.engine == "remotion" and not shutil.which("node"):
-        print("no Node (Remotion can't run): captions burned with ASS instead", file=sys.stderr)
-        args.engine = "ass"
 
     paths = work_paths(args.variant)
     args.edl, args.ass = args.edl or str(paths["edl"]), args.ass or str(paths["subs"])
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
+    if args.engine == "auto":
+        length = sum(s["out"] - s["in"] for s in edl["segments"])
+        plan = paths["plan"].exists() or Path("02-work/graphics.json").exists()
+        args.engine = "ass" if length > LONG_S and not plan else "remotion"
+        print(f"captions engine: {args.engine}"
+              + (f" ({length / 60:.0f} min, no graphics plan)" if args.engine == "ass" else ""))
+    if args.engine == "remotion" and not shutil.which("node"):
+        print("no Node (Remotion can't run): captions burned with ASS instead", file=sys.stderr)
+        args.engine = "ass"
     ing = Path(args.ingest)
     tr = json.loads((ing / "transcript.json").read_text(encoding="utf-8"))
     WR.update(writing(tr.get("lang")))

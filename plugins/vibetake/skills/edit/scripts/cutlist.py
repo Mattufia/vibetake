@@ -52,6 +52,7 @@ from _common import CLAUSE_END, SENTENCE_END, die, seconds, tc, tool, work_paths
 FORMATS = {"vertical": (1080, 1920), "horizontal": (1920, 1080), "square": (1080, 1080)}
 SNAP_S = 0.04
 MIN_SEGMENT_S = 0.25
+SHORT_JOIN_S = 0.6     # a short word joins its neighbor across a pause up to this long
 # Pause at a join, by what ends the phrase before it (seconds, at normal pace).
 GAPS = {"sentence": 0.40, "comma": 0.25, "word": 0.15}
 PACE = {"tight": (0.75, 0.30), "normal": (1.0, 0.45), "relaxed": (1.35, 0.80),   # (gap scale, max pause)
@@ -366,15 +367,16 @@ def main() -> None:
                 runs[-1].append(item)
                 continue
         runs.append([item])
-    # A word too short to stand as its own cut ("Si" … pause … "necesitás plata") would be
-    # dropped below MIN_SEGMENT_S: keep it with its neighbor in the same take, pause and all.
+    # A word too short to stand as its own cut ("Si" … pause … "necesitás plata") joins its
+    # neighbor in the same take when the pause between them is short; after a long pause it
+    # stays on its own (widened below), so the dead air isn't kept.
     def short(r):
         return r[-1][1]["end"] - r[0][1]["start"] < MIN_SEGMENT_S
     merged: list[list[tuple[int, dict]]] = []
     for r in runs:
         p = merged[-1] if merged else None
         if p and file_of[id(p[-1][1])] == file_of[id(r[0][1])] and r[0][1]["_i"] == p[-1][1]["_i"] + 1 \
-                and (short(p) or short(r)):
+                and r[0][1]["start"] - p[-1][1]["end"] <= SHORT_JOIN_S and (short(p) or short(r)):
             p += r
         else:
             merged.append(r)
@@ -436,9 +438,15 @@ def main() -> None:
         # On the source's frame grid, as render.py cuts: so subtitles, graphics, b-roll and
         # sound effects, which read these values, land on the same frames the render does.
         fr = (material.get(name) or {}).get("fps")
+        if t_out - t_in < MIN_SEGMENT_S:
+            # A short word on its own: widen it into the clean silence around it, after first.
+            need = MIN_SEGMENT_S + 0.01 - (t_out - t_in)
+            grow = min(need, max(e0 + i["tail_avail"] - t_out, 0.0))
+            t_out += grow
+            t_in -= min(need - grow, max(t_in - (s0 - i["lead_avail"]), 0.0))
         if fr:
             t_in, t_out = (round(round(t * fr) / fr, 4) for t in (t_in, t_out))
-        if t_out - t_in < MIN_SEGMENT_S:
+        if t_out - t_in < MIN_SEGMENT_S - 1e-3:
             print(f"  left out (too short to cut alone): «{''.join(w['word'] for _, w in run).strip()}» "
                   f"{name} {s0:.2f}s — keep it with a neighbor if it's content")
             continue

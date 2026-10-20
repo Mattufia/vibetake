@@ -63,7 +63,7 @@ same words). The `.srt` keeps everything.
 
 The face, the graphics and the captions each keep their own band, all inside the
 safe zone (`safe-margins.md` for 9:16). `cues.json` → `face` says where the head
-is; captions sit low unless they had to move around the face (check `subs.ass`
+is; captions sit low unless they had to move around the face (check `captions.json` or `subs.ass`
 placement). In vertical talking heads the graphics band is usually chest height or
 the top third, whichever the face leaves free. **Check stills after the zooms**:
 the face moves with punch-ins and the impact zoom. A small brand mark in a safe

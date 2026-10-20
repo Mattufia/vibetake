@@ -343,15 +343,14 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --engine ass  # burned by render.py, no graphics layer
 ```
 
-- **Engine**: `remotion` (default) writes `02-work/captions.json` (same groups, timing, face and safe-zone
+- **Engine** (`auto` by default): `remotion` writes `02-work/captions.json` (same groups, timing, face and safe-zone
   placement) and the graphics layer draws them: animated (`pop`, `karaoke`,
   `bounce`, `none`), and position, size, colors, box and case editable in Remotion
   Studio (Graphics → `captionStyle`); then `graphics.py init|render` after it, even
-  with no graphics plan (references/graphics.md). `--engine ass` is burned by
-  `render.py`: fast, no Node — the fallback without Node, or a quick draft.
-
-- After the edit and the framing are final (it reads both); `render.py` burns
-  `02-work/subs.ass` on top of everything.
+  with no graphics plan (references/graphics.md). `ass` writes `02-work/subs.ass`, burned by
+  `render.py` on top of everything: fast, no Node. `auto` picks `ass` only for a video over
+  3 min with no graphics plan (or without Node), `remotion` otherwise.
+- After the edit and the framing are final (it reads both).
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
   characters per second, 1–7 s (Latin; Chinese, Japanese, Korean, Thai and right-to-left
   scripts use their own limits, from the language) — platforms use it even when burned in.

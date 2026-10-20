@@ -171,6 +171,36 @@ def main() -> None:
     checks["--engine ass again: subs.ass back, captions.json gone"] = (
         (tmp / "02-work" / "subs.ass").exists() and not cj_path.exists())
 
+    # 7. --engine auto: a long video with no graphics plan → ass; with a plan → the layer.
+    long = dict(edl, segments=edl["segments"] + [dict(edl["segments"][-1], out=edl["segments"][-1]["in"] + 200)])
+    (tmp / "02-work" / "edl_long.json").write_text(json.dumps(long), encoding="utf-8")
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--variant", "long", "--font", "Arial Black")
+    no_plan = (tmp / "02-work" / "subs_long.ass").exists() and not (tmp / "02-work" / "captions_long.json").exists()
+    (tmp / "02-work" / "graphics.json").write_text('{"elements": []}', encoding="utf-8")
+    run(tmp, str(SCRIPTS / "subtitles.py"), "--variant", "long", "--font", "Arial Black")
+    checks["auto engine: long without graphics → ass; with a plan → the layer"] = (
+        no_plan and (tmp / "02-work" / "captions_long.json").exists()
+        and not (tmp / "02-work" / "subs_long.ass").exists())
+    (tmp / "02-work" / "graphics.json").unlink()
+
+    # 8. graphics.py init: Root.tsx edited in Studio is kept; untouched, it follows the kit.
+    proj = tmp / "02-work" / "remotion"
+    kit_root = (SCRIPTS.parent / "kit" / "remotion" / "src" / "Root.tsx").read_text(encoding="utf-8")
+    (proj / "node_modules").mkdir(parents=True, exist_ok=True)     # skip npm: the stamp says it's installed
+    (proj / "node_modules" / ".vibetake-package.json").write_text(
+        (SCRIPTS.parent / "kit" / "remotion" / "package.json").read_text(encoding="utf-8"), encoding="utf-8")
+    run(tmp, str(SCRIPTS / "graphics.py"), "init")
+    root = proj / "src" / "Root.tsx"
+    fresh = root.read_text(encoding="utf-8") == kit_root
+    root.write_text(kit_root.replace("yShift: 0", "yShift: 0.1"), encoding="utf-8")       # a Studio edit
+    run(tmp, str(SCRIPTS / "graphics.py"), "init")
+    kept = "yShift: 0.1" in root.read_text(encoding="utf-8")
+    for p in (root, proj / ".vibetake-root.tsx"):                                          # an older kit, untouched
+        p.write_text("// old kit, captionStyle\n", encoding="utf-8")
+    run(tmp, str(SCRIPTS / "graphics.py"), "init")
+    checks["init: Studio edits to Root.tsx kept, an untouched one updated"] = (
+        fresh and kept and root.read_text(encoding="utf-8") == kit_root)
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     shutil.rmtree(tmp, ignore_errors=True)
