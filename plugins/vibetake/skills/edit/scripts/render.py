@@ -58,6 +58,8 @@ PREVIEW = [
     ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-q:v", "45"]),
     ("libx264", ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28"]),
 ]
+HWDEC = ["-hwaccel", "auto"]   # decode on the GPU when there is one; falls back to the CPU
+HWDEC_MAX = 16   # ponytail: each 4K HEVC decoder holds ~165 MB of VRAM; past this, a chunk decodes on the CPU
 INTERMEDIATE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "8", "-pix_fmt", "yuv420p"]
 TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
 
@@ -177,7 +179,7 @@ def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade
     inputs, graphs, cur = [], [], base
     for j, b in enumerate(items):
         k = first_input + j
-        inputs += ["-ss", f"{b['in']:.4f}", "-t", f"{b['dur'] + 0.3:.4f}", "-i", b["source"]]
+        inputs += [*HWDEC, "-ss", f"{b['in']:.4f}", "-t", f"{b['dur'] + 0.3:.4f}", "-i", b["source"]]
         g = grade.get(b["clip"]) or {}
         chain = [x for x in (pre_filter(MATERIAL.get(b["clip"]), g),
                              f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
@@ -237,7 +239,7 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
             if s.get("_up"):
                 inputs += ["-t", f"{dur + 0.25:.4f}", "-i", s["_up"]]          # upscale.py's picture
             else:
-                inputs += ["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
+                inputs += [*(HWDEC if k < HWDEC_MAX else []), "-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"]]
             vid, idx = idx, idx + 1
             c = clean.get(s.get("name", Path(s["source"]).name))
             has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])

@@ -222,6 +222,23 @@ def main() -> None:
                                                              and subtitles.writing("es")["line"] == 42)
     subtitles.WR.update(subtitles.writing("es"))
 
+    # 5. A short opening word followed by a pause ("Si … necesitás plata") isn't dropped at tight pace.
+    sp = tmp / "short"
+    (sp / "01-ingest").mkdir(parents=True)
+    ff(sp, "-f", "lavfi", "-i", "aevalsrc='0.5*sin(2*PI*220*t)*(between(t,0.76,0.83)+between(t,1.16,1.8))':s=48000:d=2.5",
+       "si.wav")
+    ws = [{"start": 0.76, "end": 0.83, "word": " Si"}, {"start": 1.16, "end": 1.56, "word": " necesitás"},
+          {"start": 1.56, "end": 1.8, "word": " plata."}]
+    (sp / "01-ingest" / "transcript.json").write_text(json.dumps({"order": ["si.wav"], "files": {"si.wav": {
+        "track": 0, "duration": 2.5, "segments": [{"start": 0.76, "end": 1.8, "text": "Si necesitás plata.",
+                                                    "words": ws}]}}, "sentences": [
+        {"file": "si.wav", "start": 0.76, "end": 1.8, "fillers": [], "line": 1}]}), encoding="utf-8")
+    (sp / "01-ingest" / "material.json").write_text(json.dumps({"files": [
+        {"name": "si.wav", "file": str(sp / "si.wav"), "kind": "audio"}]}))
+    script(sp, "cutlist.py", "--keep", "L1", "--pace", "tight")
+    segs = json.loads((sp / "02-work" / "edl.json").read_text(encoding="utf-8"))["segments"]
+    checks["a short word before a pause is kept at tight pace"] = segs and segs[0]["text"].startswith("Si")
+
     checks = {k: bool(v) for k, v in checks.items()}
     for name, ok in checks.items():
         print(("PASS " if ok else "FAIL ") + name)

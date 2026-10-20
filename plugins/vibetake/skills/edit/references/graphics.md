@@ -98,6 +98,19 @@ corner from the moment the brand is introduced is optional, per brand.
    phone screen) is a React component of its own in `02-work/remotion/src/custom/`,
    built on the kit's pieces and the design tokens — SVG is written inline exactly as
    in HTML, and its paths can be animated.
+   **Before writing a custom component, load the installed Remotion skill that covers
+   it** (if it's in the skill list; by hand otherwise), take its technique and keep
+   the kit's conventions (`src/custom/`, design tokens, one transparent layer):
+   - a map, a route, a city, a "we're here" pin, a flyover → `remotion-maps`
+     (real tiles and an animated camera; MapLibre needs no key, Mapbox only with the
+     user's key) — far better than a drawn map;
+   - 3D, light leaks, motion blur, text highlights, audio visualization, Lottie, GIFs,
+     transitions between scenes → `remotion-markup` (one file per topic: `3d.md`,
+     `light-leaks.md`, `motion-blur.md`, `text-highlights.md`, `lottie.md`…);
+   - an API detail none of them answers → `remotion-docs`; `remotion-best-practices`
+     routes the rest.
+   Captions stay with `subtitles.py` and the layer renders with `graphics.py`; the other Remotion
+   skills (create, studio, saas, render) assume a standalone project — not this one.
 3. **Look before rendering it all**: `graphics.py init` once, then `graphics.py still
    <t> …` — the layer over the real frame, with warnings for the safe zone and the
    face. Fix and look again.

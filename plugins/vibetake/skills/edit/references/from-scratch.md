@@ -8,6 +8,8 @@ Pure motion graphics — an animated reel, a card, a visual explainer:
   2–3 temporal subsamples per frame for real motion blur. It's faster to render
   and simpler to reason about than the same thing in Remotion.
 - **Remotion from scratch only if** there's a series (the same mold with different
-  data) or the user will touch it in Studio.
+  data), the user will touch it in Studio, or a Remotion skill does the heavy part
+  (a map animation → `remotion-maps`, 3D → `remotion-markup`). Then load
+  `remotion-best-practices` and the skill it routes to.
 - Synthesized audio (hits, dings, backing music): float32 WAV at 48 kHz, mixed
   separately.

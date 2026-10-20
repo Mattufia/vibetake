@@ -366,6 +366,19 @@ def main() -> None:
                 runs[-1].append(item)
                 continue
         runs.append([item])
+    # A word too short to stand as its own cut ("Si" … pause … "necesitás plata") would be
+    # dropped below MIN_SEGMENT_S: keep it with its neighbor in the same take, pause and all.
+    def short(r):
+        return r[-1][1]["end"] - r[0][1]["start"] < MIN_SEGMENT_S
+    merged: list[list[tuple[int, dict]]] = []
+    for r in runs:
+        p = merged[-1] if merged else None
+        if p and file_of[id(p[-1][1])] == file_of[id(r[0][1])] and r[0][1]["_i"] == p[-1][1]["_i"] + 1 \
+                and (short(p) or short(r)):
+            p += r
+        else:
+            merged.append(r)
+    runs = merged
 
     dbs: dict[str, np.ndarray] = {}
     srcs: dict[str, str] = {}
@@ -426,6 +439,8 @@ def main() -> None:
         if fr:
             t_in, t_out = (round(round(t * fr) / fr, 4) for t in (t_in, t_out))
         if t_out - t_in < MIN_SEGMENT_S:
+            print(f"  left out (too short to cut alone): «{''.join(w['word'] for _, w in run).strip()}» "
+                  f"{name} {s0:.2f}s — keep it with a neighbor if it's content")
             continue
         segments.append({"source": src, "name": name, "in": t_in, "out": t_out,
                          "lines": sorted({n for n, _ in run}), "words": [run[0][1]["_i"], run[-1][1]["_i"]],

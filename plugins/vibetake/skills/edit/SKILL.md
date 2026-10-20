@@ -391,6 +391,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word vent
   on the same word; face, graphics and captions keep their own bands. Remotion renders
   only the graphics layer (alpha); `still` checks frames over the real image first.
   Scene plan, idea → graphic, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
+  A map, 3D or another effect a Remotion skill covers: load that skill first (`remotion-maps`,
+  `remotion-markup`), as `graphics.md` says.
 
 ## 8. Generating video from scratch (no filmed material)
 
