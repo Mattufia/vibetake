@@ -8,7 +8,7 @@
 
 Inputs are files or folders (default: 00-raw). Writes to --out:
     material.md / material.json   technical data, traps, classification signals, warnings
-    faces.json                    face boxes every 0.5 s (normalized 0-1)
+    faces.json                    face boxes + take signals every 0.5 s (normalized 0-1)
     transcript.json / .md         word-level / condensed transcript (from transcribe.py)
     contact/                      4x4 contact sheets with burned-in timecode
     normalized/                   CFR / SDR working copies, only when needed
@@ -244,15 +244,53 @@ def yunet(w: int, h: int):
     return cv2.FaceDetectorYN.create(str(path), "", (w, h), 0.7, 0.3, 5000)
 
 
+def take_signals(img: np.ndarray, faces: list, prev: np.ndarray | None) -> list:
+    """[face sharpness, frame sharpness, camera dx, camera dy, % blown, % crushed] for one sample.
+    Never judged on their own (a dark, soft or moving shot can be the intent): transcribe.py
+    only compares them between two takes of the same line, same setup."""
+    import cv2
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    H, W = gray.shape
+    lap = cv2.Laplacian(gray, cv2.CV_32F)
+    frame_sharp = float(lap[H // 4:3 * H // 4, W // 4:3 * W // 4].var())
+    face_sharp = None
+    boxes = [[f[0] * W, f[1] * H, f[2] * W, f[3] * H] for f in faces]
+    if boxes:
+        x, y, w, h = max(boxes, key=lambda b: b[3])
+        if h >= 40:  # inside the face only, away from the background around it
+            crop = lap[int(y + .2 * h):int(y + .8 * h), int(x + .2 * w):int(x + .8 * w)]
+            face_sharp = float(crop.var()) if crop.size else None
+    dx = dy = 0.0
+    if prev is not None:
+        # Camera motion: median optical flow outside the people (someone moving isn't the camera).
+        sw, sh = 160, max(2, int(round(160 * H / W)))
+        k = sw / W
+        a = cv2.resize(cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY), (sw, sh))
+        b = cv2.resize(gray, (sw, sh))
+        flow = cv2.calcOpticalFlowFarneback(a, b, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+        keep = np.ones((sh, sw), bool)
+        for x, y, w, h in boxes:  # the face, and the body below it
+            keep[max(0, int((y - .5 * h) * k)):int((y + 3 * h) * k),
+                 max(0, int((x - .7 * w) * k)):int((x + 1.7 * w) * k)] = False
+        # Only where there's texture: flat areas (a wall, the sky) report no motion either way.
+        grad = np.hypot(cv2.Sobel(b, cv2.CV_32F, 1, 0), cv2.Sobel(b, cv2.CV_32F, 0, 1))
+        keep &= grad > np.percentile(grad, 70)
+        if keep.sum() > 0.03 * keep.size:
+            dx, dy = (float(np.median(flow[..., c][keep])) / sw for c in (0, 1))
+    return [None if face_sharp is None else round(face_sharp, 1), round(frame_sharp, 1), round(dx, 4),
+            round(dy, 4), round(100 * float(np.mean(gray >= 250)), 2), round(100 * float(np.mean(gray <= 8)), 2)]
+
+
 def analyze_frames(meta: dict, src: Path, log: Log) -> tuple[dict, list]:
-    """Decodes 2 fps at 640 px: face boxes on every sample, luma/saturation signature every 2.5 s."""
+    """Decodes 2 fps at 640 px: face boxes and take signals on every sample, luma/saturation
+    signature every 2.5 s."""
     W = 640
     H = int(round(W * meta["display_height"] / meta["display_width"] / 2)) * 2
     det = yunet(W, H)
     proc = subprocess.Popen([tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-hwaccel", "auto",
                              "-i", str(src), "-vf", f"fps={FACE_FPS},scale={W}:{H}", "-f", "rawvideo",
                              "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE)
-    size, i, samples, sig = W * H * 3, 0, [], []
+    size, i, samples, sig, prev = W * H * 3, 0, [], [], None
     next_pct = 25
     while True:
         buf = proc.stdout.read(size)
@@ -263,7 +301,8 @@ def analyze_frames(meta: dict, src: Path, log: Log) -> tuple[dict, list]:
         faces = [] if found is None else [
             [round(float(f[0]) / W, 3), round(float(f[1]) / H, 3), round(float(f[2]) / W, 3),
              round(float(f[3]) / H, 3), round(float(f[14]), 2)] for f in found]
-        samples.append({"t": round(i / FACE_FPS, 2), "faces": faces})
+        samples.append({"t": round(i / FACE_FPS, 2), "faces": faces, "q": take_signals(img, faces, prev)})
+        prev = img
         if i % 5 == 0:
             rgb = img[..., ::-1].astype(np.float32) / 255
             luma = rgb @ np.array([0.2126, 0.7152, 0.0722], np.float32)
@@ -626,8 +665,9 @@ def main() -> None:
         m["analysis_source"] = str(src)
 
         cached = out / ".analysis" / f"{m['stem']}.json"
-        if cached.exists() and cache.fresh(f"analysis:{m['stem']}", src):
-            saved = json.loads(cached.read_text(encoding="utf-8"))
+        saved = json.loads(cached.read_text(encoding="utf-8")) if cached.exists() else None
+        # An analysis from before the take signals is redone once.
+        if saved and cache.fresh(f"analysis:{m['stem']}", src) and all("q" in x for x in saved["faces"][:1]):
             m.update(saved["meta"])
             faces_all[m["name"]] = saved["faces"]
             log(f"{m['name']}: analysis is up to date")
@@ -658,6 +698,8 @@ def main() -> None:
         log(f"{m['name']}: done")
 
     (out / "faces.json").write_text(json.dumps({"fps": FACE_FPS, "box": "x, y, w, h, score (0-1)",
+                                                "q": "face sharpness, frame sharpness, camera dx, dy (frame "
+                                                     "widths since the previous sample), % blown, % crushed",
                                                 "files": faces_all}), encoding="utf-8")
 
     ext_report = []
@@ -681,6 +723,10 @@ def main() -> None:
                     words = [w for s in t["segments"] for w in s.get("words", [])]
                     m["speech"] = speech_signals(words, m["duration"], first_db.get(m["name"]))
             note = "transcript.md (condensed) / transcript.json (word level)"
+            # faces.json may have come after the transcript: compare the retakes' picture now.
+            import transcribe
+            result = json.loads(tjson.read_text(encoding="utf-8"))
+            transcribe.write_outputs(out, result, transcribe.lang_data(result.get("lang") or args.lang))
         else:
             note = f"FAILED — see {out / 'transcribe.log'}"
             log(f"transcription failed, see {out / 'transcribe.log'}")

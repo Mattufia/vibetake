@@ -18,7 +18,8 @@ and transcript.md (read by the model):
     L4 [00:03.9–00:06.0] Hoy les voy a mostrar el error.
 
 ⟨…⟩ marks filler candidates and ↻ marks possible retakes; both are suggestions for
-the model to judge with context. ⚠ marks low-confidence text (check it by ear).
+the model to judge with context. With ingest's faces.json, a retake also says when one
+take's picture is clearly softer, shakier, more blown out or darker than the other's. ⚠ marks low-confidence text (check it by ear).
 GPU (CUDA float16) when available, otherwise the same model on CPU int8.
 """
 from __future__ import annotations
@@ -49,6 +50,13 @@ REACTION_PAUSE_S = 0.5  # a reaction word after this much silence, answering a q
 SILENT_ITEM_S = 1.5     # a stretch without speech this long becomes an item (S1, S2…) to keep or cut
 RETAKE_WINDOW_S = 20
 RETAKE_LOOKAHEAD = 4
+# Two takes of the same line, compared with each other only (never against a fixed bar:
+# a soft, dark or moving shot can be the intent, and then both takes share it).
+SOFTER_RATIO = 0.6      # sharpness below 60% of the other take's
+SHAKIER_RATIO = 2.0     # camera jitter at least twice the other take's…
+SHAKE_MIN = 0.01        # …and at least 1% of the frame width between samples
+BLOWN_PTS = 3.0         # percentage points more of blown-out picture
+CRUSHED_PTS = 10.0      # percentage points more of black picture
 
 
 # ------------------------------------------------------------- transcription
@@ -278,6 +286,49 @@ def analyze(order: list[str], files: dict, ld: dict) -> list[dict]:
     return sents
 
 
+def take_stats(samples: list, s: dict) -> dict | None:
+    from statistics import median
+    q = [x["q"] for x in samples if "q" in x and s["start"] <= x["t"] <= s["end"]]
+    if len(q) < 2:
+        return None
+    faces = [v[0] for v in q if v[0] is not None]
+    jitter = [((q[i][2] - q[i - 1][2]) ** 2 + (q[i][3] - q[i - 1][3]) ** 2) ** .5 for i in range(1, len(q))]
+    return {"face": median(faces) if len(faces) * 2 >= len(q) else None, "frame": median(v[1] for v in q),
+            "jitter": median(jitter), "blown": median(v[4] for v in q), "crushed": median(v[5] for v in q)}
+
+
+def worse(x: dict, y: dict) -> list[str]:
+    """What's clearly worse in take x than in take y of the same line."""
+    key = "face" if x["face"] and y["face"] else "frame"
+    out = []
+    if x["blown"] - y["blown"] >= BLOWN_PTS:
+        out.append("more blown out")
+    if x["crushed"] - y["crushed"] >= CRUSHED_PTS:
+        out.append("darker")
+    # Blown or black areas have no detail: that's the exposure, not the focus.
+    if not out and y[key] > 0 and x[key] < SOFTER_RATIO * y[key]:
+        out.append("softer")
+    if x["jitter"] >= max(SHAKIER_RATIO * y["jitter"], SHAKE_MIN):
+        out.append("shakier")
+    return out
+
+
+def compare_takes(out: Path, sents: list[dict]) -> None:
+    """Puts on each retake what's clearly worse in the picture of either take (faces.json)."""
+    try:
+        files = json.loads((out / "faces.json").read_text(encoding="utf-8"))["files"]
+    except (OSError, ValueError, KeyError):
+        return
+    by_line = {s["line"]: s for s in sents}
+    for a in sents:
+        b = by_line.get(a.get("retake_of"))
+        if not b or a["file"] not in files or b["file"] not in files:
+            continue
+        sa, sb = take_stats(files[a["file"]], a), take_stats(files[b["file"]], b)
+        if sa and sb:
+            a["take_picture"] = {"this": worse(sa, sb), "later": worse(sb, sa)}
+
+
 def render(s: dict) -> str:
     ws, spans = s["words"], s["_spans"]
     open_at = {a for a, _ in spans}
@@ -295,6 +346,14 @@ def render(s: dict) -> str:
     line = f"L{s['line']} [{tc(s['start'])}–{tc(s['end'])}] {''.join(out).strip()}"
     if s.get("retake_of"):
         line += f"   ↻ retake → L{s['retake_of']}"
+        pic = s.get("take_picture") or {}
+        notes = []
+        if pic.get("later"):
+            notes.append(f"L{s['retake_of']} {', '.join(pic['later'])}")
+        if pic.get("this"):
+            notes.append(f"this take {', '.join(pic['this'])}")
+        if notes:
+            line += f" ({'; '.join(notes)})"
     if s["low_confidence"]:
         line += "   ⚠ low confidence"
     return line
@@ -302,8 +361,10 @@ def render(s: dict) -> str:
 
 def write_outputs(out: Path, result: dict, ld: dict) -> None:
     sents = analyze(result["order"], result["files"], ld)
+    compare_takes(out, sents)
     md = ["# Transcript", "",
-          "⟨…⟩ filler candidate · ↻ possible retake (usually keep the later take) · ⚠ low confidence · "
+          "⟨…⟩ filler candidate · ↻ possible retake (usually keep the later take; '(L12 softer…)' = its "
+          "picture is clearly worse than the other take's) · ⚠ low confidence · "
           "S… a stretch without speech: action or a meaningful pause? look at the contact sheets; "
           "keep it like a line (--keep …,S2) or protect it", ""]
     if not (ld.get("always") or ld.get("contextual")):

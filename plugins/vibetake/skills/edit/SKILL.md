@@ -88,6 +88,8 @@ progress, and skips what's already done if run again (`--force` redoes it). Then
      isn't). A reaction — "¡Ah!", an "Ah" answering a question — isn't marked.
    - `↻ retake → L12` this line is an abandoned or repeated take of line 12,
      possibly across files. Keep the later take unless it's clearly worse.
+     `(L12 softer)` / `(this take shakier)`: the two takes' picture compared with each
+     other — a hint, the performance still wins; a kept flagged take goes in the delivery.
    - `⚠ low confidence` check that text by ear before it goes into subtitles.
    - `S2 … (no speech)` a stretch without words: look at its sheets — action, a
      walk, a look, a dramatic pause are part of the video, not dead air.
