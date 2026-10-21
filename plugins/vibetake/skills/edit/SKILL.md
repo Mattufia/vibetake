@@ -180,7 +180,7 @@ X") is an edit to that list and a new render, never a redo.
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/cutlist.py --keep auto --format vertical   # or --keep "L9,L2-L7"
 uv run ${CLAUDE_SKILL_DIR}/scripts/reframe.py                                # framing + punch-ins
-uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --preview                       # 540p, seconds
+uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --preview                       # 540p + every join
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # master → 03-delivery/
 ```
 
@@ -236,8 +236,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 - **After any re-cut**, run `reframe.py`, then subtitles and graphics again (b-roll, effects
   and music stay: they follow their words). `render.py` refuses a master with captions or
   graphics made for another cut.
-- **Check the preview** (stills, the cuts around retakes) before the master.
-
+- **Check the joins before the master** (`02-work/joins/`, written by the preview): fix every ⚠
+  in `joins.md`, look at the sheets (eyes closed, a mouth mid-word); `joins.mp4` is for the user.
 - **Cleanup follows the type profile**: full in a talking head, light in a vlog,
   almost none in a testimonial, none inside an acted scene.
 - **Sound across a cut**: b-roll keeps the speech running underneath, which hides the

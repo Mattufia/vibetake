@@ -19,7 +19,8 @@ Per segment: seek into the original, color (HDR pre-filter + the file's LUT from
 both picture and sound, so sync never drifts.
 
 Master: hardware encoder at constant quality with its best preset when it works,
-x264 slow/CRF 17 otherwise. --preview: small and fast, for checking the edit.
+x264 slow/CRF 17 otherwise. --preview: small and fast, for checking the edit; then
+joins.py lays out every join (02-work/joins/).
 """
 from __future__ import annotations
 
@@ -511,6 +512,11 @@ def main() -> None:
         f"{dst.stat().st_size / 1e6:.1f} MB · encoded with {used_encoder[0]}")
     if abs(vd - ad) > 1.5 / out["fps"]:
         log(f"WARNING: picture and sound differ by {abs(vd - ad) * 1000:.0f} ms")
+    if args.preview and len(segs) > 1:
+        # Every join at a glance (sheets, a reel of ±1 s around each, clear mistakes flagged).
+        import subprocess
+        subprocess.run([tool("uv"), "run", str(Path(__file__).parent / "joins.py"), str(dst), "--edl", args.edl],
+                       check=False)
 
 
 if __name__ == "__main__":
