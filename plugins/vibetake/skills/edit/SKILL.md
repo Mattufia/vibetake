@@ -381,14 +381,16 @@ without covering what matters. Go all out on craft; the amount follows this type
 level (dynamic / measured / minimal), because a great designer also knows when the
 best graphic is none.
 
-**How much graphics and sound design is set by the video**: dynamic for feed
-videos (every idea gets its visual and its sound), measured for long or
-informative ones, minimal for testimonials, interviews and formal pieces. The
-profile names the level; the request overrides it.
+**How much graphics and sound design is set by the video**: usually dynamic for
+feed videos, measured for long or informative ones, minimal for testimonials,
+interviews and formal pieces. The profile suggests it; the request and the design
+override it.
 
 **Every video gets its own design, decided on your own** (never a house style, never
-system fonts): typefaces picked for it and downloaded, colors from the footage and
-the brand, real icons. One line on it in the delivery; changes come from there.
+system fonts). Start with the grammar — graphics over a full-frame image, or the
+footage placed inside a composed frame (a `stage`), type-led, quiet — and only then
+typefaces, colors and icons. Palettes change the look; the grammar is what keeps
+videos from all looking alike. One line on it in the delivery; changes come from there.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/refs.py                      # the user's references, to look at first
@@ -405,7 +407,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word vent
   (`refs.py`, then look at each): criteria for the whole video, never copied, never shown.
 - **Elements enter on the frame of the word that names them**, each with its sound
   on the same word; face, graphics and captions keep their own bands. Remotion renders
-  only the graphics layer (alpha); `still` checks frames over the real image first.
+  only the graphics layer (alpha, or opaque where a `stage` composes the footage
+  itself); `still` checks frames over the real image first.
   Scene plan, idea → graphic, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
   A map, 3D or another effect a Remotion skill covers: load that skill first (`remotion-maps`,
   `remotion-markup`), as `graphics.md` says.

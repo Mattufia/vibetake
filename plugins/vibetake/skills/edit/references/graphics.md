@@ -1,16 +1,24 @@
 # Graphics and sound design
 
-## How much: set by the video, not a house style
+What follows is craft (timing, legibility, bands, checks) and a set of starting
+points. The look itself — how much is on screen, what kind of graphics, whether the
+footage is full frame or placed inside a composition — comes from the grammar chosen
+in `design.md`. A sober editorial piece and a loud feed explainer both follow this
+file; they shouldn't look alike.
 
-| Level | When | Graphics | Sound effects |
+## How much: a starting point, not a quota
+
+| Level | Usually for | Graphics | Sound effects |
 |---|---|---|---|
-| **Dynamic** | feed videos: talking head, ad, vlog, short tutorials | every idea gets visual support; an element every 2–5 s | on most visual events |
-| **Measured** | long tutorials, podcast clips, explainers, corporate for social | names, numbers, steps, key phrases; an element every 10–20 s | on scene changes and the key reveal |
-| **Minimal** | testimonial, interview, formal corporate, music-driven montage | lower thirds, titles, the close | none, or only transitions (in a montage the music is the sound design) |
+| **Dynamic** | feed videos: talking head, ad, vlog, short tutorials | frequent support for what's said | often, on the events that matter |
+| **Measured** | long tutorials, podcast clips, explainers, corporate for social | names, numbers, steps, key phrases | scene changes and the key reveal |
+| **Minimal** | testimonial, interview, formal corporate, music-driven montage | lower thirds, titles, the close | none, or only transitions |
 
-The type profile names the level; the request overrides it ("keep it sober", "lots
-of motion"). Colors, typefaces and look come from the brand (SKILL.md section 7);
-what follows is *how* to edit, which holds for any brand.
+The profile suggests a level; the request and the grammar override it ("keep it
+sober", "lots of motion", an editorial composition that holds one frame for a whole
+section). Density is a design decision: a few strong elements usually beat many
+weak ones. Colors and typefaces come from the brand when there is one (SKILL.md
+section 7).
 
 ## Scene plan from the transcript
 
@@ -23,12 +31,13 @@ the safe zone and the caption position. Plan on it:
   Never the whole scene at once.
 - **Keywords, not sentences.** On screen long enough to read (~0.3 s per word +
   0.5 s), then out.
-- Not every line needs a graphic: follow the level's rhythm and leave breathing
-  room, or everything becomes noise.
+- Not every line needs a graphic: leave breathing room, or everything becomes noise.
 
-## A graphic for each kind of idea
+## Ideas, if you don't have a better one
 
-Pick what fits the content; these are starting points, not a checklist.
+These are the obvious answers. Use them when they're right, but first ask what
+graphic would come from *this* video's world (the chat, the receipt, the map, the
+product's own UI) — the obvious answer on every video is what makes them all alike.
 
 | Idea | Graphic |
 |---|---|
@@ -44,20 +53,28 @@ Pick what fits the content; these are starting points, not a checklist.
 | a question to the viewer | question card |
 | the close | call to action with icons of what to do (follow, comment, link) |
 
-## The hook as a graphic (feed)
+## The first frame (feed)
 
-The headline is on screen **from the first frame** (autoplay starts there, and it's
-the first impression) and completes with what's said in the first seconds. While
-it's up, no burned-in captions — the text is already the graphic:
-`subtitles.py --off hook` (or timeline ranges, for any other graphic that shows the
-same words). The `.srt` keeps everything.
+Autoplay starts on the first frame and it's the first impression: something there
+should make the viewer stay. Often that's the hook as a headline that completes with
+what's said in the first seconds, but it can be the composition itself, a striking
+image or a question.
+
+**A graphic that shows what's being said replaces the caption** — the same words twice
+is noise. `graphics.py` does it on its own: while an element is on screen, a caption
+group whose words are mostly in that element's text is left out of the layer (it
+says where). `"captions": "hide"` on an element hides every caption under it (a
+graphic that says the same thing in other words); `"captions": "show"` keeps them.
+The `.srt` keeps everything. With `--engine ass` it's manual: `subtitles.py --off`
+with timeline ranges.
 
 ## Animation
 
-- Entries 0.2–0.4 s with a spring (a slight overshoot reads as energy); exits fast
-  (~0.15 s) when the scene ends. Nothing that takes time to read.
-- The same motion language across the video: the same easing, the same direction
-  for the same kind of element.
+- Nothing that takes time to read: entries usually 0.2–0.4 s, exits faster.
+  The character (springy and playful, stiff and precise, slow cinematic fades,
+  hard cuts with no animation at all) comes from the design.
+- One motion language across the video: the same easing, the same direction for the
+  same kind of element.
 
 ## Bands that don't overlap
 
@@ -98,6 +115,42 @@ corner from the moment the brand is introduced is optional, per brand.
    phone screen) is a React component of its own in `02-work/remotion/src/custom/`,
    built on the kit's pieces and the design tokens — SVG is written inline exactly as
    in HTML, and its paths can be animated.
+
+   **A stage** (the composition grammar, `design.md` section 2) turns the frame into a
+   designed page for a span of the video: its own background, and the edit's picture
+   placed in a box. Everything else in the plan during that span (headlines, labels,
+   custom components) is drawn on top of it, and the captions on top of all.
+
+```json
+{"type": "stage", "from": {"t": 12}, "until": {"word": "gracias"}, "background": "paper", "enter": "shrink",
+ "footage": {"x": 0.34, "y": 0.5, "width": 0.56, "height": 0.62, "radius": 14, "shadow": "soft",
+             "fit": "cover", "position": "50% 30%", "frame": "MacWindow", "props": {"title": "Demo · MaxiBici"}}},
+{"type": "custom", "from": {"t": 12}, "until": {"word": "gracias"}, "component": "PageChrome", "page": true}
+```
+
+   - `footage`: the box (`x`, `y` center, `width`, `height`, 0–1 of the frame),
+     `radius`, `shadow` (`soft`, `lift`, `glow`…), `fit` (`cover` crops to fill,
+     `contain` shows the whole picture) and `position` (which part stays when it
+     crops). `"footage": false` hides the picture: a full-page title card or chapter
+     break.
+   - `frame`: a custom component that dresses the picture (a window with its title bar,
+     a phone, a monitor, a torn-paper edge); it receives the picture as `children`, plus
+     `startFrame`, `endFrame`, `sizePx` and `progress` (0→1 as the stage enters), and
+     fills the box. The page around it (crop marks, a section counter, a running title,
+     margins with notes) is ordinary custom elements on top, with `"page": true` so the
+     component gets the whole frame instead of a centered box. Both are written for this
+     video, in its design — not taken from a stock set.
+   - `enter`: `shrink` (the picture starts full frame and settles into its box while the
+     page fades in — seamless, since it's the same picture), `fade` or `cut`. The exit
+     plays it backwards and is done by `until`.
+   - `Footage` (`../kit/Footage`) is the same picture as a component: a custom element
+     can use it for a split, a picture-in-picture or a zoomed detail.
+   - Use stages for a section or the whole video; outside them the layer is the usual
+     transparent overlay. The first render with a stage also renders the clean edit
+     (`02-work/footage.mp4`, again when the cut or the grade changes), so it takes
+     longer. Check stills: the face and safe-zone warnings are skipped while a stage
+     is up — the composition is yours to judge.
+
    **Before writing a custom component, load the installed Remotion skill that covers
    it** (if it's in the skill list; by hand otherwise), take its technique and keep
    the kit's conventions (`src/custom/`, design tokens, one transparent layer):
@@ -120,7 +173,7 @@ corner from the moment the brand is introduced is optional, per brand.
    the render whenever the edit changes (`subtitles.py`
    first: `sync` refuses captions made for another cut).
 5. **Captions in the layer** (`subtitles.py`, default engine): drawn on top of every
-   element. The Graphics composition's `captionStyle` adjusts them without touching the
+   element, except where a graphic already shows the words (above). The Graphics composition's `captionStyle` adjusts them without touching the
    timing: `animation` (pop · karaoke · bounce · none), `yShift`, `scale`,
    `highlightColor`, `textColor`, `box`, `upper`. In Studio (`npm run studio` in
    `02-work/remotion`) they're in the props panel; saving writes them into `src/Root.tsx`,
@@ -130,6 +183,10 @@ corner from the moment the brand is introduced is optional, per brand.
 with a deterministic `frame(t)` (`references/from-scratch.md`), with the same design.
 
 ## Sound design
+
+Sound follows the same style as the picture: a loud feed edit can put a sound on
+most events; a sober or editorial one may use one soft texture, only transitions, or
+nothing. Typical pairings when there is sound:
 
 | Event | Sound (`sfx.py --kind`) |
 |---|---|

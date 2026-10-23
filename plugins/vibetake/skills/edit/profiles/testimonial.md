@@ -9,7 +9,7 @@ A customer or real person talking about their experience.
   only stumbles and repetitions.
 - **Music**: soft, emotional bed under the voice.
 - **Subtitles**: recommended (credibility depends on understanding every word).
-- **Graphics**: minimal level: lower third with name and role/company; no sound effects over someone telling their story.
+- **Graphics**: usually minimal: the person identified (name and role/company); no sound effects over someone telling their story.
 - **Traps**: never change the meaning of what the person said by cutting;
   claims and numbers they mention are checked against the request.
 - **Color**: Full (skin first), natural and slightly warm; never a stylized look.

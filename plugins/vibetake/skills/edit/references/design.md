@@ -18,7 +18,9 @@ the burned-in subtitles and the covers.
 - **The user's references** (`references/`: `refs.py`, then look at every photo and
   sheet): someone else's covers, graphics, captions or edits they like. Take criteria,
   never the thing: the palette's temperature and contrast, the type's weight and case,
-  how graphics enter and how much text is on screen, the caption style (box, case,
+  how graphics enter and how much text is on screen, its grammar (graphics over a
+  full-frame image, or the footage placed inside a composed frame — section 2), the
+  caption style (box, case,
   size, animation → `captionStyle`), and from a reference video its rhythm — shot
   changes per minute and average shot length (`refs.py` measures them) set how tight
   the cut and how frequent the punch-ins. Never their logos, their wording, their
@@ -30,7 +32,33 @@ the burned-in subtitles and the covers.
   that never gets answered: dark bubbles, an acid-lime unread badge"). The best
   graphics borrow their language from what the video is about.
 
-## 2. Decide (design.json)
+## 2. Choose the grammar before the colors
+
+Colors and typefaces change how a video looks; the grammar changes what it *is*.
+Two videos with different palettes and the same grammar (headline, card, counter,
+CTA floating over a full-frame face) still look like the same video. Decide this
+first, for the whole video or per section:
+
+- **Overlay**: the footage fills the frame, graphics float over it. The default for
+  a face talking to a feed, not the only option.
+- **Composition**: the frame is a designed page and the footage is one element in it —
+  inside a window or a device, in a split with text beside it, in the top half of a
+  vertical, framed by margins, crop marks, a section counter. Editorial, technical,
+  premium; good for screen recordings, demos, explainers and talks. Built with a
+  `stage` (`graphics.md`).
+- **Type-led**: few or no graphics, the words carry it — big kinetic text at key
+  moments, or captions designed as the main visual.
+- **Quiet**: almost nothing on screen — a title, a name, the close. The image carries it.
+- Anything else the video calls for (collage, cut-paper, a UI that the whole video
+  lives inside…), as long as it's one language held throughout.
+
+A video can switch grammar between sections when the content changes (the face in
+overlay, the demo in a composition), the way a magazine changes layout between
+pages — but each section holds one. Don't reach for the same formula you'd use on
+any video: say in `concept` which grammar and why. The rest of this file (tokens,
+type, motion, checks) applies to all of them.
+
+## 3. Decide (design.json)
 
 ```json
 {
@@ -69,7 +97,7 @@ the burned-in subtitles and the covers.
   and overshoots. `mask` reveals lines from below; `blur` feels soft and cinematic;
   `pop` and `scale` feel punchy.
 
-## 3. What makes it look professional
+## 4. What makes it look professional
 
 - **Hierarchy**: one thing is the biggest on screen at a time. Size steps that are
   clearly different (×1.6 or more), not a ladder of similar sizes.
@@ -91,13 +119,14 @@ the burned-in subtitles and the covers.
 with a hard grey drop shadow; two unrelated typefaces (or a system font); everything
 centered and the same size; text over a busy area without a surface or shadow;
 clipart; a colored box behind every line; animation that's slow to read or that
-bounces everything at once; graphics that cover the face.
+bounces everything at once; graphics that cover the face; the same headline-card-
+counter-CTA formula a template would produce, whatever the video is about.
 
-## 4. Check it on the video
+## 5. Check it on the video
 
 Before rendering the whole layer: `graphics.py still <t> <t> …` at the moment each
 element is fully in. It composites the layer over the real frame and warns when
 graphics leave the safe zone or cover the face. Look at every still as a viewer:
 does it read in under a second, does it belong to the image, is anything cramped or
 cut. Fix and look again. In the delivery, one line on the design (`concept`, the
-typefaces, the accent) so changing it is a concrete request.
+grammar, the typefaces, the accent) so changing it is a concrete request.

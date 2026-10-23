@@ -10,7 +10,7 @@ Day in the life, travel, behind the scenes.
   personality. Audio: `audio.py clean --nr light` (ambience-only clips keep their sound).
 - **Music**: changes by scene or location; ambient sound kept under it.
 - **Subtitles**: depends on destination; ambient-heavy audio often needs them.
-- **Graphics**: dynamic but light, in the creator's style: location titles, a few keywords, whooshes on location changes.
+- **Graphics**: light, in the creator's style: where we are, a few keywords; sound on location changes if the style has it.
 - **Shaky handheld**: pick the steadier take (a retake says `(… shakier)`) or cover it with b-roll (there's no stabilization tool).
 - **Traps**: sponsor segments get the `ad` treatment (see mixed material).
 - **Color**: Basic, one match group per place (each place keeps its own light — the beach and the kitchen

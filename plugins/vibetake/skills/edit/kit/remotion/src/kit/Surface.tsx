@@ -2,7 +2,7 @@
 import React from "react";
 import { color, design } from "./design";
 
-const shadows = (kind: string, c: string): string => {
+export const shadows = (kind: string, c: string): string => {
   switch (kind) {
     case "soft": return "0 2px 6px rgba(0,0,0,.18), 0 12px 32px rgba(0,0,0,.22), 0 30px 80px rgba(0,0,0,.18)";
     case "lift": return "0 1px 0 rgba(255,255,255,.08) inset, 0 18px 40px -12px rgba(0,0,0,.45)";

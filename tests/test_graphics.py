@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "plugins" / "vibetake" / "skills" / "edit" / "scripts"
 FIX = ROOT / "tests" / "fixtures"
 sys.path.insert(0, str(SCRIPTS))
+import graphics  # noqa: E402
 import sfx  # noqa: E402
 
 FF = shutil.which("ffmpeg")
@@ -200,6 +201,20 @@ def main() -> None:
     run(tmp, str(SCRIPTS / "graphics.py"), "init")
     checks["init: Studio edits to Root.tsx kept, an untouched one updated"] = (
         fresh and kept and root.read_text(encoding="utf-8") == kit_root)
+
+    # A graphic that shows the words being said takes the caption's place (only there, only those words).
+    g = lambda a, b, txt: {"start": a, "end": b, "words": [{"text": w} for w in txt.split()]}
+    cue = {"lines": [{"line": 3, "words": [{"text": "Ventas", "start": 4.0}]}]}
+    cap = {"groups": [g(0, 1, "tu compañero"), g(1, 2, "no te responde"), g(2, 3, "y eso cansa"),
+                      g(4, 5, "las ventas subieron"), g(6, 7, "no te responde"), g(8, 9, "otra cosa")]}
+    plan = {"elements": [
+        {"type": "headline", "from": {"t": 0}, "until": {"t": 2.9}, "lines": ["POV:", "tu compañero", "no te responde"]},
+        {"type": "label", "from": {"word": "ventas"}, "until": {"t": 5.5}, "title": "Ventas", "subtitle": "subieron"},
+        {"type": "custom", "from": {"t": 8}, "until": {"t": 9}, "component": "X", "captions": "hide"},
+        {"type": "headline", "from": {"t": 6}, "until": {"t": 7}, "lines": ["no te responde"], "captions": "show"}]}
+    out, hidden = graphics.shown_by_graphics(cap, plan, cue)
+    checks["captions: hidden only where a graphic shows the same words, show/hide override it"] = (
+        [x["start"] for x in out["groups"]] == [2, 6] and hidden == [(0, 2), (4, 5), (8, 9)])
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")

@@ -8,8 +8,8 @@ Opinion, educational or explainer content spoken to camera by one person.
 - **Cleanup**: full — fillers, retakes (keep the last good take), false starts.
 - **Music**: optional, low bed; never competing with the voice.
 - **Subtitles**: burned-in for feed; `.srt` only for chosen viewing with clean audio.
-- **Graphics**: dynamic level in a feed, measured for chosen viewing (`references/graphics.md`): the hook as a graphic, keywords as punchlines; lower third if the person needs
-  an introduction.
+- **Graphics**: usually dynamic in a feed, measured for chosen viewing (`references/graphics.md`): a first frame that holds, support for
+  the key ideas, the person introduced if needed. Overlay is the obvious grammar; type-led or a composition can set it apart (`design.md` section 2).
 - **Jump cuts**: always covered with a punch-in (alternate framings) or b-roll.
 - **Traps**: over-cleaning removes the person's natural rhythm; keep pauses that
   carry meaning.
