@@ -38,8 +38,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
 from _common import channel_pan, material_index, pre_filter, work_paths  # noqa: E402
-from _timeline import (audio_mode, chapters, is_simple, jl_cuts, pieces, play_len, resolve_broll, seg_time,  # noqa: E402
-                       starts, transition_dur,
+from _timeline import (audio_mode, chapters, is_simple, jl_cuts, pieces, place_music, play_len,  # noqa: E402
+                       resolve_broll, seg_time, starts, transition_dur,
                        signature as timeline_sig, total as timeline_total)
 
 MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
@@ -414,6 +414,8 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
         if seg.get("voice") and not seg.get("_rt"):
             tempo += VOICE.get(seg["voice"], seg["voice"]) + ","
         delay = f"adelay=delays={round(seg['_alack'] * 1000)}:all=1," if seg.get("_alack") else ""
+        if seg.get("gain_db"):          # a segment's own sound lower or higher (a montage keeps it as an accent)
+            delay += f"volume={float(seg['gain_db']):.2f}dB,"
         a = (f"[{audio_in}]{seg['_pan'] + ',' if seg.get('_pan') else ''}aformat=sample_rates=48000:channel_layouts=stereo,"
              f"{tempo}{delay}apad,atrim=duration={a_len:.6f},asetpts=PTS-STARTPTS,{fades}[a{k}]")
     else:
@@ -863,7 +865,7 @@ def main() -> None:
         log(f"WARNING: {w}")
     if in_layer and not graphics:
         log("WARNING: the captions are drawn by the graphics layer and there is none: graphics.py render")
-    fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
+    fin = {"overlays": overlays, "music": place_music(edl.get("music", []), segs, out["fps"]), "total": timeline_total(segs, out["fps"]),
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
            "graphics": graphics, "sfx": sfx, "bleep": bleep_spans(edl, segs)}
     if graphics and any(s.get("behind") for s in segs):

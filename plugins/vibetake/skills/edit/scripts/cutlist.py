@@ -505,6 +505,12 @@ def main() -> None:
         t = tr["files"].get(s["name"], {}).get("track", 0)
         if t:
             s["track"] = t
+    # A montage block (montage.py --where start|end) isn't made from lines: it comes back as built.
+    mon = prev_edl.get("montage") or {}
+    if mon.get("where") in ("start", "end") and mon.get("segments"):
+        block = [dict(s) for s in mon["segments"]]
+        segments = block + segments if mon["where"] == "start" else segments + block
+        print(f"kept the montage block ({len(block)} shots, at the {mon['where']}): montage.py build again to change it")
     # Time effects, J/L cuts and transitions belong to a piece of the material: a segment that
     # still covers most of the same piece keeps them through the re-cut.
     # One old segment → at most one new one (the one sharing most of it, at least half of each), so

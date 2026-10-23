@@ -286,3 +286,20 @@ def anchor_from(args, edl: dict) -> dict:
     if w is None:
         die(f"'{args.word}' isn't in L{line}: {''.join(x['word'] for x in words).strip()}")
     return {"name": sent["file"], "time": w["start"]}
+
+
+def place_music(music: list[dict], segs: list[dict], fps: float) -> list[dict]:
+    """Music items as played. A montage block's music (montage.py) follows its block wherever the
+    spoken edit leaves it: it starts with the block's first shot and fades out after its last
+    one (under the first words when speech follows)."""
+    block = [k for k, s in enumerate(segs) if s.get("role") == "montage"]
+    out = []
+    t0 = starts(segs, fps)
+    for mu in music:
+        if mu.get("block") == "montage":
+            if not block:
+                continue
+            end = t0[block[-1]] + seg_frames(segs[block[-1]], fps) / fps
+            mu = {**mu, "at": t0[block[0]], "until": end + (mu.get("fade_out", 2.0) if block[-1] < len(segs) - 1 else 0)}
+        out.append(mu)
+    return out

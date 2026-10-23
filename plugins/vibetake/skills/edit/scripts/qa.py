@@ -237,6 +237,9 @@ def listen(video: Path, edl: dict, ing: Path, lang: str | None, r: Report) -> No
         t = "".join(c for c in t if unicodedata.category(c) != "Mn")
         return re.sub(r"[^\w\s']", " ", t).strip()
 
+    if edl["segments"] and all(s.get("role") == "montage" for s in edl["segments"]):
+        r.ok(True, "listening: the export says what the edit should", "a montage to music: no speech to check")
+        return
     trp = ing / "transcript.json"
     if not trp.exists():
         r.add("WARN", "listening", "no transcript to compare with")
@@ -255,8 +258,16 @@ def listen(video: Path, edl: dict, ing: Path, lang: str | None, r: Report) -> No
         return
     heard_tr = json.loads((out / "transcript.json").read_text(encoding="utf-8"))
     hw = [w for s in heard_tr["files"][video.name]["segments"] for w in s["words"]]
-    heard = [(norm(w["word"]), w["start"]) for w in hw if norm(w["word"])]
-    expected = [(norm(w["text"]), w["t"]) for w in timeline_words(edl, tr) if norm(w["text"])]
+    # A montage's song can have lyrics: what's heard over montage shots isn't the edit's speech.
+    from _timeline import seg_frames, starts
+    fps = edl["output"]["fps"]
+    t0 = starts(edl["segments"], fps)
+    music_spans = [(t0[k], t0[k] + seg_frames(s, fps) / fps) for k, s in enumerate(edl["segments"])
+                   if s.get("role") == "montage"]
+    heard = [(norm(w["word"]), w["start"]) for w in hw if norm(w["word"])
+             and not any(a - 0.2 <= w["start"] <= b + 0.2 for a, b in music_spans)]
+    expected = [(norm(w["text"]), w["t"]) for w in timeline_words(edl, tr) if norm(w["text"])
+                and not any(a <= w["t"] <= b for a, b in music_spans)]
     sm = difflib.SequenceMatcher(a=[x[0] for x in expected], b=[x[0] for x in heard], autojunk=False)
     issues = []
     for op, a0, a1, b0, b1 in sm.get_opcodes():

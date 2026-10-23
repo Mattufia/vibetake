@@ -210,10 +210,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   sentence by sentence — from a mic per person when there is one (it learns whose is
   whose), else from mouth movement; unsure → it stays. Check `02-work/speakers.md` and
   `people_<file>.jpg` (who is person 1, 2…); fix a line with `speaker.py --set L12=2`. It
-  warns when a crop is smaller than the output (1080p horizontal cut to vertical
-  is stretched ~1.8×, softer): say so, or once the segment is final recover detail
-  with AI — `upscale.py run --seg N --test 2` first (time, comparison), never a
-  plain resize to "gain" resolution.
+  warns when a crop is smaller than the output (1080p horizontal cut to vertical is stretched
+  ~1.8×, softer): say so, or once the segment is final recover detail with AI —
+  `upscale.py run --seg N --test 2` first, never a plain resize to "gain" resolution.
 - **Zoom at every cut**: at jump cuts the base zoom alternates between 1.0 and
   `--zoom` (1.12; half for a face that already fills the frame), so the jump reads
   as a closer shot; each segment after a cut enters with a short impact zoom
@@ -226,6 +225,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 - **B-roll**: own material first; `broll.py list` catalogs it, `place` anchors a
   clip to a word or a cut, `render.py` lays it over the speech. Commands and rules
   (what to illustrate, length, coverage, never over the hook): **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
+- **No speech, or a stretch built on music** (aftermovie, place, product, an intro): `montage.py`
+  — moments chosen from their sheets, cut on the beat: **`${CLAUDE_SKILL_DIR}/references/montage.md`**.
 - **Anything finer is a field of a segment** in `edl.json` (trim, move, `frame.zoom`), and so
   are the effects: speed and ramps, freezes, reverse/loop/boomerang, J/L cuts, transitions
   (xfade, whip, push), fades; stabilize, fit, chroma key, flip/rotate/tilt, picture-in-picture,
@@ -234,10 +235,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   decoration. Fields, commands, rules: **`${CLAUDE_SKILL_DIR}/references/effects.md`**.
 - **Nothing here for what's asked? Build it** with ffmpeg or a Remotion component and say
   how — never answer that it can't be done when the tools can do it.
-- `render.py` works from the **original files**: color from
-  `02-work/color/grade.json`, framing to the output size, constant frame rate,
-  12 ms audio fades so cuts never click, cuts on the source's frame grid so sync
-  never drifts. It reports expected vs actual picture and sound durations.
+- `render.py` works from the **original files**: color from `02-work/color/grade.json`, framing,
+  constant frame rate, 12 ms audio fades so cuts never click, cuts on the source's frame grid so
+  sync never drifts. It reports expected vs actual picture and sound durations.
 - **After any re-cut**, run `reframe.py`, then subtitles and graphics again (b-roll, effects
   and music stay: they follow their words). `render.py` refuses a master with captions or
   graphics made for another cut.
