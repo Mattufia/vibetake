@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
 from _common import channel_pan, material_index, pre_filter, work_paths  # noqa: E402
-from _timeline import (audio_mode, chapters, is_simple, pieces, play_len, resolve_broll, seg_time,  # noqa: E402
+from _timeline import (audio_mode, chapters, is_simple, pieces, play_len, resolve_broll, seg_time, starts,  # noqa: E402
                        signature as timeline_sig, total as timeline_total)
 
 MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
@@ -401,6 +401,38 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     return v_graph + ";" + a, dur
 
 
+def inset(k: int, inp: int, seg: dict, out: dict, grade: dict, length: float) -> str:
+    """Another source on top of segment k's picture: picture-in-picture in a corner ("pip") or
+    the screen split in two ("split", the other source on `side`). Its sound isn't used."""
+    W, H, fps = out["width"], out["height"], out["fps"]
+    p = seg.get("pip") or seg["split"]
+    name = Path(p["source"]).name
+    g = grade.get(name) or {}
+    chain = [x for x in (pre_filter(MATERIAL.get(name), g),
+                         f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
+    tail = [f"fps={fps}", "setpts=PTS-STARTPTS", f"tpad=stop_mode=clone:stop_duration={length:.4f}",
+            f"trim=duration={length:.4f}", "setsar=1"]
+    if seg.get("split"):
+        side = p.get("side", "right")
+        across = side in ("left", "right")
+        w, h = (W // 2, H) if across else (W, H // 2)
+        ow, oh = (W - w, H) if across else (W, H - h)
+        # ponytail: the speaker's half is a center crop of the framed picture, not re-framed on the face.
+        chain += [f"crop='min(iw,ih*{ow}/{oh})':'min(ih,iw*{oh}/{ow})'", f"scale={ow}:{oh}", *tail]
+        pair = f"[o{k}][vm{k}]" if side in ("left", "top") else f"[vm{k}][o{k}]"
+        return (f"[{inp}:v:0]{','.join(chain)}[o{k}];[vm{k}]crop={w}:{h}[vm{k}c];" +
+                pair.replace(f"[vm{k}]", f"[vm{k}c]") + f"{'hstack' if across else 'vstack'},format=yuv420p[v{k}]")
+    corner = p.get("corner", "top-right")
+    m = round(0.04 * min(W, H))
+    pw = round(W * float(p.get("scale", 0.32)) / 2) * 2
+    # In a vertical video the corners sit inside the safe band (platform buttons and captions around it).
+    top, bottom = (f"{round(0.13 * H)}", f"{round(0.77 * H)}-h") if H > W else (f"{m}", f"H-h-{m}")
+    x = f"{m}" if "left" in corner else f"W-w-{m}"
+    y = top if "top" in corner else bottom
+    chain += [f"scale={pw}:-2", *tail]
+    return f"[{inp}:v:0]{','.join(chain)}[o{k}];[vm{k}][o{k}]overlay=x={x}:y={y}:eof_action=repeat,format=yuv420p[v{k}]"
+
+
 def broll_graph(first_input: int, base: str, items: list[dict], out: dict, grade: dict) -> tuple[list, list, str]:
     """Inputs and filters that lay each b-roll over the edit at its timeline position:
     framed to the output, graded like its source, with a slow 4% push-in. The edit's
@@ -442,6 +474,15 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
                       f"fps={out['fps']},setpts=PTS-STARTPTS[gfx]")
         graphs.append(f"[{v_last}][gfx]overlay=eof_action=pass:repeatlast=0:format=auto[vg]")
         v_last, nxt_input = "vg", nxt_input + 1
+        # Segments marked "behind": the person (their picture, cut out by its mask) back over the graphics.
+        for j, (at, pic, mask) in enumerate(fin.get("behind", [])):
+            g_inputs += ["-i", pic, "-i", mask]
+            put = f"setpts=PTS-STARTPTS+{at:.4f}/TB"
+            graphs += [f"[{nxt_input}:v:0]{look(out.get('look') or {}) or 'null'},format=yuva420p,{put}[pp{j}]",
+                       f"[{nxt_input + 1}:v:0]format=gray,scale={out['width']}:{out['height']},tmix=frames=3,{put}[pm{j}]",
+                       f"[pp{j}][pm{j}]alphamerge[pa{j}]",
+                       f"[{v_last}][pa{j}]overlay=eof_action=pass:repeatlast=0[vb{j}]"]
+            v_last, nxt_input = f"vb{j}", nxt_input + 2
     if fin.get("subs"):
         fonts = f":fontsdir='{filter_path(fin['fontsdir'])}'" if fin.get("fontsdir") else ""
         graphs.append(f"[{v_last}]subtitles=filename='{filter_path(fin['subs'])}'{fonts}[vs]")
@@ -483,7 +524,12 @@ def bleep_spans(edl: dict, segs: list[dict]) -> dict | None:
     return {"spans": spans, "sound": bl.get("sound", "beep")} if spans else None
 
 
-XFADE = {"dissolve": "fade", "crossfade": "fade", "cross": "fade"}   # names people use → xfade
+XFADE = {"dissolve": "fade", "crossfade": "fade", "cross": "fade", "zoom": "zoomin",   # names people use → xfade
+         "push": "slideleft", "push-left": "slideleft", "push-right": "slideright", "push-up": "slideup",
+         "push-down": "slidedown"}
+# A whip pan: the next shot slides in with motion blur along the move.
+WHIP = {"whip": ("slideleft", "x"), "whip-left": ("slideleft", "x"), "whip-right": ("slideright", "x"),
+        "whip-up": ("slideup", "y"), "whip-down": ("slidedown", "y")}
 
 
 def edges(segs: list[dict], fps: float) -> list[str]:
@@ -501,7 +547,8 @@ def edges(segs: list[dict], fps: float) -> list[str]:
             d = 2 * math.floor(min(float(tr.get("dur", 0.5)), durs[k], durs[k - 1]) * fps / 2) / fps
             if d > 0:
                 typ = tr.get("type", "dissolve")
-                s["_tr"] = (XFADE.get(typ, typ), d)
+                typ, axis = WHIP.get(typ, (XFADE.get(typ, typ), None))
+                s["_tr"] = (typ, d, axis)
                 s["_pre"] = prev["_post"] = d / 2
                 if s.get("j") or prev.get("l"):
                     warn.append(f"segment {k}: a transition and a J/L cut on the same cut — the transition wins")
@@ -523,9 +570,10 @@ def edges(segs: list[dict], fps: float) -> list[str]:
     return warn
 
 
-def join(segs: list[dict], fps: float, v_out: str, a_out: str) -> list[str]:
+def join(segs: list[dict], fps: float, v_out: str, a_out: str, width: int = 1920) -> list[str]:
     """Picture and sound joined, each on its own: straight cuts concatenate, a transition
-    crossfades (xfade / acrossfade) over the handles both segments carry."""
+    crossfades (xfade / acrossfade) over the handles both segments carry; a whip adds blur
+    along the move (light over the transition, strong in its middle)."""
     groups = [[0]]
     for k in range(1, len(segs)):
         (groups.append([k]) if segs[k].get("_tr") else groups[-1].append(k))
@@ -543,13 +591,56 @@ def join(segs: list[dict], fps: float, v_out: str, a_out: str) -> list[str]:
             if cur is None:
                 cur, length = lbl, g_len
                 continue
-            typ, d = segs[g[0]]["_tr"]
+            typ, d, axis = segs[g[0]]["_tr"]
             nxt, at = f"{kind}x{gi}", length - d
             graphs.append(f"[{cur}][{lbl}]xfade=transition={typ}:duration={d:.6f}:offset={at:.6f}[{nxt}]"
                           if kind == "v" else f"[{cur}][{lbl}]acrossfade=d={d:.6f}:c1=tri:c2=tri[{nxt}]")
+            if kind == "v" and axis:
+                blur = [f"gblur=sigma={width / r if axis == 'x' else 0:.1f}:sigmaV={0 if axis == 'x' else width / r:.1f}:"
+                        f"enable='between(t,{a:.4f},{b:.4f})'"
+                        for r, a, b in ((80, at, at + d), (30, at + d / 4, at + 3 * d / 4))]
+                graphs.append(f"[{nxt}]{','.join(blur)}[{nxt}w]")
+                nxt += "w"
             cur, length = nxt, length - d + g_len
         graphs.append(f"[{cur}]{'null' if kind == 'v' else 'anull'}[{out_label}]")
     return graphs
+
+
+def matte_paths(s: dict, out: dict, grade: dict) -> tuple[Path, Path]:
+    """Where a segment's cut-out picture and mask live, named by what makes the picture."""
+    import hashlib
+    own = {a: b for a, b in s.items() if not a.startswith("_")}
+    key = hashlib.sha1(json.dumps([own, out, grade.get(s.get("name", Path(s["source"]).name))],
+                                  sort_keys=True, default=str).encode()).hexdigest()[:12]
+    return Path("02-work/matte") / f"{key}.mkv", Path("02-work/matte") / f"{key}.mask.mkv"
+
+
+def mattes(segs: list[dict], out: dict, grade: dict, clean: dict, log: Log, preview: bool) -> list[tuple]:
+    """The person in each segment marked "behind" (graphics go between the background and them):
+    the segment rendered on its own, then its mask (matte.py, rembg). Both kept in 02-work/matte/,
+    named by what makes the picture, so a re-render reuses them. Returns (start, picture, mask)."""
+    fps, res = out["fps"], []
+    t0 = starts(segs, fps)
+    for k, s in enumerate(segs):
+        if not s.get("behind"):
+            continue
+        pic, mask = matte_paths(s, out, grade)
+        if not mask.exists():
+            pic.parent.mkdir(parents=True, exist_ok=True)
+            one = {**s, "_pre": 0.0, "_post": 0.0, "_delta": 0.0, "_tr": None, "_alead": 0.0, "_atail": 0.0}
+            render_chunk([one], out, grade, INTERMEDIATE, pic, log, preview, f"segment {k + 1} for its matte", clean)
+            n = frames(seg_time(s), fps)
+            log(f"cutting out the person in segment {k + 1} ({n} frames: ~{n * 0.1:.0f} s on an NVIDIA GPU, "
+                f"~{n * 0.8:.0f} s on the CPU)")
+            r = run([tool("uv"), "run", str(Path(__file__).with_name("matte.py")), "--in", str(pic), "--out", str(mask)],
+                    check=False)
+            if r.returncode or not mask.exists():
+                log(f"WARNING: segment {k + 1}: no matte ({(r.stderr or r.stdout).strip().splitlines()[-1:]}) — "
+                    "its graphics stay in front of the person")
+                continue
+            log((r.stdout.strip().splitlines() or [""])[0])
+        res.append((t0[k], str(pic), str(mask)))
+    return res
 
 
 def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
@@ -610,10 +701,18 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
                 s["_pan"] = channel_pan(info.get("channels"))
             gph, d = segment_graph(k, s, out, grade, audio_in, preview, workdir, lead, lack)
             gph = gph.replace(f"[{k}:v:0]", f"[{vid}:v:0]", 1)
+            other = s.get("pip") or s.get("split")
+            if other:
+                # ponytail: the inset goes over the segment after its fades, so a fade-out leaves it showing.
+                length = s["_pre"] + d + s["_post"]
+                inputs += ["-ss", f"{max(float(other.get('in', 0)) - s['_pre'], 0):.4f}", "-t", f"{length + 0.25:.4f}",
+                           "-i", other["source"]]
+                gph = gph.replace(f"[v{k}];", f"[vm{k}];", 1) + ";" + inset(k, idx, s, out, grade, length)
+                idx += 1
             graphs.append(gph)
             total += d
         v_out, a_out = ("vc", "ac") if fin else ("v", "a")
-        graphs += join(segs, fps, v_out, a_out)
+        graphs += join(segs, fps, v_out, a_out, out["width"])
         if fin:
             f_inputs, f_graphs = finish_graph(idx, "vc", "ac", fin, out, grade)
             inputs += f_inputs
@@ -754,6 +853,10 @@ def main() -> None:
     fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
            "graphics": graphics, "sfx": sfx, "bleep": bleep_spans(edl, segs)}
+    if graphics and any(s.get("behind") for s in segs):
+        fin["behind"] = mattes(segs, out, grade, clean, log, args.preview)
+    elif any(s.get("behind") for s in segs):
+        log("WARNING: segments marked \"behind\" but no graphics layer: nothing to put behind the person")
     # Layers made for another version of the cut land at the wrong times: catch it here.
     stale = []
     if fin["subs"]:

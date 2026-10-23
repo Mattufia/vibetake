@@ -86,6 +86,18 @@ the top third, whichever the face leaves free. **Check stills after the zooms**:
 the face moves with punch-ins and the impact zoom. A small brand mark in a safe
 corner from the moment the brand is introduced is optional, per brand.
 
+## Text behind the person
+
+A segment with `"behind": true` in `edl.json` puts the whole graphics layer between
+the background and the person for that segment: a big word they seem to stand in
+front of. render.py cuts the person out of each frame (`matte.py`, rembg
+`u2net_human_seg`; kept in `02-work/matte/`, redone only if the segment changes):
+~0.1 s a frame on an NVIDIA GPU, ~0.8 s on the CPU — say how long before using it
+on long segments without a GPU. Limits: the mask takes the chair or whatever the person
+holds or leans on, and edges are soft (hair); captions drawn by the layer are covered too
+(burned-in ASS subtitles stay on top). Short segments, a big word placed where the
+head or shoulders cross it; check a still of the render, not of the layer.
+
 ## Building and rendering the layer
 
 1. **Design** (`references/design.md`): `02-work/design.json`, made for this video —

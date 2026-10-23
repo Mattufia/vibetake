@@ -241,7 +241,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   | `"reverse": true` · `"loop": 3` · `"boomerang": true` | backwards · played 3 times · forward then back |
   | `"smooth": true` | interpolated frames for slow motion, blended ones for fast (time-lapse) — slower to render |
   | `"j": 0.5` · `"l": 0.5` | this segment's sound starts 0.5 s before its picture (J) / runs 0.5 s under the next one (L) |
-  | `"transition": {"type": "dissolve", "dur": 0.4}` | from the previous segment, centered on the cut (the timeline doesn't move); any ffmpeg xfade name: `fadeblack`, `fadewhite`, `wipeleft`, `slideup`, `circleopen`, `radial`, `pixelize`, `smoothleft`… |
+  | `"transition": {"type": "dissolve", "dur": 0.4}` | from the previous segment, centered on the cut (the timeline doesn't move); any ffmpeg xfade name: `fadeblack`, `fadewhite`, `wipeleft`, `slideup`, `circleopen`, `radial`, `pixelize`, `smoothleft`… Plus `whip` (`whip-left\|right\|up\|down`): the next shot slides in with motion blur along the move; `push` (`push-left`…): the same slide, no blur; `zoom`. A whip or push wants a whoosh on the cut (`sfx.py place --kind whoosh --cut N`) |
   | `"fade_in"` / `"fade_out": {"dur": 0.6, "color": "black"}` | from/to a color, picture and sound |
 
   Effects are for a reason (a reveal, a beat, a gag, a time jump), not decoration;
@@ -255,6 +255,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   | `"redact": [...]` | blurred/pixelated boxes that follow what they hide: made by `redact.py` (below), don't write keys by hand |
   | `"key": {"color": "green", "bg": "02-work/bg.jpg"}` | green/blue screen out, over a picture, a video (looped) or a color; `similarity` (0.15) / `blend` (0.05) if edges show |
   | `"flip": "h\|v\|both"` · `"rotate": 90\|180\|270` · `"rotate": -3` | mirror · turn (a clip recorded sideways; 90/270 use a center crop) · tilt a few degrees (zoomed so no corner shows) |
+  | `"pip": {"source": "<file>", "in": 3.0, "corner": "top-right", "scale": 0.32}` | another clip in a corner over this segment (a reaction, the screen being talked about), muted; in a vertical video the corners sit inside the safe band |
+  | `"split": {"source": "<file>", "in": 3.0, "side": "left\|right\|top\|bottom"}` | the screen in two: the other clip on that side, this one's center on the other |
+  | `"behind": true` | the graphics layer goes behind the person in this segment (a big title they stand in front of): `references/graphics.md` |
   | `output.look: {"vignette": 0.4, "grain": 0.3, "bw": true}` | over the whole edit, b-roll included (0–1 each) |
 
   Blur a face, a plate, a screen: `uv run ${CLAUDE_SKILL_DIR}/scripts/redact.py <seg> --show
