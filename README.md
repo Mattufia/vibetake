@@ -153,6 +153,8 @@ uv run tests/test_transcribe.py   # retakes, fillers, word timing (needs the Whi
 uv run tests/test_grade.py        # color: ambient white balance, log path, levels, the user's LUT
 uv run tests/test_match.py        # shot matching: groups, references, darks kept, skip, nudges, rules
 uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
+uv run tests/test_joins.py        # every join of the preview: sheets, a short reel, small/light/level jumps, flashes
+uv run tests/test_take_quality.py # two takes of a line compared: softer, shakier, blown out; a shared look says nothing
 uv run tests/test_reframe.py      # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
 uv run tests/test_speaker.py      # several people: who says each sentence (mics, mouths), framing follows them
 uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts
@@ -164,6 +166,7 @@ uv run tests/test_graphics.py     # cue sheet, synthesized SFX on their word, gr
 uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audio, listening check
 uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
 uv run tests/test_organize.py     # loose files → 00-raw/ and brand/, nothing overwritten, undo
+uv run tests/test_refs.py         # references made viewable, a reference video's rhythm measured
 uv run tests/test_cut_rules.py    # reactions vs fillers, silent stretches, natural pace, protected ranges
 uv run tests/test_design.py       # project fonts and icons, palette, Remotion layer with design + safe-zone check (network, Node)
 uv run tests/test_stage.py        # composition: the edit placed in a stage, frame-synced, page and frame components (Node)
