@@ -44,7 +44,7 @@ import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, load_json as load, work_paths  # noqa: E402
+from _common import die, load_json as load, tool, work_paths  # noqa: E402
 from _timeline import resolve_broll, seg_time, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
 
@@ -303,7 +303,7 @@ def stage_footage(args, plan: dict) -> None:
     deps = [p for p in (edl, Path("02-work/color/grade.json")) if p.exists()]
     if not src.exists() or any(p.stat().st_mtime > src.stat().st_mtime for p in deps):
         print(f"rendering the clean edit for the stage (no graphics, subtitles or effects) → {src}…", flush=True)
-        p = subprocess.run(["uv", "run", str(Path(__file__).parent / "render.py"), str(edl), "--no-graphics",
+        p = subprocess.run([tool("uv"), "run", str(Path(__file__).parent / "render.py"), str(edl), "--no-graphics",
                             "--no-subs", "--no-sfx", "--out", str(src)])
         if p.returncode or not src.exists():
             die("the clean edit for the stage failed (see above)")
@@ -319,7 +319,7 @@ def background_frame(t: float, w: int, h: int) -> Path | None:
     edl = Path("02-work/edl.json")
     if not clean.exists() or (edl.exists() and edl.stat().st_mtime > clean.stat().st_mtime):
         print("rendering a clean preview for the stills (no graphics, no subtitles)…", flush=True)
-        subprocess.run(["uv", "run", str(Path(__file__).parent / "render.py"), "--preview", "--no-graphics",
+        subprocess.run([tool("uv"), "run", str(Path(__file__).parent / "render.py"), "--preview", "--no-graphics",
                         "--no-subs", "--no-sfx", "--out", str(clean)], capture_output=True)
     if not clean.exists():
         return None

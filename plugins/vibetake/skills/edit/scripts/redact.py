@@ -33,29 +33,55 @@ W = 640          # tracking width
 KEY_FPS = 10     # keys stored per second (render.py interpolates between them)
 
 
-def frames(src: str, a: float, b: float) -> tuple[list[np.ndarray], float]:
-    """The source's frames between a and b at W px wide (ffmpeg turns them upright like render.py)."""
+def probe(src: str) -> tuple[float, int]:
+    """The source's average frame rate and its height at W px wide (turned upright like render.py)."""
     info = json.loads(subprocess.run([tool("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
-                                      "stream=r_frame_rate", "-of", "json", src], capture_output=True,
+                                      "stream=avg_frame_rate,r_frame_rate", "-of", "json", src], capture_output=True,
                                      text=True, check=True).stdout)["streams"][0]
-    num, den = info["r_frame_rate"].split("/")
-    fps = float(num) / float(den)
-    raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-ss", f"{a:.4f}", "-t", f"{b - a:.4f}", "-i", src,
-                          "-vf", f"scale={W}:-2", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
-                         capture_output=True, check=True).stdout
-    probe = subprocess.run([tool("ffmpeg"), "-v", "error", "-ss", f"{a:.4f}", "-i", src, "-frames:v", "1",
-                            "-vf", f"scale={W}:-2", "-f", "image2pipe", "-c:v", "png", "-"], capture_output=True, check=True).stdout
-    h = cv2.imdecode(np.frombuffer(probe, np.uint8), cv2.IMREAD_COLOR).shape[0]
-    n = len(raw) // (W * h * 3)
-    return [np.frombuffer(raw, np.uint8, W * h * 3, i * W * h * 3).reshape(h, W, 3) for i in range(n)], fps
+    num, den = (info.get("avg_frame_rate") if info.get("avg_frame_rate", "0/0") != "0/0" else info["r_frame_rate"]).split("/")
+    one = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", src, "-frames:v", "1", "-vf", f"scale={W}:-2",
+                          "-f", "image2pipe", "-c:v", "png", "-"], capture_output=True, check=True).stdout
+    return float(num) / float(den), cv2.imdecode(np.frombuffer(one, np.uint8), cv2.IMREAD_COLOR).shape[0]
 
 
-def track(imgs: list[np.ndarray], box: tuple) -> tuple[list, int]:
+def frames(src: str, a: float, n: int, fps: float, h: int):
+    """n frames of the source from a, at W px wide on a constant frame grid (phones record
+    variable rate): yielded one at a time, so a long segment never sits in memory."""
+    if n <= 0:
+        return
+    p = subprocess.Popen([tool("ffmpeg"), "-v", "error", "-ss", f"{a:.4f}", "-i", src, "-vf", f"fps={fps},scale={W}:{h}",
+                          "-frames:v", str(n), "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE)
+    size = W * h * 3
+    try:
+        while True:
+            buf = p.stdout.read(size)
+            if len(buf) < size:
+                break
+            yield np.frombuffer(buf, np.uint8).reshape(h, W, 3)
+    finally:
+        p.stdout.close()
+        p.wait()
+
+
+def one(src: str, t: float, fps: float, h: int) -> np.ndarray:
+    im = next(frames(src, t, 1, fps, h), None)
+    if im is None:
+        die(f"couldn't read a frame at {t:.2f} s of {src}")
+    return im.copy()
+
+
+def save(path: Path, img: np.ndarray) -> None:
+    """cv2.imwrite fails silently on non-ASCII paths on Windows: encode, then write the bytes."""
+    path.write_bytes(cv2.imencode(".jpg", img)[1].tobytes())
+
+
+def track(imgs, box: tuple) -> tuple[list, int]:
     """MIL tracker from the first image on: a box per image, and how many it lost (kept the last box)."""
+    imgs = iter(imgs)
     t = cv2.TrackerMIL_create()
-    t.init(imgs[0], tuple(int(v) for v in box))
+    t.init(next(imgs), tuple(int(v) for v in box))
     out, lost = [box], 0
-    for im in imgs[1:]:
+    for im in imgs:
         ok, b = t.update(im)
         lost += not ok
         out.append(tuple(b) if ok else out[-1])
@@ -87,21 +113,27 @@ def main() -> None:
         edl_p.write_text(json.dumps(edl, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"segment {args.segment}: no redactions")
         return
+    fps, ih = probe(seg["source"])
     if args.show:
-        img = frames(seg["source"], at, at + 0.05)[0][0].copy()
-        h = img.shape[0]
+        img = one(seg["source"], at, fps, ih)
+        h = ih
         for i in range(1, 10):
             cv2.line(img, (W * i // 10, 0), (W * i // 10, h), (0, 255, 255), 1)
             cv2.line(img, (0, h * i // 10), (W, h * i // 10), (0, 255, 255), 1)
             cv2.putText(img, f".{i}", (W * i // 10 + 2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
             cv2.putText(img, f".{i}", (2, h * i // 10 - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
         out = edl_p.parent / f"redact_{args.segment}_frame.jpg"
-        cv2.imwrite(str(out), img)
+        save(out, img)
         print(f"{out}  (segment {args.segment} at {at:.2f} s, grid every 0.1)")
         return
     if not args.box:
         die("--box x,y,w,h (0-1), or --show to read it off a frame")
-    x, y, w, h = (float(v) for v in args.box.split(","))
+    try:
+        x, y, w, h = (float(v) for v in args.box.split(","))
+    except ValueError:
+        die("--box is four numbers 0-1: x,y,w,h")
+    if not (w > 0 and h > 0 and 0 <= x < 1 and 0 <= y < 1):
+        die("--box: x,y inside the picture (0-1), w and h above 0")
 
     entry = {"mode": args.mode}
     if args.static:
@@ -109,14 +141,13 @@ def main() -> None:
         keys = [[seg["in"], x, y, w, h], [seg["out"], x, y, w, h]]
         lost = 0
     else:
-        back, _ = frames(seg["source"], seg["in"], at)
-        fwd, fps = frames(seg["source"], at, seg["out"])
-        if not fwd:
-            die("couldn't read the segment's frames")
-        ih = fwd[0].shape[0]
         px = (x * W, y * ih, w * W, h * ih)
-        ahead, l1 = track(fwd, px)
-        behind, l2 = track([fwd[0], *back[::-1]], px) if back else ([px], 0)
+        n_fwd = max(1, round((seg["out"] - at) * fps))
+        n_back = round((at - seg["in"]) * fps)
+        ahead, l1 = track(frames(seg["source"], at, n_fwd, fps, ih), px)
+        # Backwards from --at: those frames are held (only the stretch before --at, usually short).
+        back = [im.copy() for im in frames(seg["source"], at - n_back / fps, n_back, fps, ih)]
+        behind, l2 = track([one(seg["source"], at, fps, ih), *back[::-1]], px) if back else ([px], 0)
         boxes = behind[:0:-1] + ahead          # in time order, from the segment's in
         t0 = at - (len(behind) - 1) / fps
         step = max(1, round(fps / KEY_FPS))
@@ -130,8 +161,7 @@ def main() -> None:
     # The check: the box (as render.py will grow it) on 6 frames across the segment.
     shots = []
     for tt in np.linspace(seg["in"], seg["out"] - 0.05, 6):
-        im = frames(seg["source"], tt, tt + 0.05)[0][0].copy()
-        ih = im.shape[0]
+        im = one(seg["source"], tt, fps, ih)
         kt = [k[0] for k in keys]
         bx, by, bw, bh = (float(np.interp(tt, kt, [k[i] for k in keys])) for i in range(1, 5))
         cv2.rectangle(im, (int((bx - bw * 0.1) * W), int((by - bh * 0.1) * ih)),
@@ -140,7 +170,7 @@ def main() -> None:
         shots.append(im)
     sheet = np.vstack([np.hstack(shots[:3]), np.hstack(shots[3:])])
     out = edl_p.parent / f"redact_{args.segment}.jpg"
-    cv2.imwrite(str(out), sheet)
+    save(out, sheet)
     warn = f" · WARNING: lost it on {lost} frames (kept the last box) — check the sheet" if lost else ""
     print(f"segment {args.segment}: {args.mode} {'fixed' if args.static else f'tracked ({len(keys)} keys)'}"
           f" · check {out}{warn}")

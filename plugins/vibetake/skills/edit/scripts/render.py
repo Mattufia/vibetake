@@ -37,7 +37,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
 from _common import channel_pan, material_index, pre_filter, work_paths  # noqa: E402
-from _timeline import (audio_mode, chapters, is_simple, pieces, play_len, resolve_broll, seg_time, starts,  # noqa: E402
+from _timeline import (audio_mode, chapters, is_simple, jl_cuts, pieces, play_len, resolve_broll, seg_time,  # noqa: E402
+                       starts, transition_dur,
                        signature as timeline_sig, total as timeline_total)
 
 MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
@@ -58,8 +59,21 @@ def chunks(segs: list[dict]) -> list[list[dict]]:
     groups, cur, length = [], [], 0.0
     for s in segs:
         d = seg_time(s)
-        # A transition or a J/L cut joins two segments in one graph: never split there.
-        if cur and (len(cur) >= CHUNK or length + d > CHUNK_S) and not s.get("_tr") and not s.get("_delta"):
+        full = cur and (len(cur) >= CHUNK or length + d > CHUNK_S)
+        # A transition or a J/L cut joins two segments in one graph: split elsewhere if possible,
+        # but never let a pass grow past twice its limits (a dissolve on every cut, J/L everywhere):
+        # then that one cut becomes a straight cut.
+        joined = s.get("_tr") or s.get("_delta")
+        if full and joined and (len(cur) >= 2 * CHUNK or length + d > 2 * CHUNK_S):
+            prev = cur[-1]
+            print(f"WARNING: a long run of transitions/J-L cuts: the cut into segment {segs.index(s)} is played "
+                  "straight so the render can split there")
+            prev["_atail"] -= prev["_post"] + s["_delta"]
+            s["_alead"] -= s["_pre"] - s["_delta"]
+            s.update(_tr=None, _pre=0.0, _delta=0.0)
+            prev["_post"] = 0.0
+            joined = False
+        if full and not joined:
             groups.append(cur)
             cur, length = [], 0.0
         cur.append(s)
@@ -253,8 +267,11 @@ def redact(k: int, seg: dict, lead: float, fps: float, workdir: Path) -> list[st
         m = min(bw, bh)
         fx = (f"scale={max(1, bw * 10 // m)}:{max(1, bh * 10 // m)}:flags=area,scale={bw}:{bh}:flags=neighbor"
               if r.get("mode") == "pixelate" else f"boxblur={max(2, m // 6)}:3")
+        # A tracked box covers the whole segment (past its keys it stays at the edge ones: a re-cut
+        # that lengthens the segment must never uncover what it hides); a from/to box only its span.
+        when = "" if r.get("keys") else f":enable='between(t,{t[0]:.4f},{t[-1]:.4f})'"
         out.append(f"{send}split[rda{n}][rdb{n}];[rdb{n}]crop@rd{n}=w={bw}:h={bh}:x={x0}:y={y0},{fx}[rdc{n}];"
-                   f"[rda{n}][rdc{n}]overlay@rd{n}=x={x0}:y={y0}:enable='between(t,{t[0]:.4f},{t[-1]:.4f})'")
+                   f"[rda{n}][rdc{n}]overlay@rd{n}=x={x0}:y={y0}{when}")
     return out
 
 
@@ -324,7 +341,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
         if seg.get("stabilize"):
             strength = 1.0 if seg["stabilize"] is True else float(seg["stabilize"])
             chain.append(f"vidstabtransform=input='{filter_path(seg['_trf'])}':smoothing={round(10 + 30 * strength)}:"
-                         "optzoom=1:interpol=bicubic" if seg.get("_trf") else "deshake")
+                         "optzoom=1:optalgo=gauss:interpol=bicubic" if seg.get("_trf") else "deshake")
         if rot in (90, 270):
             chain.append(f"transpose={1 if rot == 90 else 2}")
         # The whole picture fitted (fit), framing from reframe.py, or a plain center crop to the output aspect.
@@ -365,10 +382,11 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
         if seg.get("smooth") and any(max(p[2], p[3]) > 1.5 for p in pieces(seg)):
             chain.append("tmix=frames=3")
         chain.append(f"setpts='{remap(seg)}'")
-    chain.append(f"fps={fps}")
     slow = min(min(p[2], p[3]) for p in pieces(seg)) if not simple else v
     if seg.get("smooth") and slow < 0.9:
-        chain.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1")   # in-between frames
+        # In-between frames, before fps would fill the gaps with copies and leave nothing to interpolate.
+        chain.append(f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1")
+    chain.append(f"fps={fps}" if simple else f"fps={fps}:start_time=0")
     end_hold = sum(d for a, d in seg.get("hold", []) if a >= play_len(seg) - 1 / fps)
     chain += [f"tpad=start_mode=clone:start_duration={(lack if simple else pre):.6f}:"
               f"stop_mode=clone:stop_duration={post + end_hold + 0.2:.6f}",
@@ -376,8 +394,8 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     for side in ("in", "out"):
         f = seg.get(f"fade_{side}")
         if f:
-            d = min(float(f.get("dur", 0.5)), dur)
-            st = pre if side == "in" else pre + dur - d - 1 / fps     # the last frame fully faded
+            d = max(min(float(f.get("dur", 0.5)), dur - 1 / fps), 1 / fps)
+            st = pre if side == "in" else max(pre + dur - d - 1 / fps, 0)     # the last frame fully faded
             chain.append(f"fade=t={side}:st={st:.6f}:d={d:.6f}:c={f.get('color', 'black')}")
     chain.append("format=yuv420p")
     v_graph = head + f"{','.join(chain)}[v{k}]"
@@ -389,9 +407,10 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     fades = f"afade=t=in:d={d_in:.6f},afade=t=out:st={max(a_len - d_out, 0):.6f}:d={d_out:.6f}"
     if audio_in:
         mode = audio_mode(seg)
-        tempo = "" if abs(v - 1) < 1e-6 else atempo(v) + "," if mode == "keep" else \
+        # Room tone standing in keeps its own speed and gets no voice effect.
+        tempo = "" if abs(v - 1) < 1e-6 or seg.get("_rt") else atempo(v) + "," if mode == "keep" else \
             f"asetrate={48000 * v:.3f},aresample=48000,"
-        if seg.get("voice"):
+        if seg.get("voice") and not seg.get("_rt"):
             tempo += VOICE.get(seg["voice"], seg["voice"]) + ","
         delay = f"adelay=delays={round(seg['_alack'] * 1000)}:all=1," if seg.get("_alack") else ""
         a = (f"[{audio_in}]{seg['_pan'] + ',' if seg.get('_pan') else ''}aformat=sample_rates=48000:channel_layouts=stereo,"
@@ -478,10 +497,13 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
         for j, (at, pic, mask) in enumerate(fin.get("behind", [])):
             g_inputs += ["-i", pic, "-i", mask]
             put = f"setpts=PTS-STARTPTS+{at:.4f}/TB"
+            # Never over b-roll: the person belongs to the main picture, which the b-roll covers.
+            hide = "+".join(f"between(t,{b['at']:.3f},{b['at'] + b['dur']:.3f})" for b in fin["overlays"])
             graphs += [f"[{nxt_input}:v:0]{look(out.get('look') or {}) or 'null'},format=yuva420p,{put}[pp{j}]",
                        f"[{nxt_input + 1}:v:0]format=gray,scale={out['width']}:{out['height']},tmix=frames=3,{put}[pm{j}]",
                        f"[pp{j}][pm{j}]alphamerge[pa{j}]",
-                       f"[{v_last}][pa{j}]overlay=eof_action=pass:repeatlast=0[vb{j}]"]
+                       f"[{v_last}][pa{j}]overlay=eof_action=pass:repeatlast=0"
+                       f"{f':enable=not({hide})' if hide else ''}[vb{j}]"]
             v_last, nxt_input = f"vb{j}", nxt_input + 2
     if fin.get("subs"):
         fonts = f":fontsdir='{filter_path(fin['fontsdir'])}'" if fin.get("fontsdir") else ""
@@ -536,34 +558,19 @@ def edges(segs: list[dict], fps: float) -> list[str]:
     """Where picture and sound of each segment start and end around its cut: transition handles
     (half the transition on each side, so the timeline doesn't move) and J/L cuts (the sound's cut
     moves, the picture's stays). Returns warnings."""
-    warn = []
     for s in segs:
         s.update(_pre=0.0, _post=0.0, _delta=0.0, _tr=None)
-    durs = [frames(seg_time(s), fps) / fps for s in segs]
+    cuts, warn = jl_cuts(segs, fps)
     for k in range(1, len(segs)):
         s, prev = segs[k], segs[k - 1]
-        tr = s.get("transition")
-        if tr:
-            d = 2 * math.floor(min(float(tr.get("dur", 0.5)), durs[k], durs[k - 1]) * fps / 2) / fps
-            if d > 0:
-                typ = tr.get("type", "dissolve")
-                typ, axis = WHIP.get(typ, (XFADE.get(typ, typ), None))
-                s["_tr"] = (typ, d, axis)
-                s["_pre"] = prev["_post"] = d / 2
-                if s.get("j") or prev.get("l"):
-                    warn.append(f"segment {k}: a transition and a J/L cut on the same cut — the transition wins")
-                continue
-        delta = 0.0
-        for key, owner, room in (("j", s, durs[k - 1]), ("l", prev, durs[k])):
-            x = float(owner.get(key, 0) or 0)
-            if not x:
-                continue
-            if audio_mode(owner) == "mute":
-                warn.append(f"segment {k}: {key.upper()} cut needs a segment that keeps its sound (straight speed) — skipped")
-                continue
-            x = min(x, max(room - 0.1, 0))
-            delta += -x if key == "j" else x
-        s["_delta"] = delta
+        d = transition_dur(segs, k, fps)
+        if d > 0:
+            typ = s["transition"].get("type", "dissolve")
+            typ, axis = WHIP.get(typ, (XFADE.get(typ, typ), None))
+            s["_tr"] = (typ, d, axis)
+            s["_pre"] = prev["_post"] = d / 2
+        j, l_ = cuts[k]
+        s["_delta"] = l_ - j
     for k, s in enumerate(segs):
         s["_alead"] = s["_pre"] - s["_delta"]
         s["_atail"] = s["_post"] + (segs[k + 1]["_delta"] if k + 1 < len(segs) else 0.0)
@@ -582,6 +589,10 @@ def join(segs: list[dict], fps: float, v_out: str, a_out: str, width: int = 1920
         cur, length = None, 0.0
         for gi, g in enumerate(groups):
             lbl = f"{kind}{g[0]}"
+            if len(g) == 1 and kind == "v" and len(groups) > 1:
+                # xfade wants both inputs on one time base: a concat group is on AVTB, a lone segment on 1/fps.
+                graphs.append(f"[{lbl}]settb=AVTB[{kind}t{gi}]")
+                lbl = f"{kind}t{gi}"
             if len(g) > 1:
                 lbl = f"{kind}g{gi}"
                 graphs.append("".join(f"[{kind}{k}]" for k in g) +
@@ -683,6 +694,7 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
             a_win = ["-vn", "-ss", f"{max(a_from, 0):.4f}", "-t", f"{(s['_alead'] + dur + s['_atail']) * v + 0.25:.4f}"]
             if audio_mode(s) == "mute" or not (c or has_audio):
                 # No sound of its own (none recorded, or a speed effect): the room's air, never dead silence.
+                s["_rt"] = bool(rt)
                 if rt:
                     inputs += ["-stream_loop", "-1", "-i", rt]
                     audio_in, idx = f"{idx}:a:0", idx + 1
@@ -948,7 +960,10 @@ def main() -> None:
         tmp.replace(dst)
         meta.unlink()
         from deliver import youtube
-        dst.with_suffix(".chapters.txt").write_text(youtube(chs)[0] + "\n", encoding="utf-8")
+        text, warn = youtube(chs, total)
+        dst.with_suffix(".chapters.txt").write_text(text + "\n", encoding="utf-8")
+        for w in warn:
+            log(f"WARNING: chapters: {w}")
         log(f"chapters: {len(chs)} in the file and in {dst.with_suffix('.chapters.txt').name}")
 
     got = ffprobe(dst)

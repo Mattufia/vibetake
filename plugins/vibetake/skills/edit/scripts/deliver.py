@@ -5,7 +5,7 @@
 """Chapters and GIFs.
 
     uv run deliver.py chapter --line L5 [--word x] --title "Pricing"    # a chapter where L5 is said
-    uv run deliver.py chapter --cut 3 --title "The demo"                # at the cut before segment 3
+    uv run deliver.py chapter --cut 3 --title "The demo"                # at the cut before segment 3 (0-based)
     uv run deliver.py chapters [--clear]          # the list as YouTube wants it (timeline times)
     uv run deliver.py gif [--video f] [--from 12.5] [--to 16] [--width 480] [--fps 15]
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import DELIVERY, deliverable_name, die, ffprobe, run, tool, versions  # noqa: E402
-from _timeline import anchor_from, chapters  # noqa: E402
+from _timeline import anchor_from, chapters, total  # noqa: E402
 
 
 def stamp(t: float) -> str:
@@ -33,11 +33,13 @@ def stamp(t: float) -> str:
     return f"{m // 60}:{m % 60:02d}:{s:02d}" if m >= 60 else f"{m}:{s:02d}"
 
 
-def youtube(chs: list[tuple[float, str]]) -> tuple[str, list[str]]:
-    """The description lines, and what YouTube would refuse (≥3 chapters, ≥10 s each)."""
+def youtube(chs: list[tuple[float, str]], total: float | None = None) -> tuple[str, list[str]]:
+    """The description lines, and what YouTube would refuse (≥3 chapters, ≥10 s each, the last one too)."""
     warn = [] if len(chs) >= 3 else [f"YouTube shows chapters only with 3 or more (there are {len(chs)})"]
     warn += [f"'{b[1]}' starts {b[0] - a[0]:.0f} s after '{a[1]}': YouTube wants 10 s or more"
              for a, b in zip(chs, chs[1:]) if b[0] - a[0] < 10]
+    if chs and total is not None and total - chs[-1][0] < 10:
+        warn.append(f"'{chs[-1][1]}' lasts {total - chs[-1][0]:.0f} s to the end: YouTube wants 10 s or more")
     return "\n".join(f"{stamp(t)} {title}" for t, title in chs), warn
 
 
@@ -65,13 +67,16 @@ def main() -> None:
     if args.cmd == "chapter":
         if not (args.line or args.cut is not None):
             die("--line L5 or --cut N: where the chapter starts")
-        edl.setdefault("chapters", []).append({"title": args.title, "anchor": anchor_from(args, edl)})
+        anchor = anchor_from(args, edl)
+        edl.setdefault("chapters", []).append({"title": args.title, "anchor": anchor})
         edl_p.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
+        if not any(t == args.title for _, t in chapters(edl)):
+            print(f"WARNING: '{args.title}' is anchored to a moment that isn't in the current cut: it won't show")
     if args.cmd in ("chapter", "chapters"):
         if getattr(args, "clear", False):
             edl.pop("chapters", None)
             edl_p.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
-        text, warn = youtube(chapters(edl))
+        text, warn = youtube(chapters(edl), total(edl["segments"], edl["output"]["fps"]))
         print(text or "no chapters")
         for w in warn:
             print(f"WARNING: {w}")

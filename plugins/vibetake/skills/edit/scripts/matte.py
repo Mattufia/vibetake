@@ -21,13 +21,16 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import tool  # noqa: E402  (finds ffmpeg/uv through ~/.vibetake/machine.json when PATH doesn't)
+
 CUDA_WHEELS = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10", "nvidia-cuda-runtime-cu12", "nvidia-cufft-cu12"]
 SIDE = 640           # masks are made at this size (u2net looks at 320 px anyway); render.py scales them up
 
 
 def ensure_cuda_libs() -> None:
     """Same as transcribe.py: with an NVIDIA GPU, run again with the CUDA wheels if they're missing."""
-    if os.environ.get("VIBETAKE_CUDA_REEXEC") or not shutil.which("nvidia-smi") or not shutil.which("uv"):
+    if os.environ.get("VIBETAKE_CUDA_REEXEC") or not shutil.which("nvidia-smi") or not tool("uv", required=False):
         return
     try:
         import nvidia.cublas  # noqa: F401
@@ -36,7 +39,7 @@ def ensure_cuda_libs() -> None:
         return
     except ImportError:
         pass
-    cmd = [shutil.which("uv"), "run"] + [x for w in CUDA_WHEELS for x in ("--with", w)]
+    cmd = [tool("uv"), "run"] + [x for w in CUDA_WHEELS for x in ("--with", w)]
     env = {**os.environ, "VIBETAKE_CUDA_REEXEC": "1"}
     sys.exit(subprocess.run([*cmd, str(Path(__file__).resolve()), *sys.argv[1:]], env=env).returncode)
 
@@ -62,8 +65,8 @@ def main() -> None:
     from PIL import Image
     from rembg import new_session, remove
 
-    ff = shutil.which("ffmpeg") or sys.exit("ffmpeg not found")
-    probe = subprocess.run([shutil.which("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
+    ff = tool("ffmpeg")
+    probe = subprocess.run([tool("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
                             "stream=width,height,avg_frame_rate", "-of", "csv=p=0", args.src],
                            capture_output=True, text=True, check=True).stdout.strip().split(",")
     w, h, rate = int(probe[0]), int(probe[1]), probe[2]

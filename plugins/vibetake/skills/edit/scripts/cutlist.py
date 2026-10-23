@@ -507,13 +507,33 @@ def main() -> None:
             s["track"] = t
     # Time effects, J/L cuts and transitions belong to a piece of the material: a segment that
     # still covers most of the same piece keeps them through the re-cut.
-    kept_fx = 0
-    for sg in segments:
-        olap = lambda p: min(p["out"], sg["out"]) - max(p["in"], sg["in"])  # noqa: E731
-        old = max((p for p in prev_edl.get("segments", []) if p.get("name") == sg["name"]), key=olap, default=None)
-        if old and olap(old) >= 0.5 * (sg["out"] - sg["in"]) and any(k in old for k in CARRY):
-            sg.update({k: old[k] for k in CARRY if k in old})
-            kept_fx += 1
+    # One old segment → at most one new one (the one sharing most of it, at least half of each), so
+    # a segment split in two doesn't fade out or transition twice.
+    kept_fx, taken = 0, {}
+    for old in prev_edl.get("segments", []):
+        if not any(k in old for k in CARRY):
+            continue
+        olap = lambda sg: min(old["out"], sg["out"]) - max(old["in"], sg["in"])  # noqa: E731
+        cands = [i for i, sg in enumerate(segments) if sg["name"] == old.get("name")
+                 and olap(sg) >= 0.5 * max(sg["out"] - sg["in"], old["out"] - old["in"])]
+        if not cands:
+            continue
+        i = max(cands, key=lambda i: olap(segments[i]))
+        if i not in taken or olap(segments[i]) > taken[i][0]:
+            taken[i] = (olap(segments[i]), old)
+    for i, (_, old) in taken.items():
+        sg = segments[i]
+        sg.update({k: old[k] for k in CARRY if k in old})
+        if sg.get("hold") and abs(sg["in"] - old["in"]) > 1e-3 and not sg.get("reverse"):
+            # Freezes sit at a moment of the material: same moment, new start.
+            n = sg["out"] - sg["in"]
+            sg["hold"] = [[round(min(max(a + old["in"] - sg["in"], 0), n), 3), d] for a, d in sg["hold"]]
+        keys = [q[0] for r in sg.get("redact", []) for q in r.get("keys", [])]
+        if keys and (min(keys) > sg["in"] + 0.1 or max(keys) < sg["out"] - 0.1):
+            print(f"WARNING: segment {i + 1} now runs {sg['in']:.2f}–{sg['out']:.2f} s, past its tracked blur "
+                  f"({min(keys):.2f}–{max(keys):.2f} s): the box stays at its edge position there — check it, "
+                  f"or redact.py {i + 1} --box … again")
+        kept_fx += 1
     if kept_fx:
         print(f"kept the time effects / transitions of {kept_fx} segment(s) from the previous edit")
     edl = {"version": 1, "output": {"width": w, "height": h, "fps": first_src.get("fps", 30)},

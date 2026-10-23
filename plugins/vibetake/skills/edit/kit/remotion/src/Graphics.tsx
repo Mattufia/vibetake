@@ -53,7 +53,8 @@ const Stage: React.FC<{ el: El }> = ({ el }) => {
   const pout = end === undefined ? 0 : interpolate(frame, [end - 14, end], [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
   const enter = el.enter ?? "shrink";
-  const p = enter === "cut" ? 1 : Math.max(0, pin - pout);
+  // A cut shows nothing before its frame (elements mount 2 frames early) and nothing from `until` on.
+  const p = enter === "cut" ? (frame >= start && (end === undefined || frame < end) ? 1 : 0) : Math.max(0, pin - pout);
   const sizePx = (el.size ?? 0.05) * H;
   const f = el.footage === false ? null : { x: 0.5, y: 0.5, width: 0.7, height: 0.7, ...(el.footage ?? {}) };
   const k = enter === "shrink" ? p : 1;

@@ -18,7 +18,8 @@ import math
 #   transition {"type": "dissolve"|xfade name, "dur": s}: from the previous segment, centered on the cut
 #   fade_in, fade_out  {"dur": s, "color": "black"|"white"|"#hex"}: picture and sound
 TIMING = ("speed", "hold", "reverse", "loop", "boomerang", "audio", "smooth", "j", "l")
-CARRY = TIMING + ("transition", "fade_in", "fade_out", "stabilize", "fit", "flip", "rotate", "key", "redact", "voice")
+CARRY = TIMING + ("transition", "fade_in", "fade_out", "stabilize", "fit", "flip", "rotate", "key", "redact", "voice",
+                  "pip", "split", "behind")
 
 
 def play_len(seg: dict) -> float:
@@ -76,7 +77,7 @@ def is_simple(seg: dict) -> bool:
 def src_to_seg(seg: dict, time: float) -> float:
     """Seconds into the segment where a moment of its source is first seen."""
     rel = time - seg["in"]
-    if seg.get("reverse"):
+    if seg.get("reverse") and rel > 1e-6:      # its first moment = the cut into it (an anchor --cut N)
         rel = (seg["out"] - seg["in"]) - rel
     return play_to_seg(seg, rel)
 
@@ -126,6 +127,59 @@ def total(segs: list[dict], fps: float) -> float:
 EDGE_SLACK = 0.3     # how far outside a cut a word timestamp can sit and still belong to it
 
 
+def transition_dur(segs: list[dict], k: int, fps: float) -> float:
+    """Length of the transition into segment k (0 = a straight cut): whole frames, even, and no
+    longer than either segment."""
+    tr = segs[k].get("transition") if k else None
+    if not tr:
+        return 0.0
+    d = min(float(tr.get("dur", 0.5)), seg_frames(segs[k], fps) / fps, seg_frames(segs[k - 1], fps) / fps)
+    return 2 * math.floor(d * fps / 2) / fps
+
+
+def jl_cuts(segs: list[dict], fps: float) -> tuple[list[tuple[float, float]], list[str]]:
+    """The J and L cuts as they're really played, per cut k (before segment k): (j, l) in seconds
+    of the timeline. A cut with a transition has none; a segment that doesn't keep its sound
+    can't lend it; each segment keeps at least 0.1 s of its own sound, even when an L eats its
+    start and a J its end. render.py, subtitles and anchors all use this. Returns warnings too."""
+    n = len(segs)
+    durs = [seg_frames(s, fps) / fps for s in segs]
+    out, warn, eaten = [(0.0, 0.0)] * n, [], [0.0] * n
+    for k in range(1, n):
+        s, prev = segs[k], segs[k - 1]
+        if transition_dur(segs, k, fps) > 0:
+            if s.get("j") or prev.get("l"):
+                warn.append(f"segment {k}: a transition and a J/L cut on the same cut — the transition wins")
+            continue
+        jl = []
+        for key, owner, room in (("j", s, durs[k - 1] - eaten[k - 1]), ("l", prev, durs[k])):
+            x = float(owner.get(key, 0) or 0)
+            if x and audio_mode(owner) == "mute":
+                warn.append(f"segment {k}: {key.upper()} cut needs a segment that keeps its sound (straight speed) — skipped")
+                x = 0.0
+            jl.append(min(max(x, 0.0), max(room - 0.1, 0.0)))
+        out[k] = (jl[0], jl[1])
+        eaten[k] = jl[1]
+    for k in (0, n - 1):
+        key = "j" if k == 0 else "l"
+        if segs[k].get(key):
+            warn.append(f"segment {k}: {'a J on the first' if k == 0 else 'an L on the last'} segment has nothing "
+                        "to run under — skipped")
+    return out, warn
+
+
+def sound_windows(segs: list[dict], fps: float) -> list[tuple[float, float]]:
+    """The source stretch of each segment's sound that is heard (J/L cuts move its ends off the picture's)."""
+    cuts, _ = jl_cuts(segs, fps)
+    out = []
+    for k, s in enumerate(segs):
+        v = float(s.get("speed", 1)) if is_simple(s) else 1.0
+        j, l_in = cuts[k]
+        j_next, l_out = cuts[k + 1] if k + 1 < len(segs) else (0.0, 0.0)
+        out.append((s["in"] - (j - l_in) * v, s["out"] + (l_out - j_next) * v))
+    return out
+
+
 def to_timeline(segs: list[dict], fps: float, name: str, time: float) -> float | None:
     """Where a moment of a source file lands in the edit. A moment used twice (a cold open
     repeated later) maps to its regular place, not the hook. None if it was cut out."""
@@ -133,10 +187,10 @@ def to_timeline(segs: list[dict], fps: float, name: str, time: float) -> float |
     hits = [(s.get("role") == "hook", t0[i] + src_to_seg(s, time)) for i, s in enumerate(segs)
             if s.get("name") == name and s["in"] - 1e-3 <= time <= s["out"] + 1e-3]
     # J and L cuts: the sound around a simple segment is heard over its neighbors' picture.
+    win = sound_windows(segs, fps)
     hits += [(s.get("role") == "hook", t0[i] + (time - s["in"]) / float(s.get("speed", 1)))
              for i, s in enumerate(segs) if s.get("name") == name and is_simple(s) and audio_mode(s) != "mute"
-             and (s["in"] - s.get("j", 0) * float(s.get("speed", 1)) - 1e-3 <= time < s["in"] - 1e-3
-                  or s["out"] + 1e-3 < time <= s["out"] + s.get("l", 0) * float(s.get("speed", 1)) + 1e-3)]
+             and (win[i][0] - 1e-3 <= time < s["in"] - 1e-3 or s["out"] + 1e-3 < time <= win[i][1] + 1e-3)]
     if not hits:
         # Cuts sit on the real audio, word timestamps can sit a little outside them: a moment
         # just before a segment's start (or after its end) belongs to that segment's edge.
@@ -188,11 +242,13 @@ def signature(edl: dict) -> str:
 
 
 def word_key(t: str) -> str:
-    """A word reduced to letters and digits, without accents or case: 'Ventas,' == 'ventas'."""
+    """A word reduced to letters and digits, without accents or case: 'Ventas,' == 'ventas'.
+    The ñ stays a letter of its own ('año' isn't 'ano')."""
     import re
     import unicodedata
     t = unicodedata.normalize("NFD", t.lower())
-    return re.sub(r"[^\w]", "", "".join(c for c in t if unicodedata.category(c) != "Mn"))
+    t = "".join(c for i, c in enumerate(t) if unicodedata.category(c) != "Mn" or (c == "̃" and i and t[i - 1] == "n"))
+    return re.sub(r"[^\w]", "", unicodedata.normalize("NFC", t))
 
 
 def chapters(edl: dict) -> list[tuple[float, str]]:
@@ -207,7 +263,8 @@ def chapters(edl: dict) -> list[tuple[float, str]]:
 def bleeped(word: str, patterns: list[str]) -> bool:
     """Whether a word is on edl.json's "bleep" list (accents and case ignored; "put*" = any word starting so)."""
     k = word_key(word)
-    return bool(k) and any(k == word_key(p) or (p.endswith("*") and k.startswith(word_key(p))) for p in patterns)
+    return bool(k) and any(word_key(p) and (k == word_key(p) or (p.endswith("*") and k.startswith(word_key(p))))
+                           for p in patterns)
 
 
 def anchor_from(args, edl: dict) -> dict:

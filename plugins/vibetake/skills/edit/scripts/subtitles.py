@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (CLAUSE_END, DELIVERY, SENTENCE_END, deliverable_name, die, project_font,  # noqa: E402
                      tool, wcag_luminance, work_paths, writing)
-from _timeline import audio_mode, bleeped, seg_time, seg_to_src, signature, starts  # noqa: E402
+from _timeline import audio_mode, bleeped, seg_time, seg_to_src, signature, sound_windows, starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
@@ -59,6 +59,7 @@ def luminance(hex_: str) -> float:
 def timeline_words(edl: dict, tr: dict) -> list[dict]:
     fps = edl["output"]["fps"]
     t0 = starts(edl["segments"], fps)
+    win = sound_windows(edl["segments"], fps)
     words = {n: sorted((w for s in f["segments"] for w in s["words"]), key=lambda w: w["start"])
              for n, f in tr["files"].items()}
     out = []
@@ -74,8 +75,13 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
             chosen = ws[a:b + 1]
         else:
             chosen = [w for w in ws if s["in"] - 1e-3 <= w["start"] and w["end"] <= s["out"] + 1e-3]
-        # J/L cuts: words said in the stretch of sound heard before or after the picture.
-        lo, hi = s["in"] - s.get("j", 0) * v, s["out"] + s.get("l", 0) * v
+        # J/L cuts: words said in the stretch of sound heard before or after the picture; and the
+        # words a neighbor's J/L covers aren't heard, so they aren't captioned either.
+        lo, hi = win[k]
+        if hi < s["out"] - 1e-3:
+            chosen = [w for w in chosen if w["start"] < hi - 0.05]
+        if lo > s["in"] + 1e-3:
+            chosen = [w for w in chosen if w["end"] > lo + 0.05]
         extra = [w for w in ws if w not in chosen and (lo - 1e-3 <= w["start"] < s["in"] - 1e-3
                                                        or s["out"] + 1e-3 < w["end"] <= hi + 1e-3)]
         chosen = sorted(chosen + extra, key=lambda w: w["start"])
@@ -91,7 +97,7 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
             out.append({"text": text, "t": round(t0[k] + (st - s["in"]) / v, 3),
                         "end": round(t0[k] + (en - s["in"]) / v, 3), "seg": k, "src": w["start"],
                         **({"bleep": True} if hit else {})})
-    return out
+    return sorted(out, key=lambda w: w["t"])
 
 
 def srt_cues(words: list[dict]) -> list[dict]:
