@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import (CLAUSE_END, DELIVERY, SENTENCE_END, deliverable_name, die, project_font,  # noqa: E402
                      tool, wcag_luminance, work_paths, writing)
 from _timeline import audio_mode, bleeped, seg_time, seg_to_src, signature, sound_windows, starts  # noqa: E402
+from _timeline import total as timeline_total  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
@@ -100,7 +101,7 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
     return sorted(out, key=lambda w: w["t"])
 
 
-def srt_cues(words: list[dict]) -> list[dict]:
+def srt_cues(words: list[dict], total: float | None = None) -> list[dict]:
     cues, cur = [], []
     for i, w in enumerate(words):
         cur.append(w)
@@ -111,7 +112,7 @@ def srt_cues(words: list[dict]) -> list[dict]:
             cues.append({"start": cur[0]["t"], "end": w["end"], "text": text})
             cur = []
     for i, c in enumerate(cues):
-        limit = cues[i + 1]["start"] - 0.04 if i + 1 < len(cues) else c["end"] + 2
+        limit = cues[i + 1]["start"] - 0.04 if i + 1 < len(cues) else min(c["end"] + 2, total or float("inf"))
         need = max(1.0, len(c["text"]) / WR["cps"])                # ≥1 s, within the reading speed
         c["end"] = round(min(max(c["end"], c["start"] + need), limit, c["start"] + 7), 3)
         c["lines"] = wrap(c["text"], WR["line"])
@@ -272,7 +273,7 @@ def main() -> None:
                 "system fonts aren't used")
         args.font = pf["name"]
 
-    cues = srt_cues(words)
+    cues = srt_cues(words, timeline_total(edl["segments"], edl["output"]["fps"]))
     srt = Path(args.srt) if args.srt else DELIVERY / (f"{deliverable_name(edl)}"
                                                       f"{'_' + args.variant if args.variant else ''}.srt")
     srt.parent.mkdir(parents=True, exist_ok=True)

@@ -173,6 +173,8 @@ uv run tests/test_stage.py        # composition: the edit placed in a stage, fra
 uv run tests/test_timing.py       # speed, ramps, freezes, reverse, boomerang, J/L cuts, transitions, fades: frame by frame
 uv run tests/test_effects_edges.py # transitions beside straight cuts, L+J on one segment, freeze at 0, smooth, J/L as played
 uv run tests/test_montage.py       # montage to music: moments, cuts on the beat, shorter shots when loud, blocks around speech
+uv run tests/test_shorts.py        # shorts from a long video: ranges without retakes, hook, own cut/captions/render, QA per short
+uv run tests/test_translate.py     # translated .srt: same timing, too-fast and too-long cues flagged, CJK without spaces
 uv run tests/test_look.py         # fit over a blurred copy, flip/rotate/tilt, chroma key, tracked blur boxes, stabilization, look
 uv run tests/test_audio_fx.py     # bleeped words (beep/mute, starred subs), beat tracking, voice effects, chapters in the MP4, GIF
 uv run tests/test_compose.py      # whip/push transitions, picture-in-picture, split screen, graphics behind the person

@@ -311,6 +311,11 @@ def main() -> None:
             break
     if Path(args.out).exists():
         prev = prev_edl.get("params", {})
+    elif args.variant and Path("02-work/shorts.json").exists() and any(
+            s["name"] == args.variant for s in json.loads(Path("02-work/shorts.json").read_text(encoding="utf-8"))["shorts"]):
+        # A short (shorts.py) is its own video: not the long one's chapters or montage block.
+        prev_edl = {k: v for k, v in prev_edl.items() if k not in ("chapters", "montage")}
+        prev_edl["music"] = [mu for mu in prev_edl.get("music", []) if mu.get("block") != "montage"]
     keep_given = args.keep is not None
     for k, v in DEFAULTS.items():
         if getattr(args, k) is None:

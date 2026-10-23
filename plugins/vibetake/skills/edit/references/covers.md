@@ -53,6 +53,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py preview               # at real size
    tokens (`font()`, `color()`), the project's icons, inline SVG drawn for the cover,
    CSS of any kind. Lay it out per platform (vertical and 16:9 are different
    compositions, not a resize).
+   A short (`shorts.py`) gets its own concepts in the same file: `"short": "<name>"` (and its
+   own `"platforms"` if they differ) → `cover_<name>_<platform>_<n>.jpg`; `candidates
+   --variant <name>` and `preview --variant <name>` work on that short.
 4. **Look at them** at real size (`preview`) and as a viewer — balance, layering, does each read in under
    a second, is the face big and expressive, does it stand out next to others, is
    anything cut by the grid. `render` already warns when there's no face, the face is

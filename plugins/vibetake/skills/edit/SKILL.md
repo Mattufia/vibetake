@@ -359,16 +359,17 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --engine ass  # burned by render
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
   characters per second, 1–7 s (Latin; Chinese, Japanese, Korean, Thai and right-to-left
   scripts use their own limits, from the language) — platforms use it even when burned in.
-- **Burned-in (`highlight`)**: groups of 2–3 words, white with a black outline, the
-  word being said in the design's accent (a dark accent gets a light outline, same
-  thickness); `sentence` for sober types. Change them with the script's options,
-  never by editing `subs.ass` by hand. In the
-  project's caption font (design.json / fonts.py) — never a system font.
-- **Never over the face, always inside the safe zone**: low by default, below or
-  above the face when it's there, just under the mouth if the face fills the frame
-  (the chin can be covered, mouth and eyes never). It warns when it can't.
+- **Burned-in (`highlight`)**: groups of 2–3 words, white with a black outline, the word being
+  said in the design's accent (a dark accent gets a light outline); `sentence` for sober types.
+  Change them with the script's options, never by editing `subs.ass`. In the project's caption
+  font (design.json / fonts.py) — never a system font.
+- **Never over the face, always inside the safe zone**: low by default, below or above the face,
+  just under the mouth if the face fills the frame (mouth and eyes never). It warns when it can't.
 - **Check by ear the names, brands and numbers it lists**: that's where every model
   fails; the glossary prevents most of it, not all.
+- **Another language** (asked, or an audience abroad): `translate.py export --to en`, you
+  translate every cue in `02-work/translate_en.json`, `translate.py apply --to en` →
+  `<video>.en.srt`, same timing; condense what it flags as too fast.
 
 ## 7. Graphics over the video
 
@@ -453,14 +454,13 @@ Always in `03-delivery`: **the video, the `.srt`** (even if subtitles are burned
 in: YouTube and Meta use it for accessibility and index it), **the covers and the
 copy to publish with**.
 
-- **Video: versioned, never overwritten.** Each master is `<name>_v<N>.mp4`; every
-  round of changes is a new version. `render.py --overwrite` only to fix the
-  latest before it was delivered (a QA FAIL). The `.srt`, covers and copy are one
-  per project and are overwritten. Other formats and alternative hooks are
-  variants of the same version: **the same `--variant <v>` on every step** —
-  `cutlist.py`, `reframe.py`, `subtitles.py`, `graphics.py cues|render`, `render.py`,
-  `qa.py` — so each has its own cut, framing, captions (and `.srt`) and graphics
-  layer, never the main video's; a line in the delivery saying what differs.
+- **Video: versioned, never overwritten.** Each master is `<name>_v<N>.mp4`; every round of
+  changes is a new version (`render.py --overwrite` only to fix the latest before delivery). The
+  `.srt`, covers and copy are overwritten. Other formats and alternative hooks are variants:
+  **the same `--variant <v>` on every step** (`cutlist`, `reframe`, `subtitles`, `graphics
+  cues|render`, `render`, `qa`), each with its own cut, framing, captions and layer.
+- **Several shorts from a long video**: `shorts.py` — each a variant with its own hook, cover
+  and copy: **`${CLAUDE_SKILL_DIR}/references/shorts.md`**.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
   past ~5 minutes (`deliver.py chapter`); a GIF when asked (`deliver.py gif`).

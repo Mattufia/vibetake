@@ -97,7 +97,7 @@ def cmd_candidates(args) -> None:
     faces = json.loads((ing / "faces.json").read_text(encoding="utf-8"))["files"] if (ing / "faces.json").exists() \
         else {}
     material = {m["name"]: m for m in json.loads((ing / "material.json").read_text(encoding="utf-8"))["files"]}
-    edl_p = Path("02-work/edl.json")
+    edl_p = Path(f"02-work/edl_{args.variant}.json" if args.variant else "02-work/edl.json")
     spans = {}
     if edl_p.exists():
         for sg in json.loads(edl_p.read_text(encoding="utf-8"))["segments"]:
@@ -272,15 +272,19 @@ def cmd_render(args) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path("02-work/covers")
     work.mkdir(parents=True, exist_ok=True)
-    for n, c in enumerate(concepts, 1):
-        for pl in platforms:
+    count: dict = {}
+    for c in concepts:
+        # A short's concepts (shorts.py) → cover_<short>_<platform>_<n>.jpg, numbered per short.
+        tag = c.get("short") or ""
+        count[tag] = n = count.get(tag, 0) + 1
+        for pl in c.get("platforms") or platforms:
             png = (work / f"render_{c['id']}_{pl}.png").resolve()
             p = subprocess.run(graphics.remotion("still", f"Cover-{c['id']}-{pl}", str(png), "--image-format=png",
                                                  "--log=error"), cwd=graphics.PROJ)
             if p.returncode or not png.exists():
                 die(f"concept {c['id']} ({pl}) didn't render (see above)")
             img = Image.open(png).convert("RGB")
-            dst = out_dir / f"cover_{pl}_{n}.jpg"
+            dst = out_dir / f"cover_{tag + '_' if tag else ''}{pl}_{n}.jpg"
             q = 92
             img.save(dst, quality=q, optimize=True)
             while pl == "youtube" and dst.stat().st_size > 2_000_000 and q > 60:     # YouTube's 2 MB limit
@@ -289,7 +293,7 @@ def cmd_render(args) -> None:
             (_, core, avoid) = PLATFORMS[pl]
             W, H = img.size
             guides(img, (core[0] * W, core[1] * H, core[2] * W, core[3] * H), avoid).save(
-                work / f"cover_{pl}_{n}.guides.jpg", quality=85)
+                work / f"cover_{tag + '_' if tag else ''}{pl}_{n}.guides.jpg", quality=85)
             print(f"{dst}  ·  concept {c['id']}: {c.get('idea', '')}")
             if not c.get("no_person"):
                 for prob in face_check(dst, pl):
@@ -314,7 +318,7 @@ def cmd_preview(args) -> None:
         print("WARNING: the video's design (design.json) changed after the covers were rendered: cover.py render again")
     made = []
     for pl in ("reels", "tiktok", "shorts", "youtube"):
-        files = sorted(Path(args.out_dir).glob(f"cover_{pl}_*.jpg"))
+        files = sorted(Path(args.out_dir).glob(f"cover_{args.variant + '_' if args.variant else ''}{pl}_*.jpg"))
         if not files:
             continue
         if pl == "youtube":
@@ -342,7 +346,7 @@ def cmd_preview(args) -> None:
                     canvas.paste(im.crop((0, top, W, H - top)).resize((cw, chh), Image.LANCZOS), (x, y))
                 else:
                     d.rectangle((x, y, x + cw, y + chh), fill=(38, 38, 38))
-        dst = out / f"preview_{pl}.png"
+        dst = out / f"preview_{args.variant + '_' if args.variant else ''}{pl}.png"
         canvas.save(dst)
         made.append(dst)
         print(f"{dst}  (look at it the size a phone shows it: does each read in a second?)")
@@ -357,6 +361,7 @@ def main() -> None:
     c = sub.add_parser("candidates")
     c.add_argument("--n", type=int, default=12)
     c.add_argument("--spacing", type=float, default=1.5, help="seconds between picks from the same file")
+    c.add_argument("--variant", help="a short or variant: frames from its own cut")
     k = sub.add_parser("cutout")
     k.add_argument("--time", type=float, required=True)
     k.add_argument("--video")
@@ -364,6 +369,7 @@ def main() -> None:
     r.add_argument("--out-dir", default="03-delivery")
     pv = sub.add_parser("preview")
     pv.add_argument("--out-dir", default="03-delivery")
+    pv.add_argument("--variant", help="a short's covers (cover_<name>_…)")
     args = ap.parse_args()
     {"candidates": cmd_candidates, "cutout": cmd_cutout, "render": cmd_render,
      "preview": cmd_preview}[args.cmd](args)

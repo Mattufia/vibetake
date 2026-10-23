@@ -26,7 +26,7 @@ export const Root: React.FC = () => (
       durationInFrames={Math.max(1, cues.frames)} schema={z.object({ captionStyle: captionStyleSchema })}
       defaultProps={{ captionStyle: { animation: "pop", yShift: 0, scale: 1, highlightColor: "", textColor: "", box: false, upper: false } }} />
     {((coverPlan as any).concepts ?? []).flatMap((c: any) =>
-      ((coverPlan as any).platforms ?? []).map((pl: Platform) => {
+      (c.platforms ?? (coverPlan as any).platforms ?? []).map((pl: Platform) => {
         const size = COVER_SIZES[pl];
         return (
           <Still key={`${c.id}-${pl}`} id={`Cover-${c.id}-${pl}`} component={CoverHost as any}

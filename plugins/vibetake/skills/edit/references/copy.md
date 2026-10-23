@@ -38,6 +38,8 @@ A call to action: comment, save, follow.
   3, or one under 10 s, the last one included); the first shows at 0:00.
   render.py writes them into the MP4 and into `<video>.chapters.txt`: paste that into
   the description.
+- **Shorts** (`shorts.py`): each its own `copy_<name>.txt`, same sections, written for that
+  short — its hook, its idea; `qa.py --variant <name>` checks it.
 - **Hashtags**: specific to the topic and the audience; no generic filler (#fyp,
   #viral).
 - No claims the video doesn't make; nothing that needs a disclaimer the video doesn't

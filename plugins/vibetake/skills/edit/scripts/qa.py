@@ -309,7 +309,10 @@ def main() -> None:
     args.edl, args.subs = args.edl or str(paths["edl"]), args.subs or str(paths["subs"])
     video = Path(args.video) if args.video else (latest_video() or DELIVERY / "edit.mp4")
     if args.variant and not args.video:
-        video = video.with_name(f"{video.stem}_{args.variant}.mp4")
+        # The variant's latest version (a short can exist before the long video is rendered).
+        own = sorted(DELIVERY.glob(f"*_v*_{args.variant}.mp4"),
+                     key=lambda p: int((re.search(r"_v(\d+)_", p.name) or [0, 0])[1]))
+        video = own[-1] if own else video.with_name(f"{video.stem}_{args.variant}.mp4")
     if not video.exists():
         sys.exit(f"ERROR: {video} not found")
     r = Report()
@@ -447,7 +450,7 @@ def main() -> None:
     for p in args.platform:
         if p not in COVER_SIZES:
             continue
-        mine = sorted(video.parent.glob(f"cover_{p}_*.jpg"))
+        mine = sorted(video.parent.glob(f"cover_{args.variant + '_' if args.variant else ''}{p}_*.jpg"))
         r.ok(len(mine) >= 3, f"{p}: covers", f"{len(mine)} (three concepts expected; cover.py render)", "WARN")
         for c in mine:
             w, h = image_size(c)
@@ -457,7 +460,8 @@ def main() -> None:
                 r.ok(c.stat().st_size <= 2_000_000, f"{p}: {c.name} weight",
                      f"{c.stat().st_size / 1e6:.2f} MB (YouTube's limit is 2 MB)")
 
-    check_copy(video.parent / "copy.txt", args.platform, vd, r)
+    own = video.parent / f"copy_{args.variant}.txt" if args.variant else None
+    check_copy(own if own and own.exists() else video.parent / "copy.txt", args.platform, vd, r)
     if not args.no_listen and edl:
         listen(video, edl, Path(args.ingest), args.lang, r)
 
