@@ -371,7 +371,14 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   informal videos; a real track for scripted, brand or music-driven ones. **Never
   anything the user can't publish**; third-party material (music, effects, stock,
   fonts) free-licensed, source and license in `project.md`. Where from, licenses:
-  **`${CLAUDE_SKILL_DIR}/references/music.md`**.
+  **`${CLAUDE_SKILL_DIR}/references/music.md`**. Cutting on the beat:
+  `audio.py beats --file <track>` (tempo, beats, bars; same reference).
+- **A voice effect on a segment**: `"voice": "phone|radio|megaphone|echo|hall|robot|deep|high|whisper"`
+  (a call, a flashback, a gag, a disguised voice), or any ffmpeg audio filter chain.
+- **Censor words**: `edl.json` `"bleep": {"words": ["puta*", "boludo"], "sound": "beep|mute"}`
+  (accents and case ignored; `*` = any ending). render.py beeps or silences each
+  time they're said (from the transcript, so it follows re-cuts), subtitles star them.
+  Check by ear: a word the transcript missed isn't bleeped.
 
 ## 6. Subtitles
 
@@ -503,7 +510,11 @@ copy to publish with**.
   layer, never the main video's; a line in the delivery saying what differs.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
-  past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
+  past ~5 minutes (`deliver.py chapter`: render.py writes them into the MP4 and
+  `<video>.chapters.txt`). **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
+- **A GIF** when asked (a reaction, a preview for a README or a chat):
+  `uv run ${CLAUDE_SKILL_DIR}/scripts/deliver.py gif --from 12.5 --to 16 [--width 480]`
+  — a stretch of the latest version, looping; keep it under ~10 s.
 
 **Covers: three different concepts, one file per platform**, each a free canvas
 designed for this video (not one layout with three texts), the person cut out by

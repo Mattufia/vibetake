@@ -18,7 +18,7 @@ import math
 #   transition {"type": "dissolve"|xfade name, "dur": s}: from the previous segment, centered on the cut
 #   fade_in, fade_out  {"dur": s, "color": "black"|"white"|"#hex"}: picture and sound
 TIMING = ("speed", "hold", "reverse", "loop", "boomerang", "audio", "smooth", "j", "l")
-CARRY = TIMING + ("transition", "fade_in", "fade_out", "stabilize", "fit", "flip", "rotate", "key", "redact")
+CARRY = TIMING + ("transition", "fade_in", "fade_out", "stabilize", "fit", "flip", "rotate", "key", "redact", "voice")
 
 
 def play_len(seg: dict) -> float:
@@ -193,6 +193,21 @@ def word_key(t: str) -> str:
     import unicodedata
     t = unicodedata.normalize("NFD", t.lower())
     return re.sub(r"[^\w]", "", "".join(c for c in t if unicodedata.category(c) != "Mn"))
+
+
+def chapters(edl: dict) -> list[tuple[float, str]]:
+    """edl.json's chapters on the timeline, in order (deliver.py chapter adds them, anchored to the
+    source so re-cuts move them along); the first one shown at 0:00. Cut-out anchors are dropped."""
+    fps = edl["output"]["fps"]
+    out = sorted((t, c["title"]) for c in edl.get("chapters", [])
+                 for t in [to_timeline(edl["segments"], fps, c["anchor"]["name"], c["anchor"]["time"])] if t is not None)
+    return [(0.0, out[0][1]), *out[1:]] if out else []
+
+
+def bleeped(word: str, patterns: list[str]) -> bool:
+    """Whether a word is on edl.json's "bleep" list (accents and case ignored; "put*" = any word starting so)."""
+    k = word_key(word)
+    return bool(k) and any(k == word_key(p) or (p.endswith("*") and k.startswith(word_key(p))) for p in patterns)
 
 
 def anchor_from(args, edl: dict) -> dict:

@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (CLAUSE_END, DELIVERY, SENTENCE_END, deliverable_name, die, project_font,  # noqa: E402
                      tool, wcag_luminance, work_paths, writing)
-from _timeline import audio_mode, seg_time, seg_to_src, signature, starts  # noqa: E402
+from _timeline import audio_mode, bleeped, seg_time, seg_to_src, signature, starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
@@ -82,8 +82,15 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
         for w in chosen:
             st = min(max(w["start"], lo), hi)
             en = min(max(w["end"], st), hi)
-            out.append({"text": w["word"].strip(), "t": round(t0[k] + (st - s["in"]) / v, 3),
-                        "end": round(t0[k] + (en - s["in"]) / v, 3), "seg": k, "src": w["start"]})
+            text = w["word"].strip()
+            hit = bleeped(text, edl.get("bleep", {}).get("words", []))
+            if hit:
+                # Censored: the first letter, then stars (punctuation kept).
+                text = re.sub(r"\w", "*", text)
+                text = text.replace("*", next((c for c in w["word"].strip() if c.isalnum()), "*"), 1)
+            out.append({"text": text, "t": round(t0[k] + (st - s["in"]) / v, 3),
+                        "end": round(t0[k] + (en - s["in"]) / v, 3), "seg": k, "src": w["start"],
+                        **({"bleep": True} if hit else {})})
     return out
 
 

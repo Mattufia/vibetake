@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
 from _common import channel_pan, material_index, pre_filter, work_paths  # noqa: E402
-from _timeline import (audio_mode, is_simple, pieces, play_len, resolve_broll, seg_time,  # noqa: E402
+from _timeline import (audio_mode, chapters, is_simple, pieces, play_len, resolve_broll, seg_time,  # noqa: E402
                        signature as timeline_sig, total as timeline_total)
 
 MATERIAL: dict = {}      # material.json by file name: HDR material without a grade still gets tone-mapped
@@ -193,6 +193,24 @@ def atempo(v: float) -> str:
         out.append("atempo=0.5")
         v /= 0.5
     return ",".join(out + [f"atempo={v:.6f}"])
+
+
+def pitch(semitones: float) -> str:
+    r = 2 ** (semitones / 12)
+    return f"asetrate={48000 * r:.1f},aresample=48000,{atempo(1 / r)}"
+
+
+VOICE = {        # "voice" of a segment; anything else is taken as an ffmpeg audio filter chain
+    "phone": "highpass=f=300,lowpass=f=3400,acrusher=bits=10:mix=0.3,volume=1.5",
+    "radio": "highpass=f=200,lowpass=f=5000,acompressor=threshold=0.1:ratio=6:makeup=2",
+    "megaphone": "highpass=f=500,lowpass=f=4000,acrusher=bits=6:mix=0.4,volume=1.4",
+    "echo": "aecho=0.8:0.7:180|360:0.4|0.2",
+    "hall": "aecho=0.8:0.85:40|70|110|160:0.35|0.3|0.25|0.2",
+    "robot": "afftfilt=real='hypot(re,im)*sin(0)':imag='hypot(re,im)*cos(0)':win_size=512:overlap=0.75",
+    "deep": pitch(-4),
+    "high": pitch(5),
+    "whisper": "afftfilt=real='hypot(re,im)*cos((random(0)*2-1)*2*3.14)':imag='hypot(re,im)*sin((random(1)*2-1)*2*3.14)':win_size=128:overlap=0.8",
+}
 
 
 _FILTERS: set | None = None
@@ -373,6 +391,8 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
         mode = audio_mode(seg)
         tempo = "" if abs(v - 1) < 1e-6 else atempo(v) + "," if mode == "keep" else \
             f"asetrate={48000 * v:.3f},aresample=48000,"
+        if seg.get("voice"):
+            tempo += VOICE.get(seg["voice"], seg["voice"]) + ","
         delay = f"adelay=delays={round(seg['_alack'] * 1000)}:all=1," if seg.get("_alack") else ""
         a = (f"[{audio_in}]{seg['_pan'] + ',' if seg.get('_pan') else ''}aformat=sample_rates=48000:channel_layouts=stereo,"
              f"{tempo}{delay}apad,atrim=duration={a_len:.6f},asetpts=PTS-STARTPTS,{fades}[a{k}]")
@@ -427,6 +447,16 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
         graphs.append(f"[{v_last}]subtitles=filename='{filter_path(fin['subs'])}'{fonts}[vs]")
         v_last = "vs"
     graphs.append(f"[{v_last}]null[v]")
+    bl = fin.get("bleep")
+    if bl:
+        # Censored words: the voice silenced over them, a 1 kHz tone in its place (or nothing).
+        e = "+".join(f"between(t,{x:.3f},{y:.3f})" for x, y in bl["spans"])
+        graphs.append(f"[{a}]volume=0:enable='{e}'[bmute]")
+        a = "bmute"
+        if bl["sound"] == "beep":
+            graphs += [f"aevalsrc='0.2*sin(2*PI*1000*t)*({e})':s=48000:c=stereo:d={fin['total']:.3f}[btone]",
+                       "[bmute][btone]amix=inputs=2:normalize=0:duration=first[bleeped]"]
+            a = "bleeped"
     graphs.append(f"[{a}]{BUS}[voice]")
     m_inputs, m_graphs, a_last = music_graph(nxt_input, "voice", fin["music"], fin["total"])
     graphs += m_graphs
@@ -436,6 +466,21 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
         a_last = "withsfx"
     graphs.append(f"[{a_last}]anull[a]")
     return b_inputs + g_inputs + m_inputs + s_inputs, graphs
+
+
+def bleep_spans(edl: dict, segs: list[dict]) -> dict | None:
+    """Timeline spans of the words on edl.json's "bleep" list (subtitles show them starred)."""
+    bl = edl.get("bleep")
+    tr_p = Path("01-ingest/transcript.json")
+    if not (bl and bl.get("words")):
+        return None
+    if not tr_p.exists():
+        print("WARNING: bleep: no 01-ingest/transcript.json — nothing censored")
+        return None
+    from subtitles import timeline_words
+    words = timeline_words({**edl, "segments": segs}, json.loads(tr_p.read_text(encoding="utf-8")))
+    spans = [(max(w["t"] - 0.04, 0), w["end"] + 0.04) for w in words if w.get("bleep")]
+    return {"spans": spans, "sound": bl.get("sound", "beep")} if spans else None
 
 
 XFADE = {"dissolve": "fade", "crossfade": "fade", "cross": "fade"}   # names people use → xfade
@@ -708,7 +753,7 @@ def main() -> None:
         log("WARNING: the captions are drawn by the graphics layer and there is none: graphics.py render")
     fin = {"overlays": overlays, "music": edl.get("music", []), "total": timeline_total(segs, out["fps"]),
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
-           "graphics": graphics, "sfx": sfx}
+           "graphics": graphics, "sfx": sfx, "bleep": bleep_spans(edl, segs)}
     # Layers made for another version of the cut land at the wrong times: catch it here.
     stale = []
     if fin["subs"]:
@@ -785,6 +830,23 @@ def main() -> None:
             p.unlink(missing_ok=True)
     master(pre, dst, args.loudness, log)
     pre.unlink(missing_ok=True)
+    chs = chapters({**edl, "segments": segs})
+    if chs and dst.suffix == ".mp4":
+        # Chapters in the file (players show them) and as text for the YouTube description.
+        ends = [t for t, _ in chs[1:]] + [total]
+        meta = dst.with_suffix(".ffmeta")
+        esc = lambda s: re.sub(r"([=;#\\\n])", r"\\\1", s)  # noqa: E731  (ffmetadata escaping)
+        meta.write_text(";FFMETADATA1\n" + "".join(
+            f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={round(t * 1000)}\nEND={round(e * 1000)}\ntitle={esc(ti)}\n"
+            for (t, ti), e in zip(chs, ends)), encoding="utf-8")
+        tmp = dst.with_name(dst.stem + ".chapters" + dst.suffix)
+        run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-y", "-i", str(dst), "-i", str(meta), "-map", "0",
+             "-map_chapters", "1", "-c", "copy", "-movflags", "+faststart", str(tmp)])
+        tmp.replace(dst)
+        meta.unlink()
+        from deliver import youtube
+        dst.with_suffix(".chapters.txt").write_text(youtube(chs)[0] + "\n", encoding="utf-8")
+        log(f"chapters: {len(chs)} in the file and in {dst.with_suffix('.chapters.txt').name}")
 
     got = ffprobe(dst)
     vd = float(next(s for s in got["streams"] if s["codec_type"] == "video").get("duration") or 0)

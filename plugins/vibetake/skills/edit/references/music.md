@@ -17,6 +17,18 @@ voice, ducked, it works as a bed for quick, informal videos. Another `--seed` gi
 another variation. Not for a scripted piece, a brand video or a montage that lives
 on its music: use a real track there.
 
+### Cutting on the beat (any track)
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py beats --file <track>    # → <track>.beats.json {bpm, beats, bars}
+```
+
+Times are seconds of the track. With the music in the edit at `music.at` and
+starting from `music.in` of the track, a beat lands on the timeline at
+`at + (beat − in)`: put cuts there (on bars for big changes). It assumes a steady
+tempo: a track that speeds up or drifts (live, rubato) gets beats that slide, so
+check by ear and cut on what you hear.
+
 ## 2. A real track (better quality)
 
 - **The user's own file** (bought, licensed, or theirs).
