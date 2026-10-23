@@ -44,7 +44,13 @@ came from. No clear data: apply the general rules below and say so.
   final quality is uploading with quality to spare. When file size matters, x264
   gives more quality per megabyte.
 - **Preview**: 540p, fastest preset, CQ/CRF 28.
-- Loudness by destination: see `render.py --loudness` (social −14 LUFS / −1 dBTP).
+- Loudness by destination (`render.py --loudness`):
+
+  | `--loudness` | Integrated | True peak |
+  |---|---|---|
+  | `social` (TikTok, Reels, Shorts, YouTube) | −14 LUFS | −1 dBTP |
+  | `podcast` | −16 LUFS | −1 dBTP |
+  | `broadcast-eu` / `broadcast-us` (TV ads: confirm with the station) | −23 / −24 | −2 dBTP |
 
 Sources (October 2026): learn.headliner.app (Social Media Video Length Limits 2026),
 pod2reels.com, tryordinal.com, zeely.ai, blitzcutai.com.

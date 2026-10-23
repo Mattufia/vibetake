@@ -58,16 +58,16 @@ def chunks(segs: list[dict]) -> list[list[dict]]:
     if len(segs) <= CHUNK and sum(seg_time(s) for s in segs) <= ONE_PASS_S:
         return [segs]
     groups, cur, length = [], [], 0.0
-    for s in segs:
+    for k, s in enumerate(segs):
         d = seg_time(s)
         full = cur and (len(cur) >= CHUNK or length + d > CHUNK_S)
         # A transition or a J/L cut joins two segments in one graph: split elsewhere if possible,
-        # but never let a pass grow past twice its limits (a dissolve on every cut, J/L everywhere):
-        # then that one cut becomes a straight cut.
+        # but never let a pass hold more than twice CHUNK segments (decoders; a dissolve on every
+        # cut, J/L everywhere): then that one cut becomes a straight cut. Long takes don't count.
         joined = s.get("_tr") or s.get("_delta")
-        if full and joined and (len(cur) >= 2 * CHUNK or length + d > 2 * CHUNK_S):
+        if full and joined and len(cur) >= 2 * CHUNK:
             prev = cur[-1]
-            print(f"WARNING: a long run of transitions/J-L cuts: the cut into segment {segs.index(s)} is played "
+            print(f"WARNING: a long run of transitions/J-L cuts: the cut into segment {k} is played "
                   "straight so the render can split there")
             prev["_atail"] -= prev["_post"] + s["_delta"]
             s["_alead"] -= s["_pre"] - s["_delta"]

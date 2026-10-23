@@ -25,7 +25,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py beats --file <track>    # → <track
 
 Times are seconds of the track. With the music in the edit at `music.at` and
 starting from `music.in` of the track, a beat lands on the timeline at
-`at + (beat − in)`: put cuts there (on bars for big changes). It assumes a steady
+`at + (beat − in)` the first time through (music loops to fill the edit: past the track's end, add its length): put cuts there (on bars for big changes). It assumes a steady
 tempo: a track that speeds up or drifts (live, rubato) gets beats that slide, so
 check by ear and cut on what you hear.
 
