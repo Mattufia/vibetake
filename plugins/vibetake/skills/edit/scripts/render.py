@@ -195,6 +195,91 @@ def atempo(v: float) -> str:
     return ",".join(out + [f"atempo={v:.6f}"])
 
 
+_FILTERS: set | None = None
+
+
+def has_filter(name: str) -> bool:
+    global _FILTERS
+    if _FILTERS is None:
+        txt = run([tool("ffmpeg"), "-hide_banner", "-filters"], check=False).stdout
+        _FILTERS = {ln.split()[1] for ln in txt.splitlines() if len(ln.split()) > 2}
+    return name in _FILTERS
+
+
+def redact(k: int, seg: dict, lead: float, fps: float, workdir: Path) -> list[str]:
+    """Blurred or pixelated boxes on the source picture (redact.py tracks them: keys
+    [t source, x, y, w, h] normalized), before stabilizing and framing so they move with it."""
+    sw, sh = display_dims(seg["_probe"])
+    out = []
+    for j, r in enumerate(seg.get("redact", [])):
+        keys = r.get("keys") or [[r.get("from", seg["in"]), *r["box"]], [r.get("to", seg["out"]), *r["box"]]]
+        pad = 1 + float(r.get("pad", 0.2))
+        bw = min(sw // 2 * 2, max(8, round(max(q[3] for q in keys) * sw * pad / 2) * 2))
+        bh = min(sh // 2 * 2, max(8, round(max(q[4] for q in keys) * sh * pad / 2) * 2))
+        t = [q[0] - seg["in"] + lead for q in keys]         # the input starts `lead` before the cut
+        n = f"{k}_{j}"
+
+        def at(tt: float) -> tuple[int, int]:
+            cx = float(np.interp(tt, t, [q[1] + q[3] / 2 for q in keys])) * sw
+            cy = float(np.interp(tt, t, [q[2] + q[4] / 2 for q in keys])) * sh
+            return int(min(max(cx - bw / 2, 0), sw - bw)), int(min(max(cy - bh / 2, 0), sh - bh))
+        x0, y0 = at(t[0])
+        send = ""
+        if len({(q[1], q[2]) for q in keys}) > 1:
+            lines = [f"{i / fps:.4f} crop@rd{n} x {x}, crop@rd{n} y {y}, overlay@rd{n} x {x}, overlay@rd{n} y {y};"
+                     for i in range(max(0, math.floor(t[0] * fps)), math.ceil(t[-1] * fps) + 1)
+                     for x, y in [at(i / fps)]]
+            cmd = workdir / f"redact_{n}.cmd"
+            cmd.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            send = f"sendcmd=f='{filter_path(cmd)}',"
+        m = min(bw, bh)
+        fx = (f"scale={max(1, bw * 10 // m)}:{max(1, bh * 10 // m)}:flags=area,scale={bw}:{bh}:flags=neighbor"
+              if r.get("mode") == "pixelate" else f"boxblur={max(2, m // 6)}:3")
+        out.append(f"{send}split[rda{n}][rdb{n}];[rdb{n}]crop@rd{n}=w={bw}:h={bh}:x={x0}:y={y0},{fx}[rdc{n}];"
+                   f"[rda{n}][rdc{n}]overlay@rd{n}=x={x0}:y={y0}:enable='between(t,{t[0]:.4f},{t[-1]:.4f})'")
+    return out
+
+
+def fit(k: int, how: str, W: int, H: int) -> str:
+    """The whole picture inside the output: over a blurred, darker copy of itself ("blur") or bars of a color."""
+    inside = f"scale={W}:{H}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+    if how == "blur":
+        return (f"split[fta{k}][ftb{k}];[fta{k}]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+                f"boxblur={max(2, min(W, H) // 25)}:2,eq=brightness=-0.08[ftc{k}];[ftb{k}]{inside}[ftd{k}];"
+                f"[ftc{k}][ftd{k}]overlay=(W-w)/2:(H-h)/2")
+    return f"{inside},pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color={how}"
+
+
+def chroma(k: int, key: dict, W: int, H: int, fps: float) -> str:
+    """Green/blue screen out, over a picture, a video (looped) or a color."""
+    c = key.get("color", "green")
+    col = {"green": "0x00ff00", "blue": "0x0000ff"}.get(c, c)
+    bg = str(key.get("bg", "black"))
+    p = Path(bg)
+    if p.exists():
+        src = f"movie=filename='{filter_path(p.resolve())}'"
+        src += (f",loop=loop=-1:size=1,setpts=N/{fps}/TB" if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+                else ":loop=0,setpts=N/FRAME_RATE/TB")
+    else:
+        src = f"color=c={bg}:s={W}x{H}:r={fps}"
+    spill = f",despill=type={c}" if c in ("green", "blue") else ""
+    return (f"chromakey={col}:{float(key.get('similarity', 0.15))}:{float(key.get('blend', 0.05))}{spill}[kf{k}];"
+            f"{src},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={fps}[kb{k}];"
+            f"[kb{k}][kf{k}]overlay=shortest=1")
+
+
+def look(lk: dict) -> str:
+    """The whole edit's look: black and white, vignette, film grain (0–1 each)."""
+    f = []
+    if lk.get("bw"):
+        f.append("hue=s=0")
+    if lk.get("vignette"):
+        f.append(f"vignette=angle={0.2 + 0.5 * float(lk['vignette']):.3f}")
+    if lk.get("grain"):
+        f.append(f"noise=c0s={round(4 + 26 * float(lk['grain']))}:c0f=t+u")
+    return ",".join(f)
+
+
 def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | None, preview: bool,
                   workdir: Path, lead: float = 0.0, lack: float = 0.0) -> tuple[str, float]:
     """Picture and sound of one segment. The picture runs `_pre` before the cut and `_post` after
@@ -209,6 +294,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     simple = is_simple(seg)
     v = float(seg.get("speed", 1)) if simple else 1.0
     g = grade.get(seg.get("name", Path(seg["source"]).name)) or {}
+    rot = float(seg.get("rotate", 0)) % 360
     chain = []
     if not seg.get("_up"):          # an upscaled segment comes graded and framed already
         pre_f = pre_filter(MATERIAL.get(seg.get("name", Path(seg["source"]).name)), g)
@@ -216,10 +302,27 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
             chain.append(pre_f)
         if g.get("lut"):
             chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
-        # Framing from reframe.py, or a plain center crop to the output aspect.
+        chain += redact(k, seg, lead, fps, workdir)
+        if seg.get("stabilize"):
+            strength = 1.0 if seg["stabilize"] is True else float(seg["stabilize"])
+            chain.append(f"vidstabtransform=input='{filter_path(seg['_trf'])}':smoothing={round(10 + 30 * strength)}:"
+                         "optzoom=1:interpol=bicubic" if seg.get("_trf") else "deshake")
+        if rot in (90, 270):
+            chain.append(f"transpose={1 if rot == 90 else 2}")
+        # The whole picture fitted (fit), framing from reframe.py, or a plain center crop to the output aspect.
         win = lead + span + (post * v if simple else 0)
-        chain.append(framing(k, seg, win, fps, workdir, lead) or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
+        how = seg.get("fit") or out.get("fit")
+        chain.append(fit(k, how, W, H) if how else (rot not in (90, 270) and framing(k, seg, win, fps, workdir, lead))
+                     or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
     chain += [f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1"]
+    flip = seg.get("flip")
+    chain += ["hflip"] * (flip in ("h", "both")) + ["vflip"] * (flip in ("v", "both")) + ["hflip,vflip"] * (rot == 180)
+    if rot % 90:
+        # A tilt: rotated, then zoomed just enough that no corner shows.
+        z = abs(math.cos(math.radians(rot))) + max(W / H, H / W) * abs(math.sin(math.radians(rot)))
+        chain.append(f"rotate={math.radians(rot):.6f},scale={round(W * z / 2) * 2}:{round(H * z / 2) * 2},crop={W}:{H}")
+    if seg.get("key"):
+        chain.append(chroma(k, seg["key"], W, H, fps))
     head = f"[{k}:v:0]"
     if simple:
         if seg.get("smooth") and v > 1.5:
@@ -307,6 +410,9 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
     then the sound effects."""
     b_inputs, graphs, v_last = broll_graph(first_input, v, fin["overlays"], out, grade)
     nxt_input = first_input + len(fin["overlays"])
+    if look(out.get("look") or {}):
+        graphs.append(f"[{v_last}]{look(out['look'])}[vlook]")
+        v_last = "vlook"
     g_inputs = []
     if fin.get("graphics"):
         gpath = Path(fin["graphics"])
@@ -426,6 +532,13 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
                 inputs += [*(HWDEC if k < HWDEC_MAX else []), "-ss", f"{s['in'] - lead:.4f}", "-t", f"{length:.4f}",
                            "-i", s["source"]]
             vid, idx = idx, idx + 1
+            if s.get("stabilize") and not s.get("_up") and has_filter("vidstabdetect"):
+                # vid.stab's first pass: the camera's shake over the same frames the picture uses.
+                s["_trf"] = workdir / f"stab_{k:03d}.trf"
+                log(f"stabilizing segment {k + 1}…")
+                run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-ss", f"{s['in'] - lead:.4f}", "-t", f"{length:.4f}",
+                     "-i", s["source"], "-vf", f"vidstabdetect=shakiness=8:result='{filter_path(s['_trf'])}'",
+                     "-f", "null", "-"])
             # The sound: its own window (J/L cuts and crossfades move it off the picture's).
             c = clean.get(s.get("name", Path(s["source"]).name))
             has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
@@ -612,7 +725,7 @@ def main() -> None:
         elif abs(gm["width"] / gm["height"] - out["width"] / out["height"]) > 0.01:
             stale.append(f"the graphics layer is {gm['width']}×{gm['height']}, another shape than this output "
                          "(it would be stretched)")
-    unframed = [i for i, s in enumerate(segs) if not s.get("frame") and not s.get("_up")]
+    unframed = [i for i, s in enumerate(segs) if not (s.get("frame") or s.get("_up") or s.get("fit") or out.get("fit"))]
     if unframed:
         log(f"WARNING: {len(unframed)} segment(s) without framing (plain center crop) — run reframe.py after "
             "every re-cut")

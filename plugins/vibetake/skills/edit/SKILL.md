@@ -246,6 +246,22 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 
   Effects are for a reason (a reveal, a beat, a gag, a time jump), not decoration;
   most talking-head cuts stay straight cuts. Check the preview at each one.
+- **The picture, too** (segment fields; `output` ones cover the whole edit):
+
+  | Field | Does |
+  |---|---|
+  | `"stabilize": true` · `0.5` | steadies a shaky handheld shot (vid.stab, two passes; a slight zoom hides the edges); 0–1 = how smooth |
+  | `"fit": "blur"` · `"black"` | the whole picture inside the frame instead of cropped (a horizontal shot in a vertical edit): over a blurred copy of itself, or bars of a color; wins over reframe.py's framing. `output.fit` for every segment |
+  | `"redact": [...]` | blurred/pixelated boxes that follow what they hide: made by `redact.py` (below), don't write keys by hand |
+  | `"key": {"color": "green", "bg": "02-work/bg.jpg"}` | green/blue screen out, over a picture, a video (looped) or a color; `similarity` (0.15) / `blend` (0.05) if edges show |
+  | `"flip": "h\|v\|both"` · `"rotate": 90\|180\|270` · `"rotate": -3` | mirror · turn (a clip recorded sideways; 90/270 use a center crop) · tilt a few degrees (zoomed so no corner shows) |
+  | `output.look: {"vignette": 0.4, "grain": 0.3, "bw": true}` | over the whole edit, b-roll included (0–1 each) |
+
+  Blur a face, a plate, a screen: `uv run ${CLAUDE_SKILL_DIR}/scripts/redact.py <seg> --show
+  [--at t]` gives a frame with a 0–1 grid; read the box off it, then `redact.py <seg>
+  --box x,y,w,h [--at t] [--mode pixelate] [--static]` tracks it over the segment and
+  writes a contact sheet with the box drawn: look at it before rendering, and redo
+  from the moment it lost it (another `--box --at`). `--clear` removes them.
 - **Nothing here for what's asked? Build it** with ffmpeg (any filter, on a segment
   or the master) or a Remotion component, and say how it was done — never answer
   that it can't be done when the tools can do it.

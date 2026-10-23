@@ -18,7 +18,7 @@ import math
 #   transition {"type": "dissolve"|xfade name, "dur": s}: from the previous segment, centered on the cut
 #   fade_in, fade_out  {"dur": s, "color": "black"|"white"|"#hex"}: picture and sound
 TIMING = ("speed", "hold", "reverse", "loop", "boomerang", "audio", "smooth", "j", "l")
-CARRY = TIMING + ("transition", "fade_in", "fade_out")
+CARRY = TIMING + ("transition", "fade_in", "fade_out", "stabilize", "fit", "flip", "rotate", "key", "redact")
 
 
 def play_len(seg: dict) -> float:

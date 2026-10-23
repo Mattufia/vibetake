@@ -168,6 +168,7 @@ uv run tests/test_cut_rules.py    # reactions vs fillers, silent stretches, natu
 uv run tests/test_design.py       # project fonts and icons, palette, Remotion layer with design + safe-zone check (network, Node)
 uv run tests/test_stage.py        # composition: the edit placed in a stage, frame-synced, page and frame components (Node)
 uv run tests/test_timing.py       # speed, ramps, freezes, reverse, boomerang, J/L cuts, transitions, fades: frame by frame
+uv run tests/test_look.py         # fit over a blurred copy, flip/rotate/tilt, chroma key, tracked blur boxes, stabilization, look
 uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
 uv run tests/test_fixes.py        # regressions: re-cut keeps placements, stale layers, HDR without grade, mixed log
 ```
