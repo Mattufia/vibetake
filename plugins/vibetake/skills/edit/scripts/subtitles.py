@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (CLAUSE_END, DELIVERY, SENTENCE_END, deliverable_name, die, project_font,  # noqa: E402
                      tool, wcag_luminance, work_paths, writing)
-from _timeline import signature, starts  # noqa: E402
+from _timeline import audio_mode, seg_time, seg_to_src, signature, starts  # noqa: E402
 
 SAFE_V = (0.13, 0.77)          # vertical 9:16 safe band (references/safe-margins.md)
 SAFE_H = (0.08, 0.92)
@@ -64,6 +64,9 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
     out = []
     for k, s in enumerate(edl["segments"]):
         ws = words.get(s["name"], [])
+        if audio_mode(s) == "mute":
+            continue            # its sound isn't heard (a speed effect, or muted): nothing to caption
+        v = float(s.get("speed", 1))
         if "words" in s:
             # cutlist.py says which words the segment holds: trust that over the timestamps,
             # which can sit a little outside the cut that was placed on the real audio.
@@ -71,11 +74,16 @@ def timeline_words(edl: dict, tr: dict) -> list[dict]:
             chosen = ws[a:b + 1]
         else:
             chosen = [w for w in ws if s["in"] - 1e-3 <= w["start"] and w["end"] <= s["out"] + 1e-3]
+        # J/L cuts: words said in the stretch of sound heard before or after the picture.
+        lo, hi = s["in"] - s.get("j", 0) * v, s["out"] + s.get("l", 0) * v
+        extra = [w for w in ws if w not in chosen and (lo - 1e-3 <= w["start"] < s["in"] - 1e-3
+                                                       or s["out"] + 1e-3 < w["end"] <= hi + 1e-3)]
+        chosen = sorted(chosen + extra, key=lambda w: w["start"])
         for w in chosen:
-            st = min(max(w["start"], s["in"]), s["out"])
-            en = min(max(w["end"], st), s["out"])
-            out.append({"text": w["word"].strip(), "t": round(t0[k] + st - s["in"], 3),
-                        "end": round(t0[k] + en - s["in"], 3), "seg": k, "src": w["start"]})
+            st = min(max(w["start"], lo), hi)
+            en = min(max(w["end"], st), hi)
+            out.append({"text": w["word"].strip(), "t": round(t0[k] + (st - s["in"]) / v, 3),
+                        "end": round(t0[k] + (en - s["in"]) / v, 3), "seg": k, "src": w["start"]})
     return out
 
 
@@ -139,7 +147,7 @@ def face_band(t: float, edl: dict, t0: list[float], faces: dict, material: dict,
         return None                                        # b-roll on screen: no face to avoid
     k = max(i for i, s in enumerate(t0) if s <= t + 1e-6)
     seg = edl["segments"][k]
-    src_t = seg["in"] + t - t0[k]
+    src_t = seg_to_src(seg, t - t0[k])
     samples = faces.get(seg["name"]) or []
     if not samples:
         return None
@@ -152,7 +160,7 @@ def face_band(t: float, edl: dict, t0: list[float], faces: dict, material: dict,
     if fr:
         ch = fr["crop"][1]
         keys = fr["keys"] or [[0, 0.5, 0.5]]
-        cy = min(keys, key=lambda kk: abs(kk[0] - (t - t0[k])))[2]
+        cy = min(keys, key=lambda kk: abs(kk[0] - (src_t - seg["in"])))[2]
     else:
         m = material.get(seg["name"], {})
         sw, sh = m.get("display_width", 1), m.get("display_height", 1)
@@ -219,7 +227,7 @@ def main() -> None:
     args.edl, args.ass = args.edl or str(paths["edl"]), args.ass or str(paths["subs"])
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
     if args.engine == "auto":
-        length = sum(s["out"] - s["in"] for s in edl["segments"])
+        length = sum(seg_time(s) for s in edl["segments"])
         plan = paths["plan"].exists() or Path("02-work/graphics.json").exists()
         args.engine = "ass" if length > LONG_S and not plan else "remotion"
         print(f"captions engine: {args.engine}"
@@ -286,7 +294,7 @@ def main() -> None:
     off = []
     for part in filter(None, (p.strip() for p in args.off.split(","))):
         if part == "hook":
-            off += [(t0[k], t0[k] + s["out"] - s["in"]) for k, s in enumerate(edl["segments"])
+            off += [(t0[k], t0[k] + seg_time(s)) for k, s in enumerate(edl["segments"])
                     if s.get("role") == "hook"]
         else:
             a, _, b = part.partition("-")

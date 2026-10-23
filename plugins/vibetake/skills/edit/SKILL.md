@@ -229,6 +229,26 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   (what to illustrate, length, coverage, never over the hook): **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
 - Edit `edl.json` by hand for anything finer (trim a segment, move one, change a
   segment's `frame.zoom`) and re-render.
+- **Time and transitions are fields of a segment** in `edl.json` (a re-cut keeps them
+  on the segment that still covers that piece; subtitles, graphics, b-roll and sfx
+  follow the new timing):
+
+  | Field | Does |
+  |---|---|
+  | `"speed": 2` · `0.5` | faster / slow motion; the voice keeps its pitch between ×0.5 and ×2.5 (`"audio": "keep\|pitch\|mute"` to choose) |
+  | `"speed": [[0, 1], [0.8, 0.3], [1.6, 1]]` | a ramp: `[s, speed]` points over the segment's material, the speed gliding between them; muted (put a whoosh or the music there) |
+  | `"hold": [[1.2, 0.8]]` | freeze the picture 0.8 s at 1.2 s of the segment (at its length: the last frame) |
+  | `"reverse": true` · `"loop": 3` · `"boomerang": true` | backwards · played 3 times · forward then back |
+  | `"smooth": true` | interpolated frames for slow motion, blended ones for fast (time-lapse) — slower to render |
+  | `"j": 0.5` · `"l": 0.5` | this segment's sound starts 0.5 s before its picture (J) / runs 0.5 s under the next one (L) |
+  | `"transition": {"type": "dissolve", "dur": 0.4}` | from the previous segment, centered on the cut (the timeline doesn't move); any ffmpeg xfade name: `fadeblack`, `fadewhite`, `wipeleft`, `slideup`, `circleopen`, `radial`, `pixelize`, `smoothleft`… |
+  | `"fade_in"` / `"fade_out": {"dur": 0.6, "color": "black"}` | from/to a color, picture and sound |
+
+  Effects are for a reason (a reveal, a beat, a gag, a time jump), not decoration;
+  most talking-head cuts stay straight cuts. Check the preview at each one.
+- **Nothing here for what's asked? Build it** with ffmpeg (any filter, on a segment
+  or the master) or a Remotion component, and say how it was done — never answer
+  that it can't be done when the tools can do it.
 - `render.py` works from the **original files**: color from
   `02-work/color/grade.json`, framing to the output size, constant frame rate,
   12 ms audio fades so cuts never click, cuts on the source's frame grid so sync

@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import die, load_json as load, tc  # noqa: E402
-from _timeline import anchor_from, resolve_broll, total  # noqa: E402
+from _timeline import anchor_from, resolve_broll, seg_time, total  # noqa: E402
 
 
 def cmd_list(args) -> None:
@@ -83,7 +83,7 @@ def cmd_check(args) -> None:
         print(f"[{tc(b['at'])}–{tc(b['at'] + b['dur'])}] {b['clip']} (from {b['in']:.2f} s)  {b.get('note', '')}")
     print(f"b-roll covers {covered:.1f} s of {end:.1f} s ({100 * covered / end:.0f}%)")
     hook = edl["segments"][0].get("role") == "hook"
-    if hook and placed and placed[0]["at"] < (edl["segments"][0]["out"] - edl["segments"][0]["in"]):
+    if hook and placed and placed[0]["at"] < seg_time(edl["segments"][0]):
         warnings.append("b-roll over the hook: the opening should show the person saying it")
     for w in warnings:
         print("WARNING:", w)

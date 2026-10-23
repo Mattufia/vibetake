@@ -48,6 +48,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import CLAUSE_END, SENTENCE_END, die, seconds, tc, tool, work_paths  # noqa: E402
+from _timeline import CARRY, seg_time  # noqa: E402
 
 FORMATS = {"vertical": (1080, 1920), "horizontal": (1920, 1080), "square": (1080, 1080)}
 SNAP_S = 0.04
@@ -504,6 +505,17 @@ def main() -> None:
         t = tr["files"].get(s["name"], {}).get("track", 0)
         if t:
             s["track"] = t
+    # Time effects, J/L cuts and transitions belong to a piece of the material: a segment that
+    # still covers most of the same piece keeps them through the re-cut.
+    kept_fx = 0
+    for sg in segments:
+        olap = lambda p: min(p["out"], sg["out"]) - max(p["in"], sg["in"])  # noqa: E731
+        old = max((p for p in prev_edl.get("segments", []) if p.get("name") == sg["name"]), key=olap, default=None)
+        if old and olap(old) >= 0.5 * (sg["out"] - sg["in"]) and any(k in old for k in CARRY):
+            sg.update({k: old[k] for k in CARRY if k in old})
+            kept_fx += 1
+    if kept_fx:
+        print(f"kept the time effects / transitions of {kept_fx} segment(s) from the previous edit")
     edl = {"version": 1, "output": {"width": w, "height": h, "fps": first_src.get("fps", 30)},
            "made_by": "cutlist", "params": vars(args), "segments": segments}
     carried = {k: v for k, v in prev_edl.items() if k not in edl}
@@ -516,7 +528,7 @@ def main() -> None:
     out.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
 
     total_src = sum(f["duration"] for f in tr["files"].values())
-    total = sum(s["out"] - s["in"] for s in segments)
+    total = sum(seg_time(s) for s in segments)
     dropped_lines = [s["line"] for s in tr["sentences"] if s["line"] not in keep and not any(
         sg["name"] == s["file"] and sg["in"] <= s["start"] and sg["out"] >= s["end"] for sg in segments)]
     print(f"{len(segments)} segments · {tc(total_src)} of material → {tc(total)} · pace {args.pace} · "

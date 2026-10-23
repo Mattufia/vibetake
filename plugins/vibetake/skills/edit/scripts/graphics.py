@@ -45,7 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import die, load_json as load, work_paths  # noqa: E402
-from _timeline import resolve_broll, signature, starts, total  # noqa: E402
+from _timeline import resolve_broll, seg_time, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
 
 
@@ -80,7 +80,7 @@ def build(edl: dict, tr: dict, faces: dict, material: dict) -> dict:
     vertical = H > W
     sv = SAFE_V if vertical else SAFE_H
     sx = SAFE_X_V if vertical else (0.05, 0.95)
-    hook = next(({"start": t0[k], "end": t0[k] + s["out"] - s["in"]} for k, s in enumerate(segs)
+    hook = next(({"start": t0[k], "end": t0[k] + seg_time(s)} for k, s in enumerate(segs)
                  if s.get("role") == "hook"), None)
     return {"width": W, "height": H, "fps": fps, "duration": round(end, 3), "frames": round(end * fps),
             "safe": {"x0": sx[0], "y0": sv[0], "x1": sx[1], "y1": sv[1]},
