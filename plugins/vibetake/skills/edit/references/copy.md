@@ -31,9 +31,20 @@ A call to action: comment, save, follow.
 | YouTube | `Title:` ≤60 characters (search cuts the rest; 100 max), description with what matters in the first 2 lines, **chapters from 0:00** if it runs past ~5 minutes (at least 3, in order) | description 5,000 |
 | Shorts | `Title:` ≤100 characters, a line or two | |
 
-- **Chapters**: from `graphics.py cues` (each line's timeline start), grouped by topic;
-  the first at 0:00.
+- **Chapters**: one per topic, where its first line is said (`graphics.py cues` lists
+  the lines): `deliver.py chapter --line L5 --title "Pricing"` (or `--cut N`: the cut
+  before segment N, counted from 0), anchored to the source so re-cuts move them.
+  `deliver.py chapters` prints the list and warns about what YouTube refuses (fewer than
+  3, or one under 10 s, the last one included); the first shows at 0:00.
+  render.py writes them into the MP4 and into `<video>.chapters.txt`: paste that into
+  the description.
 - **Hashtags**: specific to the topic and the audience; no generic filler (#fyp,
   #viral).
 - No claims the video doesn't make; nothing that needs a disclaimer the video doesn't
   have (prices, health, finance) without the user's say.
+
+## GIF
+
+When asked (a reaction, a preview for a README or a chat):
+`uv run ${CLAUDE_SKILL_DIR}/scripts/deliver.py gif --from 12.5 --to 16 [--width 480]` — a
+stretch of the latest version, looping, next to it; keep it under ~10 s.

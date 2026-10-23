@@ -17,7 +17,7 @@ anything where people play a moment instead of talking to the viewer.
   payoff.
 - **Subtitles**: burned-in for feeds (starts muted), sentence style or highlight; off
   while a graphic says the same.
-- **Graphics**: measured — a title, a reveal, the call to action. Nothing over the
+- **Graphics**: usually measured — a title, a reveal, the call to action. Nothing over the
   faces during a reaction.
 - **Framing**: `reframe.py` fixed or operator; punch-ins only on cuts the scene
   already has, never invented inside a take (`--punch off` inside long takes).

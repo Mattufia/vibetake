@@ -1,19 +1,20 @@
 // The graphics layer: every element of this video's scene plan (src/data/graphics.json),
 // drawn with the kit and this video's design. Transparent everywhere else.
 import React, { useEffect, useState } from "react";
-import { AbsoluteFill, Sequence, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Sequence, continueRender, delayRender, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import plan from "./data/graphics.json";
 import { fontsReady } from "./data/fonts";
 import { color, design, font, applyCase } from "./kit/design";
 import { At, enterStyle, secondsOf, spokenTimes, useExit, useSpring } from "./kit/motion";
 import { KineticText } from "./kit/KineticText";
-import { Surface } from "./kit/Surface";
+import { Surface, shadows } from "./kit/Surface";
+import { Footage } from "./kit/Footage";
 import { Counter, Icon, Wipe } from "./kit/Pieces";
 import { CUSTOM } from "./custom";
 import { Captions, CaptionStyle } from "./kit/Captions";
 
 type El = {
-  type: "headline" | "label" | "counter" | "list" | "cta" | "icon" | "custom";
+  type: "headline" | "label" | "counter" | "list" | "cta" | "icon" | "custom" | "stage";
   from?: At; until?: At;
   x?: number; y?: number; width?: number; size?: number; align?: "left" | "center" | "right";
   rotate?: number; surface?: boolean | Record<string, unknown>; enter?: any; unit?: any;
@@ -35,6 +36,46 @@ const Placed: React.FC<{ el: El; startFrame: number; endFrame?: number; children
       alignItems: el.align === "left" ? "flex-start" : el.align === "right" ? "flex-end" : "center" }}>
       {children}
     </div>
+  );
+};
+
+// A stage turns the frame into a designed page: its own background, and the edit's picture
+// placed in a box (optionally inside a custom frame: a window, a device). Opaque while it's up,
+// so it covers the full-frame picture under the layer; "shrink" starts from that same full
+// frame, so the move into the composition is seamless.
+const Stage: React.FC<{ el: El }> = ({ el }) => {
+  const frame = useCurrentFrame();
+  const { fps, width: W, height: H } = useVideoConfig();
+  const start = Math.round(secondsOf(el.from, 0) * fps);
+  const end = el.until !== undefined ? Math.round(secondsOf(el.until) * fps) : undefined;
+  const pin = Math.min(1, useSpring(start));
+  // The exit eases out and is fully done by `until`, so nothing jumps when the stage ends.
+  const pout = end === undefined ? 0 : interpolate(frame, [end - 14, end], [0, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
+  const enter = el.enter ?? "shrink";
+  // A cut shows nothing before its frame (elements mount 2 frames early) and nothing from `until` on.
+  const p = enter === "cut" ? (frame >= start && (end === undefined || frame < end) ? 1 : 0) : Math.max(0, pin - pout);
+  const sizePx = (el.size ?? 0.05) * H;
+  const f = el.footage === false ? null : { x: 0.5, y: 0.5, width: 0.7, height: 0.7, ...(el.footage ?? {}) };
+  const k = enter === "shrink" ? p : 1;
+  const lerp = (a: number, b: number) => a + (b - a) * k;
+  const footage = f && (() => {
+    const C = f.frame ? CUSTOM[f.frame] : null;
+    const pic = <Footage fit={f.fit} position={f.position} />;
+    return (
+      <div style={{ position: "absolute", left: lerp(0, (f.x - f.width / 2) * W), top: lerp(0, (f.y - f.height / 2) * H),
+        width: lerp(W, f.width * W), height: lerp(H, f.height * H), borderRadius: lerp(0, f.radius ?? 0), overflow: "hidden",
+        boxShadow: f.shadow ? shadows(f.shadow, color(design.highlight.color)) : "none" }}>
+        {C ? <C {...(f.props ?? {})} startFrame={start} endFrame={end} sizePx={sizePx} progress={p}>{pic}</C> : pic}
+      </div>);
+  })();
+  const bg = el.background === "none" ? "transparent" : color(el.background ?? "paper");
+  return (
+    <AbsoluteFill style={{ opacity: enter === "fade" ? p : 1 }}>
+      <AbsoluteFill style={{ backgroundColor: bg, opacity: enter === "shrink" ? interpolate(p, [0, 0.4], [0, 1],
+        { extrapolateRight: "clamp" }) : 1 }} />
+      {footage}
+    </AbsoluteFill>
   );
 };
 
@@ -106,6 +147,8 @@ const Element: React.FC<{ el: El }> = ({ el }) => {
     body = C ? <C {...(el.props ?? {})} startFrame={start} endFrame={end} sizePx={sizePx} /> : null;
   }
   if (el.wipe) body = <Wipe startFrame={start} from={el.wipe}>{body}</Wipe>;
+  // "page": the element owns the whole frame (crop marks, a running title, a counter in a corner).
+  if (el.page) return <AbsoluteFill>{body}</AbsoluteFill>;
   return <Placed el={el} startFrame={start} endFrame={end}>{body}</Placed>;
 };
 
@@ -118,7 +161,9 @@ export const Graphics: React.FC<{ captionStyle: CaptionStyle }> = ({ captionStyl
     fontsReady.then(() => { setReady(true); continueRender(handle); });
   }, [handle]);
   if (!ready) return null;
-  const els = ((plan as any).elements ?? []) as El[];
+  // Stages are pages: drawn first, so every other element sits on top of them.
+  const all = ((plan as any).elements ?? []) as El[];
+  const els = [...all.filter((e) => e.type === "stage"), ...all.filter((e) => e.type !== "stage")];
   return (
     <AbsoluteFill style={{ backgroundColor: "transparent" }}>
       {els.map((el, i) => {
@@ -126,7 +171,7 @@ export const Graphics: React.FC<{ captionStyle: CaptionStyle }> = ({ captionStyl
         const end = el.until !== undefined ? Math.round(secondsOf(el.until) * fps) + 1 : undefined;
         return (
           <Sequence key={i} from={0} durationInFrames={end !== undefined ? end : undefined} layout="none">
-            <Visible from={start}><Element el={el} /></Visible>
+            <Visible from={start}>{el.type === "stage" ? <Stage el={el} /> : <Element el={el} />}</Visible>
           </Sequence>
         );
       })}

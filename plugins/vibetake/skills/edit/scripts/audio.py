@@ -7,6 +7,7 @@
     uv run audio.py clean [--nr normal|light|off] [--force]   # raw → 01-ingest/audio/<file>.wav
     uv run audio.py music --file track.mp3 [--in 0] [--gain 0] [--start 0] [--fade-in 1] [--fade-out 2]
     uv run audio.py music --clear
+    uv run audio.py beats --file track.mp3                    # → track.beats.json: bpm, beats, bars
 
 Cleaning depends on how each file was recorded, so it runs on the whole raw file:
 high-pass ~80 Hz, noise reduction calibrated on that file's noise floor (the long
@@ -281,6 +282,59 @@ def master(src: Path, dst: Path, target: str, log: Log) -> dict:
     return final
 
 
+def find_beats(path: Path) -> dict:
+    """Tempo, beats and bar starts of a music file: onset strength (spectral flux), the tempo
+    from its autocorrelation (leaning to ~110 BPM against double/half errors), the beats by
+    dynamic programming (Ellis 2007: on onsets, evenly spaced), the bar where accents fall."""
+    import numpy as np
+    sr, hop, n = 22050, 256, 1024
+    raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", str(path), "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
+                         capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, np.float32)
+    if len(x) < sr * 4:
+        die(f"{path.name}: too short to find a beat")
+    idx = np.arange(n)[None, :] + hop * np.arange((len(x) - n) // hop)[:, None]
+    spec = np.log1p(100 * np.abs(np.fft.rfft(x[idx] * np.hanning(n), axis=1)))
+    env = np.r_[0, np.maximum(np.diff(spec, axis=0), 0).sum(1)]
+    fr = sr / hop
+    env = np.maximum(env - np.convolve(env, np.ones(int(fr)) / int(fr), "same"), 0)
+    env /= env.max() or 1
+    ac = np.fft.irfft(np.abs(np.fft.rfft(env, 2 * len(env))) ** 2)[:len(env)]
+    lags = np.arange(int(fr * 60 / 200), int(fr * 60 / 50))
+    w = ac[lags] * np.exp(-0.5 * np.log2(60 * fr / lags / 110) ** 2)
+    i = int(np.argmax(w))
+    a, b, c = (w[i - 1], w[i], w[i + 1]) if 0 < i < len(w) - 1 else (0, 1, 0)
+    period = lags[i] + 0.5 * (a - c) / (a - 2 * b + c or 1)      # sub-frame peak
+    # Beats: each one on an onset, about one period after the one before.
+    score, back = env.copy(), np.full(len(env), -1)
+    lo, hi = int(round(period / 2)), int(round(period * 2))
+    for t in range(lo, len(env)):
+        prev = np.arange(max(0, t - hi), t - lo + 1)
+        cand = score[prev] - 100 * np.log((t - prev) / period) ** 2
+        j = int(np.argmax(cand))
+        score[t] += cand[j]
+        back[t] = prev[j]
+    tail = len(env) - int(period)
+    t = tail + int(np.argmax(score[tail:]))
+    frames = []
+    while t >= 0:
+        frames.append(t)
+        t = back[t]
+    r = max(1, int(period / 8))       # each beat onto the strongest onset next to it
+    frames = [f - r + int(np.argmax(env[max(f - r, 0):f + r + 1])) + max(r - f, 0) for f in frames[::-1]]
+    times = [round((f * hop + n / 2) / sr, 3) for f in frames]    # window center, onset rise
+    accent = [env[frames[j::4]].sum() / max(len(frames[j::4]), 1) for j in range(4)]
+    return {"bpm": round(60 * fr / period, 1), "beats": times, "bars": times[int(np.argmax(accent))::4]}
+
+
+def cmd_beats(args) -> None:
+    f = Path(args.file or die("--file is required"))
+    r = find_beats(f)
+    out = f.with_suffix(".beats.json")
+    out.write_text(json.dumps(r), encoding="utf-8")
+    print(f"{f.name}: {r['bpm']} BPM · {len(r['beats'])} beats · {len(r['bars'])} bars → {out}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ingest", default="01-ingest")
@@ -301,8 +355,9 @@ def main() -> None:
     mu.add_argument("--fade-out", type=float, default=2.0)
     mu.add_argument("--append", action="store_true")
     mu.add_argument("--clear", action="store_true")
+    sub.add_parser("beats").add_argument("--file")
     args = ap.parse_args()
-    {"clean": cmd_clean, "music": cmd_music}[args.cmd](args)
+    {"clean": cmd_clean, "music": cmd_music, "beats": cmd_beats}[args.cmd](args)
 
 
 if __name__ == "__main__":

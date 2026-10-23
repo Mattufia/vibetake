@@ -9,7 +9,8 @@ Screencasts and step-by-step instructional videos.
 - **Cleanup**: medium — fillers and dead time, not explanations.
 - **Music**: none or a very low bed.
 - **Subtitles**: `.srt` by default; burned-in only for feed.
-- **Graphics**: measured level (dynamic for short social tutorials); callouts drawn in the
+- **Graphics**: usually measured (dynamic for short social tutorials); screen recordings often read best inside a
+  composition (`design.md` section 2) rather than full frame; callouts drawn in the
   graphics layer — a ring on the click, the step number, shortcuts and values. Where text
   would be too small, a deliberate zoom into that area set by hand (that segment's `frame`).
 - **Traps**: on-screen text (UI, code, values) must stay legible after any

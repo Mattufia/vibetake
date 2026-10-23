@@ -180,7 +180,7 @@ X") is an edit to that list and a new render, never a redo.
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/cutlist.py --keep auto --format vertical   # or --keep "L9,L2-L7"
 uv run ${CLAUDE_SKILL_DIR}/scripts/reframe.py                                # framing + punch-ins
-uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --preview                       # 540p, seconds
+uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --preview                       # 540p + every join
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # master → 03-delivery/
 ```
 
@@ -192,10 +192,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   like speech**: ~0.4 s after a sentence, ~0.25 s after a comma, ~0.15 s where a
   filler came out mid-phrase. That air is taken from clean silence (mostly after
   the previous phrase), never from the tail of a word that was dropped.
-  `--pace tight|normal|relaxed` scales it all (feed/ad: tight · testimonial:
-  relaxed); **`natural`** keeps pauses and silent stretches as recorded (acted
-  scenes). `--keep` takes `S2` like a line. It reports every silent stretch it
-  shortened and every filler it took out: check them, and say them in the delivery.
+  `--pace tight|normal|relaxed` scales it all (feed/ad: tight · testimonial: relaxed);
+  **`natural`** keeps pauses and silences as recorded (acted scenes). `--keep` takes `S2`
+  like a line. Check the silences and fillers it reports, and say them in the delivery.
 - **What the user asks to keep is protected**: `cutlist.py --protect S1|L3|0:03-0:07
   --why "…"` → every rebuild keeps it whole, over any automatic rule. A rebuild
   reuses the last run's settings. Note each protection in `project.md`.
@@ -219,16 +218,22 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   `--zoom` (1.12; half for a face that already fills the frame), so the jump reads
   as a closer shot; each segment after a cut enters with a short impact zoom
   (`--bump`, +6%, settles in ~0.15 s) and pushes in slowly while it lasts
-  (`--drift`, +3%). `--punch off` disables all of it (testimonial, corporate,
-  screen recordings); `--bump 0 --drift 0` keeps only the alternation.
+  (`--drift`, +3%). `--punch off` disables it (testimonial, corporate, screen
+  recordings); `--bump 0 --drift 0` keeps only the alternation.
 - **Hook (feed)**: pick the line that works on its own and opens a loop (1.5–4 s) — a
   promise, a conflict, a surprise — reading `transcript.md` in context. First with
   `--keep "L9,L1-L12"` (also kept in place) or `"L9,L1-L8,L10-L12"` (moved).
 - **B-roll**: own material first; `broll.py list` catalogs it, `place` anchors a
   clip to a word or a cut, `render.py` lays it over the speech. Commands and rules
   (what to illustrate, length, coverage, never over the hook): **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
-- Edit `edl.json` by hand for anything finer (trim a segment, move one, change a
-  segment's `frame.zoom`) and re-render.
+- **Anything finer is a field of a segment** in `edl.json` (trim, move, `frame.zoom`), and so
+  are the effects: speed and ramps, freezes, reverse/loop/boomerang, J/L cuts, transitions
+  (xfade, whip, push), fades; stabilize, fit, chroma key, flip/rotate/tilt, picture-in-picture,
+  split screen, graphics behind the person, blurred boxes that follow a face (`redact.py`), a
+  look; voice effects, bleeped words. For a reason (a reveal, a beat, a gag, a time jump), not
+  decoration. Fields, commands, rules: **`${CLAUDE_SKILL_DIR}/references/effects.md`**.
+- **Nothing here for what's asked? Build it** with ffmpeg or a Remotion component and say
+  how — never answer that it can't be done when the tools can do it.
 - `render.py` works from the **original files**: color from
   `02-work/color/grade.json`, framing to the output size, constant frame rate,
   12 ms audio fades so cuts never click, cuts on the source's frame grid so sync
@@ -236,12 +241,11 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 - **After any re-cut**, run `reframe.py`, then subtitles and graphics again (b-roll, effects
   and music stay: they follow their words). `render.py` refuses a master with captions or
   graphics made for another cut.
-- **Check the preview** (stills, the cuts around retakes) before the master.
-
-- **Cleanup follows the type profile**: full in a talking head, light in a vlog,
-  almost none in a testimonial, none inside an acted scene.
-- **Sound across a cut**: b-roll keeps the speech running underneath, which hides the
-  cut; place it there before reaching for anything else.
+- **Check the joins before the master** (`02-work/joins/`, written by the preview): fix every ⚠
+  in `joins.md`, look at the sheets (eyes closed, a mouth mid-word); `joins.mp4` is for the user.
+- **Cleanup follows the type profile**: full in a talking head, light in a vlog, almost none in a testimonial, none inside an acted scene.
+- **Sound across a cut**: b-roll over it (the speech runs underneath) or a J/L cut hides
+  it; reach for those before anything else.
 
 ## 4. Color
 
@@ -320,13 +324,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   under the voice** (~14–18 dB down while someone talks, back up in the pauses —
   a fixed level sounds like a template); then an audio-only second pass that
   measures the result and sets the destination's loudness, with a 4× oversampled
-  limiter only if true peak needs it:
-
-  | `--loudness` | Integrated | True peak |
-  |---|---|---|
-  | `social` (TikTok, Reels, Shorts, YouTube) | −14 LUFS | −1 dBTP |
-  | `podcast` | −16 LUFS | −1 dBTP |
-  | `broadcast-eu` / `broadcast-us` (TV ads: confirm with the station) | −23 / −24 | −2 dBTP |
+  limiter only if true peak needs it. `--loudness social|podcast|broadcast-eu|broadcast-us`
+  (targets: `${CLAUDE_SKILL_DIR}/references/platforms.md`).
 - **The voice rules.** Music never competes with it (a gentle dip around 3 kHz
   leaves room for speech); sound effects (`sfx.py`, section 7) sit ~10 dB below it.
 - **Start the music where it has energy** (`--in` <seconds into the track>), not on a
@@ -335,7 +334,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   informal videos; a real track for scripted, brand or music-driven ones. **Never
   anything the user can't publish**; third-party material (music, effects, stock,
   fonts) free-licensed, source and license in `project.md`. Where from, licenses:
-  **`${CLAUDE_SKILL_DIR}/references/music.md`**.
+  **`${CLAUDE_SKILL_DIR}/references/music.md`** (also cutting on the beat: `audio.py beats`).
+  Voice effects and bleeped words: `references/effects.md`.
 
 ## 6. Subtitles
 
@@ -350,13 +350,11 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --no-burn     # only the .srt
 uv run ${CLAUDE_SKILL_DIR}/scripts/subtitles.py --engine ass  # burned by render.py, no graphics layer
 ```
 
-- **Engine** (`auto` by default): `remotion` writes `02-work/captions.json` (same groups, timing, face and safe-zone
-  placement) and the graphics layer draws them: animated (`pop`, `karaoke`,
-  `bounce`, `none`), and position, size, colors, box and case editable in Remotion
-  Studio (Graphics → `captionStyle`); then `graphics.py init|render` after it, even
-  with no graphics plan (references/graphics.md). `ass` writes `02-work/subs.ass`, burned by
-  `render.py` on top of everything: fast, no Node. `auto` picks `ass` only for a video over
-  3 min with no graphics plan (or without Node), `remotion` otherwise.
+- **Engine** (`auto`): `remotion` → `02-work/captions.json`, drawn and animated by the
+  graphics layer (`pop`, `karaoke`, `bounce`, `none`; editable in Studio → `captionStyle`;
+  then `graphics.py init|render`, even with no graphics plan: references/graphics.md).
+  `ass` → `02-work/subs.ass`, burned by `render.py`: fast, no Node. `auto` picks `ass`
+  only over 3 min with no graphics plan (or without Node).
 - After the edit and the framing are final (it reads both).
 - **`.srt` always** (`03-delivery/<name>.srt`): ≤2 lines of ≤42 characters, ~17
   characters per second, 1–7 s (Latin; Chinese, Japanese, Korean, Thai and right-to-left
@@ -381,14 +379,15 @@ without covering what matters. Go all out on craft; the amount follows this type
 level (dynamic / measured / minimal), because a great designer also knows when the
 best graphic is none.
 
-**How much graphics and sound design is set by the video**: dynamic for feed
-videos (every idea gets its visual and its sound), measured for long or
-informative ones, minimal for testimonials, interviews and formal pieces. The
-profile names the level; the request overrides it.
+**How much graphics and sound design is set by the video**: usually dynamic for
+feed videos, measured for long or informative ones, minimal for testimonials,
+interviews and formal pieces. The profile suggests it; the request and the design
+override it.
 
 **Every video gets its own design, decided on your own** (never a house style, never
-system fonts): typefaces picked for it and downloaded, colors from the footage and
-the brand, real icons. One line on it in the delivery; changes come from there.
+system fonts). Start with the grammar — over a full-frame image, the footage inside a
+composed frame (a `stage`), type-led, quiet — then typefaces, colors and icons: the
+grammar is what keeps videos from looking alike. One line on it in the delivery.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/refs.py                      # the user's references, to look at first
@@ -405,7 +404,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word vent
   (`refs.py`, then look at each): criteria for the whole video, never copied, never shown.
 - **Elements enter on the frame of the word that names them**, each with its sound
   on the same word; face, graphics and captions keep their own bands. Remotion renders
-  only the graphics layer (alpha); `still` checks frames over the real image first.
+  only the graphics layer (alpha, or opaque where a `stage` composes the footage
+  itself); `still` checks frames over the real image first.
   Scene plan, idea → graphic, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
   A map, 3D or another effect a Remotion skill covers: load that skill first (`remotion-maps`,
   `remotion-markup`), as `graphics.md` says.
@@ -433,12 +433,11 @@ project/
   project.md       what was decided and why.
 ```
 
-`01` and `02` can be deleted to recover disk. `project.md` holds the decisions
-(destination, subtitles, glossary, cuts, color, ambient) and the source and license
-of every track, effect, clip and font — so work resumes without asking again.
+`01` and `02` can be deleted to recover disk. `project.md` holds the decisions (destination,
+subtitles, glossary, cuts, color, ambient) and the source and license of every track, effect,
+clip and font — so work resumes without asking again.
 
-Say in one line what `organize.py` moved (it never overwrites; `--undo` puts it
-back). Footage given by path somewhere else is read where it is, not moved.
+Say in one line what `organize.py` moved (it never overwrites; `--undo` puts it back). Footage given by path elsewhere is read where it is.
 
 ## 11. Delivery
 
@@ -464,7 +463,8 @@ copy to publish with**.
   layer, never the main video's; a line in the delivery saying what differs.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the
   brand's tone — the hook line, hashtags, a YouTube title ≤60 characters, chapters
-  past ~5 minutes. **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
+  past ~5 minutes (`deliver.py chapter`); a GIF when asked (`deliver.py gif`).
+  **`${CLAUDE_SKILL_DIR}/references/copy.md`**.
 
 **Covers: three different concepts, one file per platform**, each a free canvas
 designed for this video (not one layout with three texts), the person cut out by

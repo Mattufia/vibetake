@@ -8,7 +8,7 @@ Brand ads, UGC ads, product promos.
 - **Cleanup**: full — fillers, retakes, long breaths.
 - **Music**: energetic; cut on the hits.
 - **Subtitles**: burned-in by default (in a feed it starts muted) + `.srt`.
-- **Graphics**: dynamic level (`references/graphics.md`): the hook as a headline graphic, price, offer and CTA as cards; brand logo. Sound effects on every visual event.
+- **Graphics**: usually dynamic (`references/graphics.md`). What it needs: a first frame that stops the scroll, the offer and price impossible to miss, the brand, a clear CTA. How it looks (cards, a composition, type-led) is the design's call (`design.md` section 2); sound effects as the style asks.
 - **Alternative hooks: offered, not made by default.** For paid campaigns, add it to
   the destination question ("two openings to test which works better?"). A variant
   must open *differently* — another line or moment of the material, its own shot and

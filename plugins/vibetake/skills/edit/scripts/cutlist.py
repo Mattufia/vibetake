@@ -48,6 +48,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import CLAUSE_END, SENTENCE_END, die, seconds, tc, tool, work_paths  # noqa: E402
+from _timeline import CARRY, seg_time  # noqa: E402
 
 FORMATS = {"vertical": (1080, 1920), "horizontal": (1920, 1080), "square": (1080, 1080)}
 SNAP_S = 0.04
@@ -504,6 +505,37 @@ def main() -> None:
         t = tr["files"].get(s["name"], {}).get("track", 0)
         if t:
             s["track"] = t
+    # Time effects, J/L cuts and transitions belong to a piece of the material: a segment that
+    # still covers most of the same piece keeps them through the re-cut.
+    # One old segment → at most one new one (the one sharing most of it, at least half of each), so
+    # a segment split in two doesn't fade out or transition twice.
+    kept_fx, taken = 0, {}
+    for old in prev_edl.get("segments", []):
+        if not any(k in old for k in CARRY):
+            continue
+        olap = lambda sg: min(old["out"], sg["out"]) - max(old["in"], sg["in"])  # noqa: E731
+        cands = [i for i, sg in enumerate(segments) if sg["name"] == old.get("name")
+                 and olap(sg) >= 0.5 * max(sg["out"] - sg["in"], old["out"] - old["in"])]
+        if not cands:
+            continue
+        i = max(cands, key=lambda i: olap(segments[i]))
+        if i not in taken or olap(segments[i]) > taken[i][0]:
+            taken[i] = (olap(segments[i]), old)
+    for i, (_, old) in taken.items():
+        sg = segments[i]
+        sg.update({k: old[k] for k in CARRY if k in old})
+        if sg.get("hold") and abs(sg["in"] - old["in"]) > 1e-3 and not sg.get("reverse"):
+            # Freezes sit at a moment of the material: same moment, new start.
+            n = sg["out"] - sg["in"]
+            sg["hold"] = [[round(min(max(a + old["in"] - sg["in"], 0), n), 3), d] for a, d in sg["hold"]]
+        keys = [q[0] for r in sg.get("redact", []) for q in r.get("keys", [])]
+        if keys and (min(keys) > sg["in"] + 0.1 or max(keys) < sg["out"] - 0.1):
+            print(f"WARNING: segment {i + 1} now runs {sg['in']:.2f}–{sg['out']:.2f} s, past its tracked blur "
+                  f"({min(keys):.2f}–{max(keys):.2f} s): the box stays at its edge position there — check it, "
+                  f"or redact.py {i + 1} --box … again")
+        kept_fx += 1
+    if kept_fx:
+        print(f"kept the time effects / transitions of {kept_fx} segment(s) from the previous edit")
     edl = {"version": 1, "output": {"width": w, "height": h, "fps": first_src.get("fps", 30)},
            "made_by": "cutlist", "params": vars(args), "segments": segments}
     carried = {k: v for k, v in prev_edl.items() if k not in edl}
@@ -516,7 +548,7 @@ def main() -> None:
     out.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
 
     total_src = sum(f["duration"] for f in tr["files"].values())
-    total = sum(s["out"] - s["in"] for s in segments)
+    total = sum(seg_time(s) for s in segments)
     dropped_lines = [s["line"] for s in tr["sentences"] if s["line"] not in keep and not any(
         sg["name"] == s["file"] and sg["in"] <= s["start"] and sg["out"] >= s["end"] for sg in segments)]
     print(f"{len(segments)} segments · {tc(total_src)} of material → {tc(total)} · pace {args.pace} · "

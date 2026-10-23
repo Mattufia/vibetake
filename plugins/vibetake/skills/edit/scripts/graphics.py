@@ -10,6 +10,9 @@ this video's design.
     uv run graphics.py still 2.4   # one frame of the layer over the video → 02-work/graphics-stills/
     uv run graphics.py render      # the whole layer, with alpha → 02-work/graphics.mov
 
+A stage in the plan (a composed page with the edit's picture placed in it) also renders the
+clean edit once, to 02-work/footage.mp4, and again whenever the cut or the grade changes.
+
 init copies the kit (motion pieces, no house style) and installs it once per project;
 every still/render first syncs the project with 02-work: design.json (this video's
 design), graphics.json (the scene plan), cues.json, the fonts from fonts.py and the
@@ -37,11 +40,12 @@ import os
 import shutil
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, load_json as load, work_paths  # noqa: E402
-from _timeline import resolve_broll, signature, starts, total  # noqa: E402
+from _common import die, load_json as load, tool, work_paths  # noqa: E402
+from _timeline import resolve_broll, seg_time, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
 
 
@@ -76,7 +80,7 @@ def build(edl: dict, tr: dict, faces: dict, material: dict) -> dict:
     vertical = H > W
     sv = SAFE_V if vertical else SAFE_H
     sx = SAFE_X_V if vertical else (0.05, 0.95)
-    hook = next(({"start": t0[k], "end": t0[k] + s["out"] - s["in"]} for k, s in enumerate(segs)
+    hook = next(({"start": t0[k], "end": t0[k] + seg_time(s)} for k, s in enumerate(segs)
                  if s.get("role") == "hook"), None)
     return {"width": W, "height": H, "fps": fps, "duration": round(end, 3), "frames": round(end * fps),
             "safe": {"x0": sx[0], "y0": sv[0], "x1": sx[1], "y1": sv[1]},
@@ -194,7 +198,11 @@ def cmd_sync(args) -> None:
         cj, cu = json.loads(cap.read_text(encoding="utf-8")), json.loads((data / "cues.json").read_text(encoding="utf-8"))
         if cj.get("timeline") != cu.get("timeline"):
             die(f"{cap} was made for another cut: run subtitles.py --engine remotion again")
-        shutil.copy2(cap, data / "captions.json")
+        cj, hidden = shown_by_graphics(cj, json.loads((data / "graphics.json").read_text(encoding="utf-8")), cu)
+        (data / "captions.json").write_text(json.dumps(cj, ensure_ascii=False), encoding="utf-8")
+        if hidden:
+            print("captions hidden where a graphic shows the same words: "
+                  + ", ".join(f"{a:.1f}–{b:.1f} s" for a, b in hidden))
     else:
         (data / "captions.json").write_text('{"groups": []}', encoding="utf-8")
     # Fonts: every project font, loaded by family and weight.
@@ -214,8 +222,94 @@ def cmd_sync(args) -> None:
         if (work / "icons").exists() else {}
     (data / "icons.ts").write_text("export const ICONS: Record<string, string> = " + json.dumps(icons, ensure_ascii=False)
                                    + ";\n", encoding="utf-8")
+    stage_footage(args, json.loads((data / "graphics.json").read_text(encoding="utf-8")))
     print(f"synced: design, scene plan ({len(json.loads((data / 'graphics.json').read_text(encoding='utf-8')).get('elements', []))} "
           f"elements), {len(fonts)} font file(s), {len(icons)} icon(s)")
+
+
+def _norm(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", s.lower()) if c.isalnum())
+
+
+def at_seconds(at, cues: dict, fallback: float = 0.0) -> float:
+    """Graphics.tsx's secondsOf (kit/motion.ts), in Python: {t}, {word, after}, {line, word}."""
+    if at is None:
+        return fallback
+    if isinstance(at, (int, float)):
+        return float(at)
+    if "t" in at:
+        return float(at["t"])
+    lines = cues.get("lines", [])
+    if "line" in at:
+        ws = next((ln["words"] for ln in lines if ln["line"] == at["line"]), [])
+        i = at.get("word", 0)
+        return ws[i]["start"] if i < len(ws) else fallback
+    w = next((w for ln in lines for w in ln["words"]
+              if w["start"] >= at.get("after", 0) - 1e-3 and _norm(w["text"]) == _norm(at["word"])), None)
+    return w["start"] if w else fallback
+
+
+def _shown_text(el: dict) -> set[str]:
+    """The words an element puts on screen (a custom component's string props count too)."""
+    parts = [*el.get("lines", []), el.get("text", ""), el.get("title", ""), el.get("subtitle", ""),
+             el.get("prefix", ""), el.get("suffix", ""), str(el.get("to", ""))]
+    parts += [it.get("text", "") for it in el.get("items", []) if isinstance(it, dict)]
+    parts += [v for v in (el.get("props") or {}).values() if isinstance(v, str)]
+    return {_norm(w) for p in parts if isinstance(p, str) for w in p.split()} - {""}
+
+
+def shown_by_graphics(cap: dict, plan: dict, cues: dict, share: float = 0.6) -> tuple[dict, list]:
+    """Drop the caption groups a graphic on screen already shows: the same words twice is noise.
+    Auto: most of the group's words (short ones like "de" don't count) are in the element's text.
+    Per element, "captions": "hide" hides every group under it, "show" never hides.
+    ponytail: word-set overlap, no order or phrase matching; "show"/"hide" covers the misses."""
+    spans = []
+    for el in plan.get("elements", []):
+        mode = el.get("captions")
+        if mode == "show" or el.get("type") == "stage":
+            continue
+        words = _shown_text(el)
+        if not words and mode != "hide":
+            continue
+        end = at_seconds(el["until"], cues, 1e9) if "until" in el else 1e9
+        spans.append((at_seconds(el.get("from"), cues), end, words, mode == "hide"))
+    keep, hidden = [], []
+    for g in cap.get("groups", []):
+        mid = (g["start"] + g["end"]) / 2
+        ws = [_norm(w["text"]) for w in g["words"]]
+        sig = [w for w in ws if len(w) > 2] or [w for w in ws if w]
+        hit = any(a - 1e-3 <= mid <= b + 1e-3 and (force or (sig and sum(w in words for w in sig) >= share * len(sig)))
+                  for a, b, words, force in spans)
+        if not hit:
+            keep.append(g)
+        elif hidden and g["start"] - hidden[-1][1] < 0.5:
+            hidden[-1][1] = g["end"]
+        else:
+            hidden.append([g["start"], g["end"]])
+    return {**cap, "groups": keep}, [tuple(h) for h in hidden]
+
+
+def stage_footage(args, plan: dict) -> None:
+    """A stage places the edit's own picture inside the layer: the clean edit (graded, b-roll,
+    no graphics, subtitles or effects), rendered at full quality when the cut or the grade
+    changed, goes to public/footage.mp4. Without a stage it's removed, so renders stay light."""
+    pub = PROJ / "public" / "footage.mp4"
+    if not any(e.get("type") == "stage" and e.get("footage") is not False for e in plan.get("elements", [])):
+        pub.unlink(missing_ok=True)
+        return
+    v = getattr(args, "variant", None)
+    src = Path(f"02-work/footage{'_' + v if v else ''}.mp4")
+    edl = Path(getattr(args, "edl", None) or work_paths(v)["edl"])
+    deps = [p for p in (edl, Path("02-work/color/grade.json")) if p.exists()]
+    if not src.exists() or any(p.stat().st_mtime > src.stat().st_mtime for p in deps):
+        print(f"rendering the clean edit for the stage (no graphics, subtitles or effects) → {src}…", flush=True)
+        p = subprocess.run([tool("uv"), "run", str(Path(__file__).parent / "render.py"), str(edl), "--no-graphics",
+                            "--no-subs", "--no-sfx", "--out", str(src)])
+        if p.returncode or not src.exists():
+            die("the clean edit for the stage failed (see above)")
+    if not pub.exists() or pub.stat().st_mtime != src.stat().st_mtime or pub.stat().st_size != src.stat().st_size:
+        pub.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, pub)
 
 
 def background_frame(t: float, w: int, h: int) -> Path | None:
@@ -225,7 +319,7 @@ def background_frame(t: float, w: int, h: int) -> Path | None:
     edl = Path("02-work/edl.json")
     if not clean.exists() or (edl.exists() and edl.stat().st_mtime > clean.stat().st_mtime):
         print("rendering a clean preview for the stills (no graphics, no subtitles)…", flush=True)
-        subprocess.run(["uv", "run", str(Path(__file__).parent / "render.py"), "--preview", "--no-graphics",
+        subprocess.run([tool("uv"), "run", str(Path(__file__).parent / "render.py"), "--preview", "--no-graphics",
                         "--no-subs", "--no-sfx", "--out", str(clean)], capture_output=True)
     if not clean.exists():
         return None
@@ -246,6 +340,10 @@ def layer_problems(layer: Path, t: float, cues: dict) -> list[str]:
         return []
     a = np.frombuffer(raw, np.uint8).reshape(H, W, 4)[:, :, 3] > 90      # the shapes, not their soft shadows
     if not a.any():
+        return []
+    if a.mean() > 0.9:
+        # ponytail: a stage is up (the layer is the whole page): the face and the frame edge are
+        # the stage's own design, so the checks are skipped — look at the still instead.
         return []
     ys, xs = np.nonzero(a)
     x0, x1, y0, y1 = xs.min() / W, xs.max() / W, ys.min() / H, ys.max() / H

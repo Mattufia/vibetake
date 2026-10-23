@@ -8,8 +8,8 @@ Company presentations, institutional videos, internal communication.
 - **Cleanup**: full but discreet — no visible cuts in shots of executives.
 - **Music**: neutral corporate bed, low.
 - **Subtitles**: `.srt` always; burned-in if it goes to social media.
-- **Graphics**: minimal level (measured if it goes to social media); strict brand compliance (logo, colors, typefaces); lower thirds
-  with name and role.
+- **Graphics**: usually minimal (measured for social media); strict brand compliance (logo, colors, typefaces); people identified with
+  name and role. An editorial composition often suits it better than overlays.
 - **Traps**: names, roles and figures are checked letter by letter; nothing
   off-brand on screen.
 - **Color**: Basic or Full, natural; brand colors in frame (logos, uniforms, products) must stay accurate; no stylized looks unless the brand asks.
