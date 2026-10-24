@@ -1,6 +1,6 @@
 # Vibetake
 
-🇬🇧 [Read in English](README.md)
+[English](README.md)
 
 Edición por vibe con criterio editorial de verdad: un plugin de Claude Code que lleva
 el material crudo a un video terminado — ingesta, corte, mezcla, subtítulos,

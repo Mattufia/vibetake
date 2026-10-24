@@ -1,6 +1,6 @@
 # Vibetake
 
-🇪🇸 [Leer en español](README.es.md)
+[Spanish](README.es.md)
 
 Vibe editing with real editorial judgment: a Claude Code plugin that takes raw
 footage to a finished video — ingest, cut, mix, subtitles, graphics, thumbnails
