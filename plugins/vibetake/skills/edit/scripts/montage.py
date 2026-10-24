@@ -315,7 +315,7 @@ def cmd_build(args) -> None:
     for s in segs:
         # Muted: room tone under the music. Kept: the place's sound as an accent, well under the music.
         s.update({"audio": "mute"} if args.sound == "mute" else {"gain_db": -12.0})
-    from audio import MUSIC_LEVEL, SPEECH_LEVEL, measure
+    from audio import SPEECH_LEVEL, measure
     level = measure(track)["I"] or -20.0
     music = {"source": str(track), "in": args.in_, "at": 0.0,
              # The montage's music is its main sound: at the voice's level, not a bed under it.

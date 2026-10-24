@@ -21,8 +21,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
-
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "plugins" / "vibetake" / "skills" / "edit" / "scripts"
