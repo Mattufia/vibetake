@@ -13,7 +13,7 @@ gráficos, miniaturas y entrega.
 /plugin install vibetake@vibetake
 ```
 
-**Mantenelo actualizado solo**: `/plugin` → **Marketplaces** → `vibetake` →
+**Mantenlo actualizado automáticamente**: `/plugin` → **Marketplaces** → `vibetake` →
 **Enable auto-update** (viene apagado para marketplaces de terceros). Las versiones
 nuevas llegan en los primeros minutos de una sesión y se aplican en la siguiente, o
 en el momento con `/reload-plugins`. Para actualizar a mano: `/plugin` →
@@ -21,18 +21,18 @@ en el momento con `/reload-plugins`. Para actualizar a mano: `/plugin` →
 
 ## Preparar una máquina
 
-Corré `/vibetake:setup` una vez por máquina: revisa herramientas, GPU y modelos,
-instala lo que falta (winget / Homebrew / apt, después de tu OK) y baja los modelos
+Ejecuta `/vibetake:setup` una vez por máquina: revisa herramientas, GPU y modelos,
+instala lo que falta (winget / Homebrew / apt, después de tu OK) y descarga los modelos
 pesados de entrada, con una prueba real de transcripción en la GPU. El perfil de la
 máquina va a `~/.vibetake/machine.json`, nunca adentro del plugin.
 
 ## Uso: editar un video, paso a paso
 
-### 1. Poné tus archivos en una carpeta — tal como están
+### 1. Pon tus archivos en una carpeta — tal como están
 
 Una carpeta por video, con todo suelto adentro: los clips, el audio aparte (un
-corbatero, una grabadora), referencias que te gustan (portadas, otros videos,
-capturas) y, si los tenés, el logo, las tipografías o un LUT. No hace falta ordenar
+micrófono de solapa, una grabadora), referencias que te gustan (portadas, otros videos,
+capturas) y, si los tienes, el logo, las tipografías o un LUT. No hace falta ordenar
 nada: lo primero que hace Vibetake es ordenar la carpeta solo.
 
 ```text
@@ -46,30 +46,30 @@ mi-video/                         mi-video/
 ```
 
 Solo mueve archivos dentro de la misma carpeta (al instante, no copia ni
-recodifica nada), nunca pisa nada y te dice qué movió. Para dejar todo como estaba:
-pedí "deshacé el orden". Varios clips no son problema: se ordenan por hora de
+recodifica nada), nunca sobrescribe nada y te dice qué movió. Para dejar todo como estaba:
+pide "deshaz el orden". Varios clips no son problema: se ordenan por hora de
 grabación y se tratan como una sola secuencia; el audio aparte se sincroniza solo.
-Si después agregás más archivos, solo se mueven los nuevos. Una foto que no sabe
+Si después agregas más archivos, solo se mueven los nuevos. Una foto que no sabe
 ubicar (¿una toma para el video o una referencia?) queda donde está, y te pregunta.
 
-### 2. Abrí Claude Code en esa carpeta y pedí
+### 2. Abre Claude Code en esa carpeta y pide
 
 ```text
 cd mi-video
 claude
 ```
 
-Pedilo con tus palabras. Cuanto más sabe, menos pregunta:
+Pídelo con tus palabras. Cuanto más sabe, menos pregunta:
 
 ```text
-Editá este video para Instagram Reels y TikTok.
+Edita este video para Instagram Reels y TikTok.
 ```
 ```text
-Editá este video para YouTube. Está en español; la marca es Acme, el logo está en la carpeta.
+Edita este video para YouTube. Está en español; la marca es Acme, el logo está en la carpeta.
 Nombres que hay que escribir bien: Vibetake, DaVinci, Ana Pérez.
 ```
 ```text
-Sacá un aviso de 30 segundos de esto, vertical, con un gancho fuerte y un llamado a la acción.
+Haz un anuncio de 30 segundos de esto, vertical, con un gancho fuerte y un llamado a la acción.
 ```
 
 Lo que ayuda: **adónde va** (TikTok, Reels, Shorts, YouTube…), **el idioma**, los
@@ -91,7 +91,7 @@ de video, y te cuenta qué eligió.
    subtítulos dentro de la zona segura — y vuelve a transcribir el archivo final para
    encontrar un corte en medio de una palabra o una frase perdida.
 
-### 4. Qué recibís, en `03-delivery/`
+### 4. Qué recibes, en `03-delivery/`
 
 | Archivo | Qué es |
 |---|---|
@@ -104,14 +104,14 @@ de video, y te cuenta qué eligió.
 `project.md` guarda qué se decidió y por qué, así el trabajo se puede retomar
 después sin empezar de cero.
 
-### 5. Pedí cambios
+### 5. Pide cambios
 
-Decilo y listo; la edición se guarda como una lista de cortes, así que los cambios
+Solo dilo; la edición se guarda como una lista de cortes, así que los cambios
 no rehacen todo:
 
 ```text
-Sacá la parte donde hablo del precio.
-Empezá con la frase del plazo.
+Quita la parte donde hablo del precio.
+Empieza con la frase del plazo.
 Subtítulos más grandes y sin mayúsculas.
 Menos música. Color más cálido. Sin zoom en los cortes.
 Otra portada, con el cuadro donde estoy señalando.
@@ -128,7 +128,7 @@ texto se actualizan en el lugar.
 
 ### Si algo se ve mal
 
-Decí qué y en qué segundo ("en 0:42 se corta una palabra", "los subtítulos me tapan
+Di qué y en qué segundo ("en 0:42 se corta una palabra", "los subtítulos me tapan
 la cara en 1:10"). `03-delivery/qa/qa.md` y `project.md` muestran qué se revisó y qué
 se decidió.
 
@@ -141,7 +141,7 @@ se decidió.
   en cada proyecto. **Licencia de Remotion**: gratis para personas y empresas de hasta
   3 personas; las empresas más grandes necesitan una [licencia de empresa de Remotion](https://www.remotion.dev/license).
 - Las tipografías (Google Fonts, licencias abiertas) y los íconos (Simple Icons CC0,
-  Lucide ISC, Phosphor MIT) se bajan por proyecto, mientras se edita — nada
+  Lucide ISC, Phosphor MIT) se descargan por proyecto, mientras se edita — nada
   preinstalado
 - Opcional, se instala la primera vez que se usa o a mano: rembg (`birefnet-portrait`,
   recorta personas para las portadas, modelo de ~1 GB), realesrgan-ncnn-vulkan
@@ -153,7 +153,7 @@ se decidió.
 uv run tests/test_ingest.py        # trampas de ingesta, clips sintéticos
 uv run tests/test_transcribe.py    # tomas repetidas, muletillas, tiempos de palabras (necesita el modelo Whisper)
 uv run tests/test_grade.py         # color: balance de blancos del ambiente, camino log, niveles, el LUT del usuario
-uv run tests/test_match.py         # igualar tomas: grupos, referencias, oscuras conservadas, saltear, ajustes, reglas
+uv run tests/test_match.py         # igualar tomas: grupos, referencias, oscuras conservadas, omitir, ajustes, reglas
 uv run tests/test_edit.py          # cortes y render: sincronía A/V, sin clics, fuera tomas repetidas, cortes en silencio
 uv run tests/test_joins.py         # cada unión de la vista previa: hojas, un reel corto, saltos chicos/de luz/de nivel, destellos
 uv run tests/test_take_quality.py  # dos tomas de una frase comparadas: más blanda, más movida, quemada; un look compartido no dice nada
@@ -167,7 +167,7 @@ uv run tests/test_qa.py            # QA de entrega: un archivo bueno pasa, las f
 uv run tests/test_graphics.py      # hoja de cues, SFX sintetizados sobre su palabra, capa de gráficos, subtítulos apagados
 uv run tests/test_delivery.py      # versiones, chequeo del copy, bordes de corte en el audio, chequeo de escucha
 uv run tests/test_setup.py         # perfil de la máquina, plan de instalación, herramientas fuera del PATH
-uv run tests/test_organize.py      # archivos sueltos → 00-raw/ y brand/, nada pisado, deshacer
+uv run tests/test_organize.py      # archivos sueltos → 00-raw/ y brand/, nada sobrescrito, deshacer
 uv run tests/test_refs.py          # referencias hechas visibles, ritmo medido de un video de referencia
 uv run tests/test_cut_rules.py     # reacciones vs muletillas, tramos en silencio, ritmo natural, rangos protegidos
 uv run tests/test_design.py        # tipografías e íconos del proyecto, paleta, capa Remotion con diseño + chequeo de zona segura (red, Node)
@@ -184,7 +184,7 @@ uv run tests/test_render_edges.py  # el upscale conserva desenfoque y efectos, d
 uv run tests/test_look.py          # encajar sobre una copia desenfocada, espejar/rotar/inclinar, chroma key, cajas de desenfoque con seguimiento, estabilización, look
 uv run tests/test_audio_fx.py      # palabras censuradas (pitido/silencio, subtítulos con asteriscos), detección de beat, efectos de voz, capítulos en el MP4, GIF
 uv run tests/test_compose.py       # transiciones whip/push, imagen en imagen, pantalla dividida, gráficos detrás de la persona
-uv run tests/test_upscale.py       # agrandado con IA de segmentos estirados (se saltea sin Real-ESRGAN)
+uv run tests/test_upscale.py       # agrandado con IA de segmentos estirados (se omite sin Real-ESRGAN)
 uv run tests/test_fixes.py         # regresiones: el re-corte conserva ubicaciones, capas viejas, HDR sin corrección, log mezclado
 uv run tests/test_readme.py        # README.md y README.es.md tienen la misma estructura
 ```
@@ -196,14 +196,14 @@ sintéticos; algunos necesitan el modelo Whisper, Node o la red, como se indica.
 
 Ideas, bugs y pull requests son bienvenidos.
 
-- **Un bug o una idea**: abrí un issue. Si un video salió mal, decí qué y en qué
-  segundo, y adjuntá `03-delivery/qa/qa.md` si podés.
-- **Una cámara que no se detecta**: corré `uv run tools/camera_report.py <clip>` sobre
-  un archivo original de la cámara y pegá la salida en un issue.
-- **Un pull request**: que se enfoque en una sola cosa, agregá o actualizá un test en
-  `tests/` que falle sin tu cambio, y corré los tests de arriba antes de mandarlo.
+- **Un bug o una idea**: abre un issue. Si un video salió mal, di qué y en qué
+  segundo, y adjunta `03-delivery/qa/qa.md` si puedes.
+- **Una cámara que no se detecta**: ejecuta `uv run tools/camera_report.py <clip>` sobre
+  un archivo original de la cámara y pega la salida en un issue.
+- **Un pull request**: que se enfoque en una sola cosa, agrega o actualiza un test en
+  `tests/` que falle sin tu cambio, y ejecuta los tests de arriba antes de enviarlo.
 - **Documentación**: este README es la copia en español de [`README.md`](README.md).
-  Un cambio allá va acá también, en el mismo pull request (`uv run tests/test_readme.py`
+  Un cambio en uno va también en el otro, en el mismo pull request (`uv run tests/test_readme.py`
   revisa que los dos tengan la misma estructura).
 
 ## Licencia
