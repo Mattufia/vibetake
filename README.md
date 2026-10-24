@@ -1,10 +1,10 @@
 # Vibetake
 
+🇪🇸 [Leer en español](README.es.md)
+
 Vibe editing with real editorial judgment: a Claude Code plugin that takes raw
 footage to a finished video — ingest, cut, mix, subtitles, graphics, thumbnails
 and delivery.
-
-> Private / work in progress.
 
 ## Install
 
@@ -12,10 +12,6 @@ and delivery.
 /plugin marketplace add Mattufia/vibetake
 /plugin install vibetake@vibetake
 ```
-
-Private repo: the machine needs GitHub credentials that `git` can use without
-prompting (`gh auth login` then `gh auth setup-git`). Without an SSH key, set
-`CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1`.
 
 **Keep it updated automatically**: `/plugin` → **Marketplaces** → `vibetake` →
 **Enable auto-update** (off by default for third-party marketplaces). New versions
@@ -148,29 +144,29 @@ Say what and at what second ("at 0:42 a word is cut", "the subtitles cover my fa
 ## Tests
 
 ```text
-uv run tests/test_ingest.py       # ingest traps, synthetic clips
-uv run tests/test_transcribe.py   # retakes, fillers, word timing (needs the Whisper model)
-uv run tests/test_grade.py        # color: ambient white balance, log path, levels, the user's LUT
-uv run tests/test_match.py        # shot matching: groups, references, darks kept, skip, nudges, rules
-uv run tests/test_edit.py         # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
-uv run tests/test_joins.py        # every join of the preview: sheets, a short reel, small/light/level jumps, flashes
-uv run tests/test_take_quality.py # two takes of a line compared: softer, shakier, blown out; a shared look says nothing
-uv run tests/test_reframe.py      # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
-uv run tests/test_speaker.py      # several people: who says each sentence (mics, mouths), framing follows them
-uv run tests/test_broll.py        # b-roll anchored to words, sound underneath, follows re-cuts
-uv run tests/test_audio.py        # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
-uv run tests/test_audio_inputs.py # the sound's source: channels, best track, separate recordings, ambience
-uv run tests/test_subs.py         # .srt rules, word groups, face avoidance, burn-in
-uv run tests/test_qa.py           # delivery QA: a good file passes, planted faults are caught
-uv run tests/test_graphics.py     # cue sheet, synthesized SFX on their word, graphics layer, captions off
-uv run tests/test_delivery.py     # versions, copy checks, cut edges on the audio, listening check
-uv run tests/test_setup.py        # machine profile, install plan, tools found outside PATH
-uv run tests/test_organize.py     # loose files → 00-raw/ and brand/, nothing overwritten, undo
-uv run tests/test_refs.py         # references made viewable, a reference video's rhythm measured
-uv run tests/test_cut_rules.py    # reactions vs fillers, silent stretches, natural pace, protected ranges
-uv run tests/test_design.py       # project fonts and icons, palette, Remotion layer with design + safe-zone check (network, Node)
-uv run tests/test_stage.py        # composition: the edit placed in a stage, frame-synced, page and frame components (Node)
-uv run tests/test_timing.py       # speed, ramps, freezes, reverse, boomerang, J/L cuts, transitions, fades: frame by frame
+uv run tests/test_ingest.py        # ingest traps, synthetic clips
+uv run tests/test_transcribe.py    # retakes, fillers, word timing (needs the Whisper model)
+uv run tests/test_grade.py         # color: ambient white balance, log path, levels, the user's LUT
+uv run tests/test_match.py         # shot matching: groups, references, darks kept, skip, nudges, rules
+uv run tests/test_edit.py          # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
+uv run tests/test_joins.py         # every join of the preview: sheets, a short reel, small/light/level jumps, flashes
+uv run tests/test_take_quality.py  # two takes of a line compared: softer, shakier, blown out; a shared look says nothing
+uv run tests/test_reframe.py       # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
+uv run tests/test_speaker.py       # several people: who says each sentence (mics, mouths), framing follows them
+uv run tests/test_broll.py         # b-roll anchored to words, sound underneath, follows re-cuts
+uv run tests/test_audio.py         # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
+uv run tests/test_audio_inputs.py  # the sound's source: channels, best track, separate recordings, ambience
+uv run tests/test_subs.py          # .srt rules, word groups, face avoidance, burn-in
+uv run tests/test_qa.py            # delivery QA: a good file passes, planted faults are caught
+uv run tests/test_graphics.py      # cue sheet, synthesized SFX on their word, graphics layer, captions off
+uv run tests/test_delivery.py      # versions, copy checks, cut edges on the audio, listening check
+uv run tests/test_setup.py         # machine profile, install plan, tools found outside PATH
+uv run tests/test_organize.py      # loose files → 00-raw/ and brand/, nothing overwritten, undo
+uv run tests/test_refs.py          # references made viewable, a reference video's rhythm measured
+uv run tests/test_cut_rules.py     # reactions vs fillers, silent stretches, natural pace, protected ranges
+uv run tests/test_design.py        # project fonts and icons, palette, Remotion layer with design + safe-zone check (network, Node)
+uv run tests/test_stage.py         # composition: the edit placed in a stage, frame-synced, page and frame components (Node)
+uv run tests/test_timing.py        # speed, ramps, freezes, reverse, boomerang, J/L cuts, transitions, fades: frame by frame
 uv run tests/test_effects_edges.py # transitions beside straight cuts, L+J on one segment, freeze at 0, smooth, J/L as played
 uv run tests/test_montage.py       # montage to music: moments, cuts on the beat, shorter shots when loud, blocks around speech
 uv run tests/test_shorts.py        # shorts from a long video: ranges without retakes, hook, own cut/captions/render, QA per short
@@ -179,12 +175,32 @@ uv run tests/test_screen.py        # screen zooms: the menu and the typing, neve
 uv run tests/test_ingest_edges.py  # odd material: duplicate names, silent/no audio, broken files, proxies, no duration, lock, false retakes
 uv run tests/test_cut_edges.py     # cut order: hooks kept in place, protections per variant, silences where listed, carry ties
 uv run tests/test_render_edges.py  # upscale keeps blur and effects, static blur over handles, 100+ spans, audio offset, apostrophes
-uv run tests/test_look.py         # fit over a blurred copy, flip/rotate/tilt, chroma key, tracked blur boxes, stabilization, look
-uv run tests/test_audio_fx.py     # bleeped words (beep/mute, starred subs), beat tracking, voice effects, chapters in the MP4, GIF
-uv run tests/test_compose.py      # whip/push transitions, picture-in-picture, split screen, graphics behind the person
-uv run tests/test_upscale.py      # AI upscaling of stretched segments (skipped without Real-ESRGAN)
-uv run tests/test_fixes.py        # regressions: re-cut keeps placements, stale layers, HDR without grade, mixed log
+uv run tests/test_look.py          # fit over a blurred copy, flip/rotate/tilt, chroma key, tracked blur boxes, stabilization, look
+uv run tests/test_audio_fx.py      # bleeped words (beep/mute, starred subs), beat tracking, voice effects, chapters in the MP4, GIF
+uv run tests/test_compose.py       # whip/push transitions, picture-in-picture, split screen, graphics behind the person
+uv run tests/test_upscale.py       # AI upscaling of stretched segments (skipped without Real-ESRGAN)
+uv run tests/test_fixes.py         # regressions: re-cut keeps placements, stale layers, HDR without grade, mixed log
+uv run tests/test_readme.py        # README.md and README.es.md have the same structure
 ```
 
-Generates synthetic clips for each ingest trap (VFR, HDR, rotation, two audio
-tracks, external audio, log) and checks what `ingest.py` detects.
+Each test prints PASS/FAIL per check. Most build their own synthetic clips; a few
+need the Whisper model, Node or the network, as noted.
+
+## Contributing
+
+Ideas, bugs and pull requests are welcome.
+
+- **A bug or an idea**: open an issue. For a video that came out wrong, say what and
+  at what second, and attach `03-delivery/qa/qa.md` if you can.
+- **A camera that isn't detected**: run `uv run tools/camera_report.py <clip>` on an
+  original file from the camera and paste the output into an issue.
+- **A pull request**: keep it focused on one thing, add or update a test in `tests/`
+  that fails without your change, and run the tests above before sending it.
+- **Docs**: this README has a Spanish copy, [`README.es.md`](README.es.md). A change
+  here goes there too, in the same pull request (`uv run tests/test_readme.py` checks
+  that both have the same structure).
+
+## License
+
+[MIT](LICENSE). Remotion, used for the graphics layer, has its own license (see
+Requirements).

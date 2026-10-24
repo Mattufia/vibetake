@@ -1,7 +1,10 @@
 {
   "name": "vibetake",
   "description": "Vibetake: AI video editing with real editorial judgment.",
-  "owner": { "name": "Vibetake" },
+  "owner": {
+    "name": "Vibetake",
+    "url": "https://github.com/Mattufia"
+  },
   "plugins": [
     {
       "name": "vibetake",

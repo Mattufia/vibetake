@@ -4,6 +4,9 @@
   "author": {
     "name": "Vibetake"
   },
+  "homepage": "https://github.com/Mattufia/vibetake",
+  "repository": "https://github.com/Mattufia/vibetake",
+  "license": "MIT",
   "keywords": [
     "video",
     "editing",
