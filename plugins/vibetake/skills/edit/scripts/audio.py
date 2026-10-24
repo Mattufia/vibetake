@@ -31,12 +31,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import Cache, Log, channel_pan, die, ffmpeg_progress, ffprobe, run, tool  # noqa: E402
+from _common import Cache, Log, channel_pan, die, ffmpeg_progress, ffprobe, run, spans_expr, tool  # noqa: E402
 
 TARGETS = {"social": (-14.0, -1.0), "podcast": (-16.0, -1.0),
            "broadcast-eu": (-23.0, -2.0), "broadcast-us": (-24.0, -2.0)}
 SPEECH_LEVEL = -20.0     # LUFS of every cleaned file: headroom for the mix
 MUSIC_LEVEL = -28.0      # LUFS of the music bed before ducking (~18 dB under the voice while talking)
+# The stream's own start kept: OBS, Game Bar and phones often start the sound after the picture,
+# and a cleaned file that began at its first sample would play that much early (lips out of sync).
+KEEP_START = "aresample=48000:async=1:first_pts=0"
+MASTER_MAX_GAIN = 20.0   # dB: near-silent content isn't pushed up into hiss and noise
 BUS = "acompressor=threshold=0.125:ratio=2.5:attack=15:release=200:makeup=1"   # gentle, across cuts
 
 
@@ -186,9 +190,12 @@ def cmd_clean(args) -> None:
             level, gain = None, 0.0
         else:
             # The level of the voice, measured where someone speaks — not the ambience or music.
-            only = "aselect='" + "+".join(f"between(t,{a:.2f},{b:.2f})" for a, b in spans) + "',asetpts=N/SR/TB"
-            level = measure(sound, sel, f"{full},{only}" if spans else full)["I"]
+            only = f"aselect='{spans_expr(spans)}',asetpts=N/SR/TB"
+            level = measure(sound, sel, ",".join(x for x in (KEEP_START, full, only if spans else "") if x))["I"]
             gain = max(min(SPEECH_LEVEL - level, 20.0), -20.0) if level is not None else 0.0
+            if level is None:
+                log(f"WARNING: {name}: couldn't measure the speech level — left at its recorded level (0 dB), "
+                    "so it won't match the other files. Check the file's sound (silent? unreadable?)")
         lat = latency(af)
         log(f"{name}: " + (f"ambience ({speech_pct:.0f}% speech): kept as recorded" if ambient else
                            f"cleaning (noise floor {floor} dB, noise reduction {args.nr}, speech {level} LUFS → "
@@ -198,7 +205,7 @@ def cmd_clean(args) -> None:
                + (f", drift {ext['drift_s'] * 1000:+.0f} ms corrected" if ext.get("drift_s") else "") if align else ""))
         # Resample first so the latency (measured at 48 kHz) is in the same samples.
         shift = (f",atrim=start_sample={lat},asetpts=PTS-STARTPTS,apad=pad_len={lat}" if lat else "")
-        ffmpeg_progress(["-i", str(sound), *sel, "-af", f"aresample=48000,{full}{shift},volume={gain:.2f}dB",
+        ffmpeg_progress(["-i", str(sound), *sel, "-af", f"{KEEP_START},{full}{shift},volume={gain:.2f}dB",
                          "-c:a", "pcm_s24le", str(dst)], float(m["duration"]), f"{name} clean audio", log, step=50)
         index[name] = {"file": str(dst), "track": track, "chain": af, "gain_db": round(gain, 2),
                        "measured_lufs": level, "ambient": ambient,
@@ -214,10 +221,14 @@ def cmd_clean(args) -> None:
 def cmd_music(args) -> None:
     edl_path = Path(args.edl)
     edl = json.loads(edl_path.read_text(encoding="utf-8"))
+    # A montage block's music (montage.py) belongs to that block: never replaced or cleared here.
+    blocks = [m for m in edl.get("music", []) if m.get("block")]
     if args.clear:
-        edl.pop("music", None)
+        edl["music"] = blocks
+        if not blocks:
+            edl.pop("music")
         edl_path.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
-        print("music removed")
+        print("music removed" + (f" (the montage's {len(blocks)} kept: montage.py removes it)" if blocks else ""))
         return
     if not args.file:
         die("--file is required")
@@ -226,7 +237,7 @@ def cmd_music(args) -> None:
     gain = MUSIC_LEVEL - level + args.gain
     item = {"source": str(f), "in": args.in_, "at": args.start, "gain_db": round(gain, 2),
             "fade_in": args.fade_in, "fade_out": args.fade_out, "duration": float(ffprobe(f)["format"]["duration"])}
-    edl["music"] = (edl.get("music", []) if args.append else []) + [item]
+    edl["music"] = (edl.get("music", []) if args.append else blocks) + [item]
     edl_path.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"music: {f.name} ({level:.1f} LUFS → bed at {MUSIC_LEVEL + args.gain:.1f} LUFS, ducked under speech)")
 
@@ -241,13 +252,15 @@ def music_graph(first_input: int, voice: str, items: list[dict], total: float) -
         k = first_input + j
         inputs += ["-stream_loop", "-1", "-ss", f"{mu['in']:.3f}", "-i", mu["source"]]
         dur = max(min(total, mu.get("until", total)) - mu["at"], 0.1)
-        fo = min(mu["fade_out"], dur / 2)
+        fi, fo = min(float(mu.get("fade_in", 0)), dur / 2), min(float(mu.get("fade_out", 0)), dur / 2)
+        # 0 = no fade: afade with d=0 would fall back to its 1 s default.
+        fades = "".join([f"afade=t=in:d={fi:.3f},"] * (fi > 0) + [f"afade=t=out:st={dur - fo:.3f}:d={fo:.3f},"] * (fo > 0))
         # A montage's music is the lead sound: no dip for a voice, never ducked by the shots' sound.
         is_lead = mu.get("block") == "montage"
         graphs.append(f"[{k}:a:0]aformat=sample_rates=48000:channel_layouts=stereo,volume={mu['gain_db']:.2f}dB,"
                       f"{'' if is_lead else 'equalizer=f=3000:t=q:w=1:g=-3,'}"
-                      f"atrim=duration={dur:.3f},asetpts=PTS-STARTPTS,afade=t=in:d={mu['fade_in']},"
-                      f"afade=t=out:st={dur - fo:.3f}:d={fo:.3f},adelay=delays={int(mu['at'] * 1000)}:all=1[m{j}]")
+                      f"atrim=duration={dur:.3f},asetpts=PTS-STARTPTS,{fades}"
+                      f"adelay=delays={int(mu['at'] * 1000)}:all=1[m{j}]")
         (lead if is_lead else beds).append(f"[m{j}]")
     cur = voice
     if beds:
@@ -272,6 +285,10 @@ def master(src: Path, dst: Path, target: str, log: Log) -> dict:
     if m["I"] is None:
         die("the render has no measurable audio")
     gain = lufs - m["I"]
+    if m["I"] < -50:
+        log(f"WARNING: the mix is nearly silent ({m['I']} LUFS): check the sound (muted segments? the wrong "
+            f"track?) — raised at most {MASTER_MAX_GAIN:.0f} dB, not to {lufs} LUFS")
+    gain = min(gain, MASTER_MAX_GAIN)
     for attempt in range(2):
         af = f"volume={gain:.2f}dB"
         if m["TP"] is not None and m["TP"] + gain > ceiling - 0.3:
@@ -282,9 +299,9 @@ def master(src: Path, dst: Path, target: str, log: Log) -> dict:
              "-c:v", "copy", "-af", af, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-movflags", "+faststart",
              str(dst)])
         final = measure(dst)
-        if final["I"] is not None and abs(final["I"] - lufs) <= 0.5:
+        if final["I"] is not None and abs(final["I"] - lufs) <= 0.5 or gain >= MASTER_MAX_GAIN:
             break
-        gain += lufs - (final["I"] or lufs)            # the limiter took some level: one correction
+        gain = min(gain + lufs - (final["I"] or lufs), MASTER_MAX_GAIN)   # the limiter took some level: one correction
     log(f"loudness ({target}): {m['I']} → {final['I']} LUFS (target {lufs}), true peak {final['TP']} dBTP "
         f"(ceiling {ceiling})")
     return final

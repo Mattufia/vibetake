@@ -32,8 +32,8 @@ Name them by their idea (`precio`, `error-comun`): letters, digits, hyphens.
 
 ## Making them
 
-`make` runs, per short: `cutlist.py --variant <name>` (its lines; not the long video's chapters
-or montage block), `reframe.py`, `subtitles.py`, the short's own graphics layer (captions only
+`make` runs, per short: `cutlist.py --variant <name>` (its lines; only the protections next to
+them; not the long video's chapters or montage block), `reframe.py`, `subtitles.py`, the short's own graphics layer (captions only
 until its graphics are planned: `graphics_<name>.json`, never the long video's plan), and
 `render.py`. Then, per short:
 

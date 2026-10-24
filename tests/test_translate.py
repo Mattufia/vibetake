@@ -70,6 +70,19 @@ def main() -> None:
     checks["apply: a cue too fast to read and too long for two lines is flagged"] = (
         "cues [3] read faster" in r.stdout and "cues [3] don't fit" in r.stdout)
 
+    # A re-cut that only moved the cues: the translation follows the new times.
+    moved = SRT.replace("00:00:05,000 --> 00:00:06,000", "00:00:04,900 --> 00:00:05,700")
+    (proj / "03-delivery" / "charla.srt").write_text(moved, encoding="utf-8")
+    r = uv(proj, "apply", "--to", "en")
+    got = read_srt(out)
+    checks["apply after a re-cut that moved cues: the new times, not the exported ones"] = (
+        r.returncode == 0 and (got[2]["start"], got[2]["end"]) == (4.9, 5.7))
+    changed = moved.replace("Y es simple.", "Y es muy simple.")
+    (proj / "03-delivery" / "charla.srt").write_text(changed, encoding="utf-8")
+    r = uv(proj, "apply", "--to", "en")
+    checks["apply after a cue's words changed: asks to export again"] = r.returncode != 0 and "export again" in r.stdout + r.stderr
+    (proj / "03-delivery" / "charla.srt").write_text(moved, encoding="utf-8")
+
     # A re-export keeps what was translated; Japanese wraps without spaces at its own width.
     r = uv(proj, "export", "--to", "en")
     again = json.loads(work.read_text(encoding="utf-8"))

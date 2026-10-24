@@ -92,12 +92,19 @@ def lang_data(lang: str) -> dict:
 
 
 def transcribe_file(model, f: Path, args, ld: dict, track: int = 0) -> dict:
-    dur = float(ffprobe(f).get("format", {}).get("duration") or 0)
+    info = ffprobe(f)
+    dur = float(info.get("format", {}).get("duration") or 0)
+    n_audio = sum(1 for s in info.get("streams", []) if s.get("codec_type") == "audio")
+    track = track if track < n_audio else 0
     # Decode with ffmpeg ourselves: faster-whisper's own decoder (PyAV) breaks across versions.
+    # first_pts=0: sound that starts after the picture (OBS, some phones) keeps its delay, so word
+    # times are on the video's clock — the cuts land where the words really are.
     raw = subprocess.run([tool("ffmpeg"), "-v", "error", "-i", str(f), "-map", f"0:a:{track}",
+                          "-af", "aresample=16000:async=1:first_pts=0",
                           "-ac", "1", "-ar", "16000", "-f", "s16le", "-"], capture_output=True, check=True).stdout
     import numpy as np
     audio = np.frombuffer(raw, np.int16).astype(np.float32) / 32768
+    dur = dur or len(audio) / 16000          # streamed WebM and the like carry no duration
     glossary = [g.strip() for g in (args.glossary or "").split(",") if g.strip()]
     # The prompt is punctuated verbatim speech (keeps fillers and punctuation) plus the glossary.
     prompt = " ".join(x for x in (ld["prompt"], ", ".join(glossary) + "." if glossary else "") if x) or None
@@ -236,8 +243,12 @@ def content_tokens(words: list[dict], spans: list[tuple[int, int]]) -> list[str]
     return [t for k, w in enumerate(words) if k not in skip for t in norm(w["word"]).split()]
 
 
-def is_retake(a: list[str], b: list[str], a_has_restart: bool) -> bool:
-    """Is sentence a an abandoned or repeated take of the later sentence b?"""
+def is_retake(a: list[str], b: list[str], a_has_restart: bool, a_complete: bool = True) -> bool:
+    """Is sentence a an abandoned or repeated take of the later sentence b?
+    A shared start alone isn't enough ("Si no tenés plata…" / "Si no tenés tiempo…" are two
+    lines): a must be contained in b, abandoned right after the shared start, corrected
+    ("no, perdón"), or the whole sentences must be nearly the same. A complete take is never
+    the retake of a shorter fragment of itself said after it."""
     if len(a) < 2 or len(b) < 2:
         return False
     k = 0
@@ -246,9 +257,16 @@ def is_retake(a: list[str], b: list[str], a_has_restart: bool) -> bool:
     # A truncated last word ("mos…" before "mostrar") still counts as matching.
     if k == len(a) - 1 and k < len(b) and len(a[k]) >= 2 and b[k].startswith(a[k]):
         k += 1
-    if k >= 3 or (k >= 2 and (k == len(a) or a_has_restart)):
+    if k == len(a):                          # a is the start of b (or the same line again)
         return True
-    return min(len(a), len(b)) >= 4 and SequenceMatcher(None, a, b).ratio() >= 0.7
+    if k >= len(b) - 1 and len(b) < len(a):  # b is a fragment of a: a is the full take
+        return False
+    if k >= 2 and a_has_restart:
+        return True
+    # Abandoned one word after the shared start, without ending the sentence.
+    if k >= 2 and len(a) - k <= 1 and len(a) < len(b) and not a_complete:
+        return True
+    return min(len(a), len(b)) >= 4 and len(b) >= 0.75 * len(a) and SequenceMatcher(None, a, b).ratio() >= 0.8
 
 
 def analyze(order: list[str], files: dict, ld: dict) -> list[dict]:
@@ -272,6 +290,7 @@ def analyze(order: list[str], files: dict, ld: dict) -> list[dict]:
                 "tokens": content_tokens(ws, spans),
                 "restart": any(re.search(rf"\b{re.escape(r)}\b", text_n) for r in restart),
                 "low_confidence": any(s < end and e > start for s, e in weak),
+                "complete": ws[-1]["word"].strip().endswith((".", "?", "!", "。", "？", "！")),
                 "_spans": spans,
             })
     for n, s in enumerate(sents, 1):
@@ -280,7 +299,7 @@ def analyze(order: list[str], files: dict, ld: dict) -> list[dict]:
         for b in sents[i + 1:i + 1 + RETAKE_LOOKAHEAD]:
             same_file = a["file_index"] == b["file_index"]
             near = (b["start"] - a["end"] <= RETAKE_WINDOW_S) if same_file else b["file_index"] == a["file_index"] + 1
-            if near and is_retake(a["tokens"], b["tokens"], a["restart"]):
+            if near and is_retake(a["tokens"], b["tokens"], a["restart"], a["complete"]):
                 a["retake_of"] = b["line"]
                 break
     return sents
@@ -394,7 +413,8 @@ def write_outputs(out: Path, result: dict, ld: dict) -> None:
         gap(prev_file, prev_end, float(result["files"][prev_file].get("duration") or prev_end))
     (out / "transcript.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     result["silences"] = silences
-    result["sentences"] = [{k: v for k, v in s.items() if k not in ("words", "tokens", "_spans")} for s in sents]
+    result["sentences"] = [{k: v for k, v in s.items() if k not in ("words", "tokens", "_spans", "complete")}
+                           for s in sents]
     (out / "transcript.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
@@ -424,6 +444,112 @@ def ensure_cuda_libs() -> None:
     sys.exit(subprocess.run([*cmd, str(Path(__file__).resolve()), *sys.argv[1:]], env=env).returncode)
 
 
+LOCK = "transcribe.lock"
+LOCK_STALE_S = 300      # a lock not refreshed for this long is from a process that died
+
+
+def pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":     # os.kill(pid, 0) would terminate the process on Windows
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)          # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == 259            # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def lock_holder(out: Path) -> int | None:
+    """PID of a transcription still running on this folder, or None (no lock, or a stale one:
+    its process is gone or it stopped refreshing the lock)."""
+    path = out / LOCK
+    try:
+        pid = int(path.read_text(encoding="utf-8").split()[0])
+        fresh = time.time() - path.stat().st_mtime < LOCK_STALE_S
+    except (OSError, ValueError, IndexError):
+        return None
+    return pid if fresh and pid != os.getpid() and pid_alive(pid) else None
+
+
+def acquire_lock(out: Path):
+    """One transcription per folder: a second one (ingest run again while the first is still
+    transcribing) waits instead of loading the model twice and overwriting the results.
+    The lock holds the PID and is touched every 30 s, so a crashed run never blocks."""
+    import threading
+    path, said = out / LOCK, False
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            holder = lock_holder(out)
+            if holder is None:
+                try:
+                    path.unlink()
+                except OSError:
+                    time.sleep(0.5)
+                continue
+            if not said:
+                print(f"another transcription is still running on {out} (PID {holder}); waiting for it…", flush=True)
+                said = True
+            time.sleep(2)
+    stop = threading.Event()
+
+    def beat() -> None:
+        while not stop.wait(30):
+            try:
+                os.utime(path)
+            except OSError:
+                pass
+    threading.Thread(target=beat, daemon=True).start()
+
+    def release() -> None:
+        stop.set()
+        try:
+            if path.read_text(encoding="utf-8").split()[0] == str(os.getpid()):
+                path.unlink()
+        except (OSError, IndexError):
+            pass
+    return release
+
+
+def load_result(path: Path) -> dict:
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        result = {"files": {}, "order": []}
+    result.setdefault("files", {})
+    result.setdefault("order", list(result["files"]))
+    return result
+
+
+def save_merged(path: Path, result: dict, done: dict) -> None:
+    """Writes result with this run's files over whatever is on disk now, so a file another
+    run finished in the meantime is never lost."""
+    result["files"] = {**result["files"], **load_result(path)["files"], **done}
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def fail_reason(e: Exception) -> str:
+    text = e.stderr.decode("utf-8", "replace") if isinstance(e, subprocess.CalledProcessError) and e.stderr \
+        else str(e)
+    lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+    return lines[-1] if lines else e.__class__.__name__
+
+
 def main() -> None:
     ensure_cuda_libs()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -435,6 +561,10 @@ def main() -> None:
     ap.add_argument("--track", type=int, default=0, help="audio track index to transcribe")
     ap.add_argument("--track-for", action="append", default=[], metavar="NAME=N",
                     help="a file's own audio track (ingest passes the best one per file)")
+    ap.add_argument("--names", help="the name each file goes by, '/'-separated in the order of the files "
+                                    "(ingest's unique names, e.g. day1-C0001.MP4); default: the file name")
+    ap.add_argument("--prune", action="store_true",
+                    help="the files given are the whole material: drop transcripts of files no longer in it")
     ap.add_argument("--force", action="store_true", help="transcribe again even if nothing changed")
     ap.add_argument("--rebuild-md", action="store_true", help="only recompute marks from transcript.json")
     args = ap.parse_args()
@@ -443,47 +573,81 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     ld = lang_data(args.lang)
     result_path = out / "transcript.json"
-    try:
-        result = json.loads(result_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        result = {"files": {}, "order": []}
-    result.setdefault("order", list(result["files"]))
+    if args.rebuild_md:
+        result = load_result(result_path)
+        if not result["files"]:
+            die(f"nothing to rebuild: {result_path} is missing or empty")
+        finish(out, result, args, ld)
+        return
 
-    if not args.rebuild_md:
-        if not args.files:
-            die("no files given")
-        tracks = {k: int(v) for k, _, v in (x.rpartition("=") for x in args.track_for)}
+    if not args.files:
+        die("no files given")
+    files = list(map(Path, args.files))
+    names = args.names.split("/") if args.names else [f.name for f in files]
+    if len(names) != len(files):
+        die(f"--names has {len(names)} names for {len(files)} files")
+    tracks = {k: int(v) for k, _, v in (x.rpartition("=") for x in args.track_for)}
+    release = acquire_lock(out)
+    try:
+        result = load_result(result_path)      # read after the lock: includes what a previous run finished
         model = device = None
-        for f in map(Path, args.files):
-            track = tracks.get(f.name, args.track)
+        done: dict = {}
+        tried = failed = 0
+        for f, name in zip(files, names):
+            track = tracks.get(name, args.track)
             # A file whose transcript was made with the same settings isn't transcribed again.
             sig = [f.stat().st_size, int(f.stat().st_mtime), args.lang, args.glossary or "", track, args.model]
-            old = result["files"].get(f.name)
+            old = result["files"].get(name)
             if old and old.get("sig") == sig and not args.force:
-                print(f"{f.name}: transcript up to date", flush=True)
+                print(f"{name}: transcript up to date", flush=True)
                 continue
-            if model is None:
-                print(f"loading {args.model} (first run downloads the model, ~3 GB)…", flush=True)
-                model, device = load_model(args.model)
-                print(f"model ready on {device}", flush=True)
-            result["files"][f.name] = {**transcribe_file(model, f, args, ld, track), "device": device, "sig": sig}
-            result_path.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
-        # Recording order is ingest's (it passes every file in that order); redoing some files
-        # keeps the order they had, so line numbers don't move around.
-        names = [Path(f).name for f in args.files]
-        if set(names) >= set(result["order"]):
-            result["order"] = names
+            tried += 1
+            try:
+                if not any(x.get("codec_type") == "audio" for x in ffprobe(f).get("streams", [])):
+                    # A drone, GoPro or b-roll clip: nothing to transcribe, and not an error.
+                    print(f"{name}: no audio stream — nothing to transcribe", flush=True)
+                    entry = {"language": args.lang, "track": None, "duration": 0, "segments": [],
+                             "no_audio": True, "sig": sig}
+                else:
+                    if model is None:
+                        print(f"loading {args.model} (first run downloads the model, ~3 GB)…", flush=True)
+                        model, device = load_model(args.model)
+                        print(f"model ready on {device}", flush=True)
+                    entry = {**transcribe_file(model, f, args, ld, track), "device": device, "sig": sig}
+            except Exception as e:  # noqa: BLE001 — one bad file doesn't stop the others
+                failed += 1
+                print(f"{name}: FAILED ({fail_reason(e)})", flush=True)
+                # No sig: tried again next run.
+                entry = {"language": args.lang, "duration": 0, "segments": [], "error": fail_reason(e)}
+            done[name] = entry
+            save_merged(result_path, result, done)
+        result["files"] = {**result["files"], **load_result(result_path)["files"], **done}
+        if args.prune:
+            # Ingest passes the whole material: files gone from it leave the transcript too.
+            result["files"] = {n: result["files"][n] for n in names if n in result["files"]}
+            result["order"] = list(names)
+        elif set(names) >= set(result["order"]):
+            # Recording order is ingest's (it passes every file in that order); redoing some files
+            # keeps the order they had, so line numbers don't move around.
+            result["order"] = list(names)
         else:
             result["order"] = result["order"] + [n for n in names if n not in result["order"]]
-    elif not result["files"]:
-        die(f"nothing to rebuild: {result_path} is missing or empty")
+        result["order"] = [n for n in result["order"] if n in result["files"]]
+        finish(out, result, args, ld)
+    finally:
+        release()
+    if failed:
+        print(f"{failed} file(s) could not be transcribed (see FAILED above)", flush=True)
+        if failed == tried:
+            sys.exit(1)
 
+
+def finish(out: Path, result: dict, args, ld: dict) -> None:
     result["lang"] = args.lang
     if args.glossary or "glossary" not in result:
         result["glossary"] = args.glossary or ""
     write_outputs(out, result, ld)
     print(f"transcript → {out / 'transcript.md'}", flush=True)
-
 
 if __name__ == "__main__":
     main()

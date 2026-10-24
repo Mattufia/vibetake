@@ -34,6 +34,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (AUDIO_EXT, HOME, VIDEO_EXT, Cache, Log, die, ffmpeg_progress, ffprobe,  # noqa: E402
                      filter_path, filter_works, find_font, frac, pick_tonemap, run, tc, tool)
+import transcribe  # noqa: E402
 
 STANDARD_FPS = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120]
 LOG_PATTERN = re.compile(
@@ -76,6 +77,22 @@ def exif_strings(path: Path) -> dict:
     return {k: v for k, v in data.items() if isinstance(v, (str, int, float)) and not k.startswith("System:")}
 
 
+def packet_duration(path: Path) -> float:
+    """Length from the last packet, for containers that don't store it (a browser's
+    MediaRecorder WebM, a stream dump)."""
+    p = run([tool("ffprobe"), "-v", "error", "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0",
+             str(path)], check=False)
+    end = 0.0
+    for line in p.stdout.splitlines():
+        try:
+            vals = [float(x) for x in line.strip().strip(",").split(",") if x and x != "N/A"]
+        except ValueError:
+            continue
+        if vals:
+            end = max(end, sum(vals[:2]))
+    return end
+
+
 def detect(path: Path) -> dict:
     info = ffprobe(path)
     streams = info.get("streams", [])
@@ -84,9 +101,15 @@ def detect(path: Path) -> dict:
     audio = [s for s in streams if s.get("codec_type") == "audio"]
     fmt = info.get("format", {})
     duration = float(fmt.get("duration") or (v or {}).get("duration") or 0)
+    no_duration = not duration
+    if no_duration:
+        duration = packet_duration(path)
+    if not duration:
+        raise RuntimeError("no duration and no readable packets")
     recorded = fmt.get("tags", {}).get("creation_time") or next(
         (s.get("tags", {}).get("creation_time") for s in streams if s.get("tags", {}).get("creation_time")), None)
     meta: dict = {"file": str(path), "name": path.name, "duration": duration, "recorded": recorded,
+                  **({"duration_measured": True} if no_duration else {}),
                   "audio_tracks": [{"index": i, "codec": a.get("codec_name"), "channels": a.get("channels"),
                                     "sample_rate": a.get("sample_rate"),
                                     "title": a.get("tags", {}).get("title") or a.get("tags", {}).get("handler_name")}
@@ -201,10 +224,16 @@ def drawtext(font: str | None) -> str:
             "box=1:boxcolor=black@0.65:boxborderw=6")
 
 
+def own_sheets(sheet_dir: Path, stem: str) -> list[Path]:
+    """This file's sheets only: "clip_*.jpg" would also take clip_2's or clip_b's."""
+    pat = re.compile(rf"{re.escape(stem)}_(grid|shots)_\d+\.jpg", re.I)
+    return [p for p in sheet_dir.glob("*.jpg") if pat.fullmatch(p.name)]
+
+
 def sheets_and_scenes(meta: dict, src: Path, sheet_dir: Path, font: str | None, log: Log) -> dict:
     """Pass 1: regular-grid sheets + scene detection. Pass 2: one sheet frame per shot change."""
     dur, stem = meta["duration"], meta["stem"]
-    for old in sheet_dir.glob(f"{stem}_*.jpg"):
+    for old in own_sheets(sheet_dir, stem):
         old.unlink()
     n = int(min(96, max(16, dur / 2)))
     interval = max(dur / n, 0.04)
@@ -226,7 +255,7 @@ def sheets_and_scenes(meta: dict, src: Path, sheet_dir: Path, font: str | None, 
                      f"select='{expr}',scale=480:-2,{drawtext(font)},tile=4x4:padding=4:margin=4",
                      "-fps_mode", "vfr", "-q:v", "3", str(sheet_dir / f"{stem}_shots_%02d.jpg")],
                     dur, f"{meta['name']} shot sheets", log, step=50)
-    sheets = sorted(p.name for p in sheet_dir.glob(f"{stem}_*.jpg"))
+    sheets = sorted(p.name for p in own_sheets(sheet_dir, stem))
     return {"shot_changes": [round(c, 3) for c in cuts],
             "shot_changes_per_min": round(len(cuts) / (dur / 60), 1) if dur else 0,
             "grid_interval_s": round(interval, 2), "sheets": sheets}
@@ -343,7 +372,9 @@ def pcm(path: Path, track: int | None, rate: int, seconds: float | None = None) 
     cmd = [tool("ffmpeg"), "-v", "error", *(["-t", str(seconds)] if seconds else []), "-i", str(path)]
     if track is not None:
         cmd += ["-map", f"0:a:{track}"]
-    p = subprocess.run(cmd + ["-ac", "1", "-ar", str(rate), "-f", "s16le", "-"], capture_output=True)
+    # On the video's clock: sound that starts late keeps its delay (signals, sync with a recorder).
+    p = subprocess.run(cmd + ["-af", f"aresample={rate}:async=1:first_pts=0", "-ac", "1", "-ar", str(rate),
+                              "-f", "s16le", "-"], capture_output=True)
     return np.frombuffer(p.stdout, np.int16).astype(np.float32) / 32768
 
 
@@ -372,7 +403,9 @@ def channel_layout(path: Path, track: int, channels: int, seconds: float = 600) 
     top = max(levels)
     live = [c for c, lv in enumerate(levels) if lv > top - 20 and lv > -60]
     out = {"levels_db": [round(v, 1) for v in levels], "live": live}
-    if len(live) == 1:
+    if not live:
+        out["layout"] = "silent"               # every channel below -60 dB: nothing recorded
+    elif len(live) == 1:
         out["layout"] = "one channel"          # the other is empty or just noise: use the live one
     else:
         a, b = x[:, live[0]], x[:, live[1]]
@@ -400,15 +433,24 @@ def analyze_audio(meta: dict, log: Log) -> tuple[list, np.ndarray | None]:
         if first_db is None:
             first_db = db
         layout = channel_layout(src, i, tr.get("channels") or 0)
-        if layout and layout["layout"] != "stereo":
-            meta.setdefault("warnings", []).append(
-                f"audio track {i + 1}: {layout['layout']} ({', '.join(f'{v} dB' for v in layout['levels_db'])}) — "
-                "cleanup puts the voice in the center")
-        results.append({"index": i, "channels": layout, "integrated_lufs": num(r"I:\s+(-?[\d.]+|-inf) LUFS"),
+        results.append({"index": i, "channels": layout, "level_db": round(level, 1),
+                        "integrated_lufs": num(r"I:\s+(-?[\d.]+|-inf) LUFS"),
                         "lra_lu": num(r"LRA:\s+([\d.]+) LU"), "true_peak_dbfs": num(r"Peak:\s+(-?[\d.]+|-inf) dBFS"),
                         "silence_pct": round(100 * silence / dur, 1) if dur else 0,
                         "noise_floor_db": round(floor, 1), "snr_db": round(level - floor, 1)})
     return results, first_db
+
+
+def audio_warnings(meta: dict) -> list[str]:
+    out = []
+    for a in meta.get("audio", []):
+        i, layout = a["index"], a.get("channels")
+        if (a.get("level_db") is not None and a["level_db"] < -60) or (layout and layout["layout"] == "silent"):
+            out.append(f"audio track {i + 1}: silent track")
+        elif layout and layout["layout"] != "stereo":
+            out.append(f"audio track {i + 1}: {layout['layout']} ({', '.join(f'{v} dB' for v in layout['levels_db'])})"
+                       " — cleanup puts the voice in the center")
+    return out
 
 
 def envelope(path: Path, track: int | None, seconds: float = 600) -> np.ndarray:
@@ -499,7 +541,8 @@ def color_line(m: dict) -> str:
     return c
 
 
-def write_report(out: Path, metas: list, externals: list, transcript_note: str | None) -> Path:
+def write_report(out: Path, metas: list, externals: list, transcript_note: str | None,
+                 skipped: list | None = None) -> Path:
     lines = ["# Material", ""]
     for m in metas:
         if m["kind"] != "video":
@@ -547,29 +590,90 @@ def write_report(out: Path, metas: list, externals: list, transcript_note: str |
         lines.append("Cleanup (audio.py clean) uses the external sound for those videos, aligned; the "
                      "transcript stays on the camera audio (same timing).")
         lines.append("")
+    if skipped:
+        lines.append("## Skipped")
+        lines += [f"- {x['file']}: {x['reason']}" for x in skipped]
+        lines.append("")
     if transcript_note:
         lines += [f"Transcript: {transcript_note}", ""]
     path = out / "material.md"
     path.write_text("\n".join(lines), encoding="utf-8")
     (out / "material.json").write_text(json.dumps({"generated": time.strftime("%Y-%m-%d %H:%M:%S"),
-                                                   "files": metas, "external_audio": externals},
+                                                   "files": metas, "external_audio": externals,
+                                                   "skipped": skipped or []},
                                                   indent=1, ensure_ascii=False), encoding="utf-8")
     return path
 
 
 # --------------------------------------------------------------------- main
 
-def discover(inputs: list[str]) -> list[Path]:
+def proxy_of(f: Path) -> Path | None:
+    """The full-resolution file a camera's low-res .LRV proxy stands for, if it's there:
+    DJI keeps the stem (DJI_0001.LRV), GoPro swaps GL for GX/GH (GL010001.LRV), Insta360
+    swaps LRV_ for VID_ (and the lens digits)."""
+    if f.suffix.lower() != ".lrv":
+        return None
+    stem = f.stem.upper()
+    names = {stem}
+    if stem.startswith("GL"):
+        names |= {"GX" + stem[2:], "GH" + stem[2:]}
+    insta = re.fullmatch(r"LRV_(\d{8}_\d{6})_\d\d_(\d+)", stem)
+    for sib in f.parent.iterdir():
+        if sib == f or sib.suffix.lower() == ".lrv" or not sib.is_file():
+            continue
+        s = sib.stem.upper()
+        if s in names or (insta and re.fullmatch(rf"VID_{insta[1]}_\d\d_{insta[2]}", s)):
+            return sib
+    return None
+
+
+def hidden(f: Path, root: Path) -> bool:
+    """macOS leftovers (._C0001.MP4, __MACOSX/), hidden files and folders."""
+    return any(part.startswith(".") or part == "__MACOSX" for part in f.relative_to(root).parts)
+
+
+def discover(inputs: list[str], log: Log | None = None) -> list[Path]:
     files: list[Path] = []
     for i in inputs:
         p = Path(i)
         if p.is_dir():
-            files += sorted(f for f in p.rglob("*") if f.suffix.lower() in VIDEO_EXT | AUDIO_EXT)
+            for f in sorted(p.rglob("*")):
+                if f.suffix.lower() not in VIDEO_EXT | AUDIO_EXT or not f.is_file() or hidden(f, p):
+                    continue
+                full = proxy_of(f)
+                if full:
+                    if log:
+                        log(f"{f.name}: low-res proxy of {full.name}, skipped")
+                    continue
+                files.append(f)
         elif p.is_file():
             files.append(p)
         else:
             die(f"input not found: {p}")
     return files
+
+
+def unique_names(files: list[Path]) -> list[str]:
+    """Everything downstream is keyed by file name: a name that repeats in different folders
+    (day1/C0001.MP4, day2/C0001.MP4) gets its folders in front (day1-C0001.MP4). A name
+    that's unique stays as is."""
+    out = [f.name for f in files]
+    for d in range(1, 8):
+        counts: dict[str, int] = {}
+        for n in out:
+            counts[n.lower()] = counts.get(n.lower(), 0) + 1
+        dup = [k for k, n in enumerate(out) if counts[n.lower()] > 1]
+        if not dup:
+            return out
+        for k in dup:
+            parts = files[k].resolve().parent.parts[-d:]
+            out[k] = "-".join([*(x.strip("\\/:") for x in parts), files[k].name])
+    seen: dict[str, int] = {}
+    for k, n in enumerate(out):          # same folders all the way up: number them
+        seen[n.lower()] = seen.get(n.lower(), 0) + 1
+        if seen[n.lower()] > 1:
+            out[k] = f"{Path(n).stem}_{seen[n.lower()]}{Path(n).suffix}"
+    return out
 
 
 def quick_best_track(m: dict) -> int:
@@ -588,26 +692,85 @@ def quick_best_track(m: dict) -> int:
     return best[1] if best[0] >= first[0] + 6 else tracks[0]["index"]
 
 
-def start_transcription(files: list[Path], out: Path, args, log: Log,
-                        tracks: dict | None = None) -> subprocess.Popen | None:
+def start_transcription(metas: list[dict], out: Path, args, log: Log) -> subprocess.Popen | None:
     if args.no_transcribe:
         return None
     if not args.lang:
         die("pass --lang (always set the transcription language explicitly) or --no-transcribe")
+    if not metas:
+        log("no file with sound: nothing to transcribe")
+        return None
+    holder = transcribe.lock_holder(out)
+    if holder:
+        # transcribe.py waits for it, then does only what's still missing: one model in memory.
+        log(f"a transcription from an earlier run is still going (PID {holder}): this one waits for it to finish")
     cmd = [tool("uv"), "run"]
     if shutil.which("nvidia-smi"):
         cmd += ["--with", "nvidia-cublas-cu12", "--with", "nvidia-cudnn-cu12>=9,<10"]
-    cmd += [str(Path(__file__).parent / "transcribe.py"), *map(str, files), "--out", str(out), "--lang", args.lang]
+    cmd += [str(Path(__file__).parent / "transcribe.py"), *(m["file"] for m in metas), "--out", str(out),
+            "--lang", args.lang, "--names", "/".join(m["name"] for m in metas), "--prune"]
     if args.model:
         cmd += ["--model", args.model]
     if args.glossary:
         cmd += ["--glossary", args.glossary]
-    for name, t in (tracks or {}).items():
-        if t:
-            cmd += ["--track-for", f"{name}={t}"]
+    for m in metas:
+        if m.get("transcript_track"):
+            cmd += ["--track-for", f"{m['name']}={m['transcript_track']}"]
     log(f"transcription started in parallel (progress: {out / 'transcribe.log'})")
     return subprocess.Popen(cmd, stdout=open(out / "transcribe.log", "w", encoding="utf-8"),
                             stderr=subprocess.STDOUT)
+
+
+def probe_all(files: list[Path], log: Log) -> tuple[list[dict], list[dict]]:
+    """One unreadable file (a truncated copy, a card error) is listed and skipped; the rest go on."""
+    metas, skipped = [], []
+    for f in files:
+        try:
+            metas.append(detect(f))
+        except Exception as e:  # noqa: BLE001
+            reason = next((ln for ln in reversed(str(e).splitlines()) if ln.strip()), e.__class__.__name__)
+            log(f"{f.name}: unreadable, skipped ({reason.strip()})")
+            skipped.append({"file": str(f), "reason": f"unreadable, skipped ({reason.strip()})"})
+    return metas, skipped
+
+
+def analyze_video(m: dict, out: Path, cache: Cache, font: str | None, log: Log,
+                  faces_all: dict, first_db: dict) -> None:
+    src = normalize(m, out, cache, log) or Path(m["file"])
+    m["analysis_source"] = str(src)
+
+    cached = out / ".analysis" / f"{m['stem']}.json"
+    saved = json.loads(cached.read_text(encoding="utf-8")) if cached.exists() else None
+    # An analysis from before the take signals is redone once.
+    if saved and cache.fresh(f"analysis:{m['stem']}", src) and all("q" in x for x in saved["faces"][:1]):
+        m.update(saved["meta"])
+        faces_all[m["name"]] = saved["faces"]
+        log(f"{m['name']}: analysis is up to date")
+    else:
+        with ThreadPoolExecutor(3) as pool:
+            f_sheets = pool.submit(sheets_and_scenes, m, src, out / "contact", font, log)
+            f_frames = pool.submit(analyze_frames, m, src, log)
+            f_audio = pool.submit(analyze_audio, m, log)
+            m["shots"] = f_sheets.result()
+            m["faces"], faces_all[m["name"]] = f_frames.result()
+            m["audio"], db = f_audio.result()
+            if db is not None:
+                first_db[m["name"]] = db
+        cached.parent.mkdir(exist_ok=True)
+        cached.write_text(json.dumps({"meta": {k: m[k] for k in ("shots", "faces", "audio")},
+                                      "faces": faces_all[m["name"]]}), encoding="utf-8")
+        cache.mark(f"analysis:{m['stem']}", src)
+    m["warnings"] += audio_warnings(m)
+    if m["audio_tracks"] and m["name"] not in first_db:
+        first_db[m["name"]] = window_db(pcm(Path(m["file"]), 0, 16000), 800)
+    if len(m.get("audio", [])) > 1:
+        best = max(m["audio"], key=lambda a: a["snr_db"])
+        m["suggested_audio_track"] = best["index"]
+        if best["index"] != m.get("transcript_track", 0):
+            m["warnings"].append(f"best audio over the whole file is track {best['index'] + 1} (transcript used "
+                                 f"track {m.get('transcript_track', 0) + 1}): transcribe.py --track-for")
+    if m.get("faces", {}).get("image", {}).get("flat") or m.get("log_hint"):
+        m["warnings"].append("possible LOG footage: confirm and apply the matching conversion LUT")
 
 
 def main() -> None:
@@ -626,31 +789,41 @@ def main() -> None:
     (out / "contact").mkdir(parents=True, exist_ok=True)
     log = Log(out / "ingest.log")
     cache = Cache(out / ".cache.json", args.force)
-    files = discover(args.inputs)
+    files = discover(args.inputs, log)
     if not files:
         die("no video or audio files found")
 
     log(f"probing {len(files)} file(s)")
+    metas, skipped = probe_all(files, log)
+    for m, name in zip(metas, unique_names([Path(m["file"]) for m in metas])):
+        m["name"] = name
+    if not metas:
+        write_report(out, [], [], None, skipped)
+        die("no readable video or audio file (see material.md)")
     # Recording order (metadata creation time), falling back to the file name.
-    metas = sorted((detect(f) for f in files), key=lambda m: (m["recorded"] or "~", m["name"]))
+    metas.sort(key=lambda m: (m["recorded"] or "~", m["name"]))
     seen: dict[str, int] = {}
     for m in metas:
         stem = Path(m["name"]).stem
-        seen[stem] = seen.get(stem, 0) + 1
-        m["stem"] = stem if seen[stem] == 1 else f"{stem}_{seen[stem]}"
+        k = stem.lower()                 # clip.mp4 / CLIP.mov share sheet names on Windows and Mac
+        seen[k] = seen.get(k, 0) + 1
+        m["stem"] = stem if seen[k] == 1 else f"{stem}_{seen[k]}"
     videos = [m for m in metas if m["kind"] == "video"]
     externals = [m for m in metas if m["kind"] == "audio"]
     for m in videos:
         m["transcript_track"] = quick_best_track(m)
         if m["transcript_track"]:
             log(f"{m['name']}: audio track {m['transcript_track'] + 1} sounds clearest — used for the transcript")
-    tx = start_transcription([Path(m["file"]) for m in (videos or externals)], out, args, log,
-                             {m["name"]: m["transcript_track"] for m in videos})
+    # Only files with sound: a drone or GoPro clip without audio has nothing to transcribe.
+    tx = start_transcription([m for m in (videos or externals) if m["audio_tracks"]], out, args, log)
 
     font = find_font()
     faces_all, first_db = {}, {}
     for m in videos:
         m["warnings"] = []
+        if m.get("duration_measured"):
+            m["warnings"].append("the file doesn't store its length (streamed/browser recording): measured from "
+                                 "its packets — remux it if a tool misreads it")
         if m["vfr"]:
             m["warnings"].append("VFR (normalized to CFR)")
         if m["hdr"]:
@@ -661,40 +834,13 @@ def main() -> None:
             m["warnings"].append(f"{len(m['audio_tracks'])} audio tracks")
         if not m["audio_tracks"]:
             m["warnings"].append("no audio")
-        src = normalize(m, out, cache, log) or Path(m["file"])
-        m["analysis_source"] = str(src)
-
-        cached = out / ".analysis" / f"{m['stem']}.json"
-        saved = json.loads(cached.read_text(encoding="utf-8")) if cached.exists() else None
-        # An analysis from before the take signals is redone once.
-        if saved and cache.fresh(f"analysis:{m['stem']}", src) and all("q" in x for x in saved["faces"][:1]):
-            m.update(saved["meta"])
-            faces_all[m["name"]] = saved["faces"]
-            log(f"{m['name']}: analysis is up to date")
-        else:
-            with ThreadPoolExecutor(3) as pool:
-                f_sheets = pool.submit(sheets_and_scenes, m, src, out / "contact", font, log)
-                f_frames = pool.submit(analyze_frames, m, src, log)
-                f_audio = pool.submit(analyze_audio, m, log)
-                m["shots"] = f_sheets.result()
-                m["faces"], faces_all[m["name"]] = f_frames.result()
-                m["audio"], db = f_audio.result()
-                if db is not None:
-                    first_db[m["name"]] = db
-            cached.parent.mkdir(exist_ok=True)
-            cached.write_text(json.dumps({"meta": {k: m[k] for k in ("shots", "faces", "audio")},
-                                          "faces": faces_all[m["name"]]}), encoding="utf-8")
-            cache.mark(f"analysis:{m['stem']}", src)
-        if m["audio_tracks"] and m["name"] not in first_db:
-            first_db[m["name"]] = window_db(pcm(Path(m["file"]), 0, 16000), 800)
-        if len(m.get("audio", [])) > 1:
-            best = max(m["audio"], key=lambda a: a["snr_db"])
-            m["suggested_audio_track"] = best["index"]
-            if best["index"] != m.get("transcript_track", 0):
-                m["warnings"].append(f"best audio over the whole file is track {best['index'] + 1} (transcript used "
-                                     f"track {m.get('transcript_track', 0) + 1}): transcribe.py --track-for")
-        if m.get("faces", {}).get("image", {}).get("flat") or m.get("log_hint"):
-            m["warnings"].append("possible LOG footage: confirm and apply the matching conversion LUT")
+        try:
+            analyze_video(m, out, cache, font, log, faces_all, first_db)
+        except Exception as e:  # noqa: BLE001 — a file that breaks halfway doesn't stop the others
+            reason = next((ln for ln in reversed(str(e).splitlines()) if ln.strip()), e.__class__.__name__)
+            m["warnings"].append(f"analysis failed: {reason.strip()}")
+            log(f"{m['name']}: analysis failed ({reason.strip()}), continuing with the rest")
+            continue
         log(f"{m['name']}: done")
 
     (out / "faces.json").write_text(json.dumps({"fps": FACE_FPS, "box": "x, y, w, h, score (0-1)",
@@ -711,7 +857,7 @@ def main() -> None:
     if tx:
         # Picture and sound analysis are done: write the report now, so the color proposal and
         # the questions can go ahead while transcription — the long part — keeps running.
-        write_report(out, metas, ext_report, "running — transcript.md arrives when it finishes")
+        write_report(out, metas, ext_report, "running — transcript.md arrives when it finishes", skipped)
         log(f"analysis ready → {out / 'material.md'} (color can be proposed now); waiting for transcription…")
         tx.wait()
         tjson = out / "transcript.json"
@@ -719,12 +865,13 @@ def main() -> None:
             data = json.loads(tjson.read_text(encoding="utf-8"))["files"]
             for m in videos:
                 t = data.get(m["name"])
-                if t:
+                if t and t.get("error"):
+                    m.setdefault("warnings", []).append(f"transcript failed: {t['error']}")
+                elif t:
                     words = [w for s in t["segments"] for w in s.get("words", [])]
                     m["speech"] = speech_signals(words, m["duration"], first_db.get(m["name"]))
             note = "transcript.md (condensed) / transcript.json (word level)"
             # faces.json may have come after the transcript: compare the retakes' picture now.
-            import transcribe
             result = json.loads(tjson.read_text(encoding="utf-8"))
             transcribe.write_outputs(out, result, transcribe.lang_data(result.get("lang") or args.lang))
         else:
@@ -739,9 +886,8 @@ def main() -> None:
         if (speech is not None and speech < 25 and not talking_face) or (speech is None and not talking_face):
             m["broll_candidate"] = True
 
-    report = write_report(out, metas, ext_report, note)
+    report = write_report(out, metas, ext_report, note, skipped)
     log(f"ingest finished → {report}")
-
 
 if __name__ == "__main__":
     main()

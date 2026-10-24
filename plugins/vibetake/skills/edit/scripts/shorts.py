@@ -84,7 +84,14 @@ def checks(sh: dict, tr: dict, sents: dict, others: list[dict]) -> tuple[float, 
     warn = []
     if sh.get("hook"):
         h = sents[sh["hook"]]
-        est += h["end"] - h["start"] + 0.3
+        if sh["hook"] == lines[0]:
+            warn.append(f"the hook L{sh['hook']} is already the first line: it opens the short once, not twice "
+                        "(pick a line from further in to open with)")
+        else:
+            est += h["end"] - h["start"] + 0.3
+        if sh["hook"] not in lines:
+            warn.append(f"the hook L{sh['hook']} isn't in the short's lines: it opens the short and isn't heard "
+                        "again in its place (fine if on purpose)")
         if h["end"] - h["start"] > HOOK_MAX:
             warn.append(f"the hook L{sh['hook']} lasts {h['end'] - h['start']:.1f} s: a hook works in 1.5–4 s")
     if est > HARD_MAX:
@@ -124,6 +131,8 @@ def cmd_add(args) -> None:
     tr = transcript(args.ingest)
     sents = {s["line"]: s for s in tr["sentences"]}
     lines = expand(args.keep, sents)
+    if not lines:
+        die(f"{args.keep}: every line in it is a retake (the kept takes are elsewhere): name the lines to keep")
     hook = int(args.hook.lstrip("Ll")) if args.hook else None
     if hook and hook not in sents:
         die(f"L{hook} isn't in the transcript")
@@ -144,7 +153,10 @@ def cmd_add(args) -> None:
 
 def made(name: str) -> dict:
     p = work_paths(name)
-    vids = sorted(Path("03-delivery").glob(f"*_v*_{name}.mp4")) if Path("03-delivery").exists() else []
+    # By version number: _v10_ is newer than _v9_ (as text it sorts first).
+    vids = sorted(Path("03-delivery").glob(f"*_v*_{name}.mp4"), key=lambda p: [
+        int(m) for m in re.findall(rf"_v(\d+)_{re.escape(name)}\.mp4$", p.name)] or [-1]) \
+        if Path("03-delivery").exists() else []
     return {"cut": p["edl"].exists(), "video": vids[-1].name if vids else None,
             "srt": any(Path("03-delivery").glob(f"*_{name}.srt")) if Path("03-delivery").exists() else False,
             "covers": len(list(Path("03-delivery").glob(f"cover_{name}_*.jpg"))) if Path("03-delivery").exists() else 0,
@@ -179,7 +191,11 @@ def cmd_make(args) -> None:
     for sh in todo:
         n = sh["name"]
         print(f"\n== {n}")
-        keep = ",".join(f"L{x}" for x in ([sh["hook"]] if sh.get("hook") else []) + sh["lines"])
+        # A hook that's already the first line opens it once: not twice back to back.
+        hook = [sh["hook"]] if sh.get("hook") and sh["hook"] != sh["lines"][0] else []
+        if sh.get("hook") and not hook:
+            print(f"WARNING: the hook L{sh['hook']} is already the first line: not repeated")
+        keep = ",".join(f"L{x}" for x in hook + sh["lines"])
         run("cutlist.py", "--variant", n, "--keep", keep, "--format", args.format, "--pace", args.pace)
         run("reframe.py", "--variant", n)
         run("subtitles.py", "--variant", n)

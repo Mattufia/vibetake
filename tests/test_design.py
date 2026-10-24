@@ -148,7 +148,9 @@ def main() -> None:
     if shutil.which("node") and (tmp / "02-work" / "remotion" / "node_modules").exists():
         plan = {"platforms": ["reels", "youtube"], "concepts": [
             {"id": "1", "component": "Plain", "idea": "test", "no_person": True},
-            {"id": "2", "component": "Plain", "idea": "test 2", "no_person": True}]}
+            {"id": "2", "component": "Plain", "idea": "test 2", "no_person": True},
+            # A short's concept with the same id as the main video's: they must not clash.
+            {"id": "1", "short": "precio", "platforms": ["reels"], "component": "Plain", "idea": "s", "no_person": True}]}
         (tmp / "02-work" / "covers.json").write_text(json.dumps(plan), encoding="utf-8")
         cov = tmp / "02-work" / "remotion" / "src" / "covers"
         for f in cov.glob("index.*"):
@@ -168,6 +170,12 @@ export const COVERS: Record<string, React.FC<CoverProps>> = { Plain };
         outs = sorted(x.name for x in (tmp / "03-delivery").glob("cover_*_*.jpg"))
         checks[f"covers: each concept × platform rendered ({outs})"] = p.returncode == 0 and {
             "cover_reels_1.jpg", "cover_reels_2.jpg", "cover_youtube_1.jpg", "cover_youtube_2.jpg"} <= set(outs)
+        checks["covers: a short's concept with the main video's id renders as its own (cover_precio_reels_1)"] = (
+            "cover_precio_reels_1.jpg" in outs and "cover_precio_youtube_1.jpg" not in outs)
+        sys.path.insert(0, str(SCRIPTS))
+        import graphics as gr
+        bad = gr.cover_problems({"platforms": ["instagram"], "concepts": [{"id": "a_1"}, {"id": "2"}, {"id": "2"}]})
+        checks[f"covers: bad ids, a repeated id and an unknown platform are caught ({len(bad)})"] = len(bad) == 5
         checks["covers: fewer than three concepts is flagged"] = "three different ideas" in p.stdout
         sz = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0",
                              str(tmp / "03-delivery" / "cover_youtube_1.jpg")], capture_output=True, text=True).stdout

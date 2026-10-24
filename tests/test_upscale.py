@@ -92,6 +92,26 @@ def main() -> None:
     log = run(tmp, str(SCRIPTS / "render.py"), "--out", "stale.mp4")
     checks["a changed segment makes it stale (falls back, warns)"] = "stale" in log
 
+    # A redaction goes into the upscaled picture (render skips its own chain for it), under its own name.
+    e = json.loads((work / "edl.json").read_text())
+    e["segments"][0]["out"] = 1.0
+    e["segments"][0]["redact"] = [{"box": [0, 0, 1, 1], "mode": "blur"}]
+    (work / "edl.json").write_text(json.dumps(e))
+    log = run(tmp, str(SCRIPTS / "render.py"), "--out", "stale2.mp4")
+    checks["adding a redaction makes the upscale stale"] = "stale" in log
+    run(tmp, str(SCRIPTS / "upscale.py"), "run", "--seg", "0")
+    seg2 = json.loads((work / "edl.json").read_text())["segments"][0]
+    detail = lambda f: float(np.abs(np.diff(f, axis=1)).mean())  # noqa: E731
+    d_old, d_new = detail(up), detail(frame(Path(seg2["upscaled"]["file"]), 0.5))
+    checks[f"the upscaled picture carries the redaction (detail {d_new:.1f}, was {d_old:.1f})"] = d_new < d_old / 2
+    checks["named after its signature, not the segment's number"] = (
+        Path(seg2["upscaled"]["file"]).name == f"seg_{seg2['upscaled']['sig']}.mkv")
+    log = run(tmp, str(SCRIPTS / "render.py"), "--out", "ai2.mp4")
+    checks["the redacted upscale is used"] = "stale" not in log
+    run(tmp, str(SCRIPTS / "upscale.py"), "clear", "--seg", "0")
+    checks["clear --seg removes it"] = not Path(seg2["upscaled"]["file"]).exists() and \
+        "upscaled" not in json.loads((work / "edl.json").read_text())["segments"][0]
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     shutil.rmtree(tmp, ignore_errors=True)

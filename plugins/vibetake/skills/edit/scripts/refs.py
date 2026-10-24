@@ -32,7 +32,7 @@ VIEWABLE = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 PHOTO_EXT = {".heic", ".heif", ".tif", ".tiff", ".dng", ".arw", ".cr2", ".cr3", ".nef", ".raf", ".bmp", ".avif"}
 
 
-def photo(p: Path, prev_dir: Path) -> dict:
+def photo(p: Path, prev_dir: Path, stem: str) -> dict:
     entry = {"name": p.name, "kind": "photo", "file": str(p)}
     try:
         s = next(x for x in ffprobe(p)["streams"] if x.get("codec_type") == "video")
@@ -42,7 +42,7 @@ def photo(p: Path, prev_dir: Path) -> dict:
     if p.suffix.lower() in VIEWABLE:
         entry["view"] = str(p)
         return entry
-    dst = prev_dir / f"{p.stem}.jpg"
+    dst = prev_dir / f"{stem}.jpg"
     r = subprocess.run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-y", "-i", str(p), "-frames:v", "1",
                         "-vf", "scale='min(1600,iw)':-2", "-q:v", "3", str(dst)], capture_output=True, text=True)
     if r.returncode == 0 and dst.exists():
@@ -52,9 +52,9 @@ def photo(p: Path, prev_dir: Path) -> dict:
     return entry
 
 
-def video(p: Path, prev_dir: Path, font: str | None, log: Log) -> dict:
+def video(p: Path, prev_dir: Path, font: str | None, log: Log, stem: str) -> dict:
     m = detect(p)
-    m["stem"] = f"ref_{p.stem}"
+    m["stem"] = stem
     entry = {"name": p.name, "kind": "video", "file": str(p), "duration": round(m["duration"], 2),
              "size": [m.get("display_width"), m.get("display_height")]}
     if m["kind"] != "video":
@@ -70,8 +70,14 @@ def video(p: Path, prev_dir: Path, font: str | None, log: Log) -> dict:
     return entry
 
 
+def listed(root: Path) -> list[Path]:
+    """Files in references/, without macOS leftovers (._x.mp4, __MACOSX/) or hidden files."""
+    return [f for f in root.rglob("*") if f.is_file()
+            and not any(x.startswith(".") or x == "__MACOSX" for x in f.relative_to(root).parts)]
+
+
 def main() -> None:
-    if not REFS.is_dir() or not any(f.is_file() and not f.name.startswith(".") for f in REFS.rglob("*")):
+    if not REFS.is_dir() or not listed(REFS):
         print("no references (references/ is empty): the design comes from the material alone")
         return
     prev_dir = OUT / "references"
@@ -79,18 +85,27 @@ def main() -> None:
     out = OUT / "references.json"
     old = {e["file"]: e for e in json.loads(out.read_text(encoding="utf-8"))["references"]} if out.exists() else {}
     log, font = Log(OUT / "ingest.log"), find_font()
-    refs = []
-    for p in sorted((f for f in REFS.rglob("*") if f.is_file() and not f.name.startswith(".")),
-                    key=lambda f: f.name.lower()):
+    refs, stems = [], {}
+    for p in sorted(listed(REFS), key=lambda f: (f.name.lower(), str(f).lower())):
+        # reel.mp4 and reel.mov (or two folders' reel.mp4) each keep their own sheets.
+        k = p.stem.lower()
+        stems[k] = stems.get(k, 0) + 1
+        stem = f"ref_{p.stem}" if stems[k] == 1 else f"ref_{p.stem}_{stems[k]}"
         mtime = round(p.stat().st_mtime, 2)
         if str(p) in old and old[str(p)].get("mtime") == mtime:
             refs.append(old[str(p)])
             continue
         ext = p.suffix.lower()
         if ext in VIEWABLE | PHOTO_EXT:
-            e = photo(p, prev_dir)
+            e = photo(p, prev_dir, stem.removeprefix("ref_"))
         elif ext in VIDEO_EXT | AUDIO_EXT:
-            e = video(p, prev_dir, font, log)
+            try:
+                e = video(p, prev_dir, font, log, stem)
+            except Exception as ex:  # noqa: BLE001 — a broken file doesn't stop the other references
+                reason = next((ln for ln in reversed(str(ex).splitlines()) if ln.strip()), ex.__class__.__name__)
+                log(f"{p.name}: unreadable, skipped ({reason.strip()})")
+                e = {"name": p.name, "kind": "other", "file": str(p),
+                     "warning": "unreadable (damaged or incomplete file): ask for it again"}
         else:
             e = {"name": p.name, "kind": "other", "file": str(p)}
         e["mtime"] = mtime

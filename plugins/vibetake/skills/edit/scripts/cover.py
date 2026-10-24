@@ -262,10 +262,16 @@ def cmd_render(args) -> None:
         die("write 02-work/covers.json (platforms + 3 concepts) and their components first (references/covers.md)")
     plan = json.loads(plan_p.read_text(encoding="utf-8"))
     concepts, platforms = plan.get("concepts", []), plan.get("platforms", [])
-    if not concepts or not platforms:
+    if not concepts or not (platforms or all(c.get("platforms") for c in concepts)):
         die("covers.json needs platforms and concepts")
-    if len(concepts) < 3:
-        print(f"WARNING: {len(concepts)} concept(s): three different ideas give the user a real choice")
+    probs = graphics.cover_problems(plan)
+    if probs:
+        die("covers.json: " + "; ".join(probs))
+    from collections import Counter
+    for tag, n in Counter(c.get("short") or "" for c in concepts).items():
+        if n < 3:          # per video: the main one and each short get their own choice
+            print(f"WARNING: {f'short {tag}: ' if tag else ''}{n} concept(s): three different ideas give the user "
+                  "a real choice")
     gargs = argparse.Namespace(covers_only=True)
     graphics.cmd_sync(gargs)
     out_dir = Path(args.out_dir)
@@ -278,8 +284,9 @@ def cmd_render(args) -> None:
         tag = c.get("short") or ""
         count[tag] = n = count.get(tag, 0) + 1
         for pl in c.get("platforms") or platforms:
-            png = (work / f"render_{c['id']}_{pl}.png").resolve()
-            p = subprocess.run(graphics.remotion("still", f"Cover-{c['id']}-{pl}", str(png), "--image-format=png",
+            comp = f"Cover-{tag + '-' if tag else ''}{c['id']}-{pl}"         # as Root.tsx names it
+            png = (work / f"render_{tag + '_' if tag else ''}{c['id']}_{pl}.png").resolve()
+            p = subprocess.run(graphics.remotion("still", comp, str(png), "--image-format=png",
                                                  "--log=error"), cwd=graphics.PROJ)
             if p.returncode or not png.exists():
                 die(f"concept {c['id']} ({pl}) didn't render (see above)")

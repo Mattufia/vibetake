@@ -37,7 +37,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, Log, deliverable_name, die, ffmpeg_progress, ffprobe, filter_path, run, tc,  # noqa: E402
                      tool, versions)
-from _common import channel_pan, material_index, pre_filter, work_paths  # noqa: E402
+from _common import channel_pan, concat_line, material_index, pre_filter, spans_expr, work_paths  # noqa: E402
 from _timeline import (audio_mode, chapters, is_simple, jl_cuts, pieces, place_music, play_len,  # noqa: E402
                        resolve_broll, seg_time, starts, transition_dur,
                        signature as timeline_sig, total as timeline_total)
@@ -304,9 +304,15 @@ def redact(k: int, seg: dict, lead: float, fps: float, workdir: Path) -> list[st
         m = min(bw, bh)
         fx = (f"scale={max(1, bw * 10 // m)}:{max(1, bh * 10 // m)}:flags=area,scale={bw}:{bh}:flags=neighbor"
               if r.get("mode") == "pixelate" else f"boxblur={max(2, m // 6)}:3")
-        # A tracked box covers the whole segment (past its keys it stays at the edge ones: a re-cut
-        # that lengthens the segment must never uncover what it hides); a from/to box only its span.
-        when = "" if r.get("keys") else f":enable='between(t,{t[0]:.4f},{t[-1]:.4f})'"
+        # A tracked box or a static one covers the whole input, transition handles included (past
+        # its keys it stays at the edge ones: a re-cut that lengthens the segment must never uncover
+        # what it hides); a from/to box only its span — open-ended on a side where it reaches the cut.
+        when = ""
+        if not r.get("keys") and ("from" in r or "to" in r):
+            a = t[0] if r.get("from", seg["in"]) > seg["in"] + 1e-3 else 0.0
+            b = t[-1] if r.get("to", seg["out"]) < seg["out"] - 1e-3 else 1e6
+            if a > 0 or b < 1e6:
+                when = f":enable='between(t,{a:.4f},{b:.4f})'"
         out.append(f"{send}split[rda{n}][rdb{n}];[rdb{n}]crop@rd{n}=w={bw}:h={bh}:x={x0}:y={y0},{fx}[rdc{n}];"
                    f"[rda{n}][rdc{n}]overlay@rd{n}=x={x0}:y={y0}{when}")
     return out
@@ -352,6 +358,52 @@ def look(lk: dict) -> str:
     return ",".join(f)
 
 
+def picture_chain(k: int, seg: dict, out: dict, grade: dict, workdir: Path, lead: float, win: float) -> list[str]:
+    """Everything that makes a segment's picture from its source, up to the output's shape: color
+    (HDR pre-filter, LUT), redaction, stabilizing, a 90° turn, then fit, framing (with screen
+    zooms) or a center crop. `win` = seconds of input to frame. upscale.py runs this same chain,
+    so an upscaled segment keeps every one of these."""
+    W, H, fps = out["width"], out["height"], out["fps"]
+    name = seg.get("name", Path(seg["source"]).name)
+    g = grade.get(name) or {}
+    rot = float(seg.get("rotate", 0)) % 360
+    chain = []
+    pre_f = pre_filter(MATERIAL.get(name), g)
+    if pre_f:
+        chain.append(pre_f)
+    if g.get("lut"):
+        chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
+    chain += redact(k, seg, lead, fps, workdir)
+    if seg.get("stabilize"):
+        strength = 1.0 if seg["stabilize"] is True else float(seg["stabilize"])
+        chain.append(f"vidstabtransform=input='{filter_path(seg['_trf'])}':smoothing={round(10 + 30 * strength)}:"
+                     "optzoom=1:optalgo=gauss:interpol=bicubic" if seg.get("_trf") else "deshake")
+    if rot in (90, 270):
+        chain.append(f"transpose={1 if rot == 90 else 2}")
+    # The whole picture fitted (fit), framing from reframe.py, or a plain center crop to the output aspect.
+    how = seg.get("fit") or out.get("fit")
+    chain.append(fit(k, how, W, H) if how else (rot not in (90, 270) and framing(k, seg, win, fps, workdir, lead, out))
+                 or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
+    return chain
+
+
+def stab_detect(k: int, seg: dict, start: float, length: float, workdir: Path, log: Log) -> None:
+    """vid.stab's first pass: the camera's shake over the same frames the picture uses (→ seg["_trf"])."""
+    if not (seg.get("stabilize") and has_filter("vidstabdetect")):
+        return
+    seg["_trf"] = workdir / f"stab_{k:03d}.trf"
+    log(f"stabilizing segment {k + 1}…")
+    run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-ss", f"{start:.4f}", "-t", f"{length:.4f}",
+         "-i", seg["source"], "-vf", f"vidstabdetect=shakiness=8:result='{filter_path(seg['_trf'])}'",
+         "-f", "null", "-"])
+
+
+def seg_zooms(edl: dict, seg: dict) -> list[dict]:
+    """The screen zooms (screen.py, anchored to moments of the source) that touch this segment."""
+    return [z for z in edl.get("screen_zooms", []) if z["name"] == seg.get("name")
+            and z["from"] < seg["out"] and z["to"] + ZOOM_EASE > seg["in"]]
+
+
 def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | None, preview: bool,
                   workdir: Path, lead: float = 0.0, lack: float = 0.0) -> tuple[str, float]:
     """Picture and sound of one segment. The picture runs `_pre` before the cut and `_post` after
@@ -365,27 +417,10 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     span = seg["out"] - seg["in"]
     simple = is_simple(seg)
     v = float(seg.get("speed", 1)) if simple else 1.0
-    g = grade.get(seg.get("name", Path(seg["source"]).name)) or {}
     rot = float(seg.get("rotate", 0)) % 360
     chain = []
-    if not seg.get("_up"):          # an upscaled segment comes graded and framed already
-        pre_f = pre_filter(MATERIAL.get(seg.get("name", Path(seg["source"]).name)), g)
-        if pre_f:
-            chain.append(pre_f)
-        if g.get("lut"):
-            chain.append(f"lut3d=file='{filter_path(g['lut'])}'")
-        chain += redact(k, seg, lead, fps, workdir)
-        if seg.get("stabilize"):
-            strength = 1.0 if seg["stabilize"] is True else float(seg["stabilize"])
-            chain.append(f"vidstabtransform=input='{filter_path(seg['_trf'])}':smoothing={round(10 + 30 * strength)}:"
-                         "optzoom=1:optalgo=gauss:interpol=bicubic" if seg.get("_trf") else "deshake")
-        if rot in (90, 270):
-            chain.append(f"transpose={1 if rot == 90 else 2}")
-        # The whole picture fitted (fit), framing from reframe.py, or a plain center crop to the output aspect.
-        win = lead + span + (post * v if simple else 0)
-        how = seg.get("fit") or out.get("fit")
-        chain.append(fit(k, how, W, H) if how else (rot not in (90, 270) and framing(k, seg, win, fps, workdir, lead, out))
-                     or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
+    if not seg.get("_up"):          # an upscaled segment comes through this same chain already (upscale.py)
+        chain += picture_chain(k, seg, out, grade, workdir, lead, lead + span + (post * v if simple else 0))
     chain += [f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1"]
     flip = seg.get("flip")
     chain += ["hflip"] * (flip in ("h", "both")) + ["vflip"] * (flip in ("v", "both")) + ["hflip,vflip"] * (rot == 180)
@@ -430,7 +465,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
               f"trim=duration={pre + dur + post:.6f}", "setpts=PTS-STARTPTS"]
     for side in ("in", "out"):
         f = seg.get(f"fade_{side}")
-        if f:
+        if f and float(f.get("dur", 0.5)) > 0:         # dur 0: no fade (fade's d=0 isn't "none")
             d = max(min(float(f.get("dur", 0.5)), dur - 1 / fps), 1 / fps)
             st = pre if side == "in" else max(pre + dur - d - 1 / fps, 0)     # the last frame fully faded
             chain.append(f"fade=t={side}:st={st:.6f}:d={d:.6f}:c={f.get('color', 'black')}")
@@ -439,8 +474,9 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
 
     a_len = seg.get("_alead", 0.0) + dur + seg.get("_atail", 0.0)
     # ponytail: a fade's sound fades over the sound's own first/last seconds, not the picture's.
-    d_in = float((seg.get("fade_in") or {}).get("dur", FADE_S))
-    d_out = float((seg.get("fade_out") or {}).get("dur", FADE_S))
+    # Never under the 12 ms declick: afade's d=0 means its 1 s default, and a bare cut clicks.
+    d_in = max(float((seg.get("fade_in") or {}).get("dur", FADE_S)), FADE_S)
+    d_out = max(float((seg.get("fade_out") or {}).get("dur", FADE_S)), FADE_S)
     fades = f"afade=t=in:d={d_in:.6f},afade=t=out:st={max(a_len - d_out, 0):.6f}:d={d_out:.6f}"
     if audio_in:
         mode = audio_mode(seg)
@@ -537,12 +573,13 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
             g_inputs += ["-i", pic, "-i", mask]
             put = f"setpts=PTS-STARTPTS+{at:.4f}/TB"
             # Never over b-roll: the person belongs to the main picture, which the b-roll covers.
-            hide = "+".join(f"between(t,{b['at']:.3f},{b['at'] + b['dur']:.3f})" for b in fin["overlays"])
+            # Quoted: the expression's commas would split the filter.
+            hide = (f":enable='not({spans_expr([(b['at'], b['at'] + b['dur']) for b in fin['overlays']])})'"
+                    if fin["overlays"] else "")
             graphs += [f"[{nxt_input}:v:0]{look(out.get('look') or {}) or 'null'},format=yuva420p,{put}[pp{j}]",
                        f"[{nxt_input + 1}:v:0]format=gray,scale={out['width']}:{out['height']},tmix=frames=3,{put}[pm{j}]",
                        f"[pp{j}][pm{j}]alphamerge[pa{j}]",
-                       f"[{v_last}][pa{j}]overlay=eof_action=pass:repeatlast=0"
-                       f"{f':enable=not({hide})' if hide else ''}[vb{j}]"]
+                       f"[{v_last}][pa{j}]overlay=eof_action=pass:repeatlast=0{hide}[vb{j}]"]
             v_last, nxt_input = f"vb{j}", nxt_input + 2
     if fin.get("subs"):
         fonts = f":fontsdir='{filter_path(fin['fontsdir'])}'" if fin.get("fontsdir") else ""
@@ -552,7 +589,8 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
     bl = fin.get("bleep")
     if bl:
         # Censored words: the voice silenced over them, a 1 kHz tone in its place (or nothing).
-        e = "+".join(f"between(t,{x:.3f},{y:.3f})" for x, y in bl["spans"])
+        # Overlapping word spans merge (two tones on top of each other would be 6 dB louder).
+        e = spans_expr(bl["spans"])
         graphs.append(f"[{a}]volume=0:enable='{e}'[bmute]")
         a = "bmute"
         if bl["sound"] == "beep":
@@ -718,13 +756,8 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
                 inputs += [*(HWDEC if k < HWDEC_MAX else []), "-ss", f"{s['in'] - lead:.4f}", "-t", f"{length:.4f}",
                            "-i", s["source"]]
             vid, idx = idx, idx + 1
-            if s.get("stabilize") and not s.get("_up") and has_filter("vidstabdetect"):
-                # vid.stab's first pass: the camera's shake over the same frames the picture uses.
-                s["_trf"] = workdir / f"stab_{k:03d}.trf"
-                log(f"stabilizing segment {k + 1}…")
-                run([tool("ffmpeg"), "-hide_banner", "-v", "error", "-ss", f"{s['in'] - lead:.4f}", "-t", f"{length:.4f}",
-                     "-i", s["source"], "-vf", f"vidstabdetect=shakiness=8:result='{filter_path(s['_trf'])}'",
-                     "-f", "null", "-"])
+            if not s.get("_up"):
+                stab_detect(k, s, s["in"] - lead, length, workdir, log)
             # The sound: its own window (J/L cuts and crossfades move it off the picture's).
             c = clean.get(s.get("name", Path(s["source"]).name))
             has_audio = any(st.get("codec_type") == "audio" for st in s["_probe"]["streams"])
@@ -834,11 +867,12 @@ def main() -> None:
     for k, s in enumerate(segs):
         up = s.get("upscaled")
         if up:
-            if Path(up["file"]).exists() and up.get("sig") == signature(s, grade, edl["output"]):
+            if Path(up["file"]).exists() and up.get("sig") == signature(s, grade, edl, MATERIAL):
                 s["_up"] = up["file"]
             else:
-                print(f"WARNING: segment {k}'s upscaled picture is stale or missing (the edit, framing or "
-                      f"grade changed): using the original. Re-run upscale.py run --seg {k} if it's needed.")
+                print(f"WARNING: segment {k}'s upscaled picture is stale or missing (the edit, framing, grade, "
+                      f"redaction or another picture effect changed): using the original. Re-run upscale.py run "
+                      f"--seg {k} if it's needed.")
     for s in segs:
         s["_probe"] = probes.setdefault(s["source"], ffprobe(Path(s["source"])))
         # Cut on the source's frame grid, for picture and sound alike: a cut between two
@@ -853,8 +887,7 @@ def main() -> None:
         print(f"WARNING: {w}")
     # Screen zooms (screen.py) are anchored to moments of the source: each segment takes its own.
     for s in segs:
-        s["_zooms"] = [z for z in edl.get("screen_zooms", []) if z["name"] == s.get("name")
-                       and z["from"] < s["out"] and z["to"] + ZOOM_EASE > s["in"]]
+        s["_zooms"] = seg_zooms(edl, s)
     if any(s["_zooms"] for s in segs) and not dynamic_crop_ok():
         print("WARNING: this ffmpeg can't change the crop size mid-stream: screen zooms only pan (a recent ffmpeg "
               "build zooms)")
@@ -921,7 +954,7 @@ def main() -> None:
         mark = re.search(r"vibetake-timeline: (\w+)", fin["subs"].read_text(encoding="utf-8", errors="replace")[:400])
         if mark and mark.group(1) != sig:
             stale.append(f"subtitles ({fin['subs']}) were made for another cut: run subtitles.py again "
-                         "(a variant: subtitles.py --edl <its edl> --ass <its own .ass>, then --subs)")
+                         "(with the same --variant)")
     meta = graphics.with_suffix(".meta.json") if graphics else None
     if meta and meta.exists():
         gm = json.loads(meta.read_text(encoding="utf-8"))
@@ -931,6 +964,15 @@ def main() -> None:
         elif abs(gm["width"] / gm["height"] - out["width"] / out["height"]) > 0.01:
             stale.append(f"the graphics layer is {gm['width']}×{gm['height']}, another shape than this output "
                          "(it would be stretched)")
+        elif gm.get("inputs"):
+            # Same cut, but the captions (a fixed word, another engine, none), the plan, the design or
+            # the cues changed after the layer was rendered: it would show the old ones.
+            from graphics import layer_inputs
+            now = layer_inputs(args.variant)
+            changed = [k for k, v in now.items() if gm["inputs"].get(k) != v]
+            if changed:
+                stale.append(f"the graphics layer was rendered before its {', '.join(changed)} changed: "
+                             f"graphics.py render{' --variant ' + args.variant if args.variant else ''} again")
     unframed = [i for i, s in enumerate(segs) if not (s.get("frame") or s.get("_up") or s.get("fit") or out.get("fit")
                                                       or s.get("_zooms"))]
     if unframed:
@@ -964,7 +1006,8 @@ def main() -> None:
             enc = fallback(e)
             total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
     else:
-        work = Path("02-work") / "render"
+        # A folder per output: a variant rendering next to the main video never shares its parts.
+        work = Path("02-work") / "render" / dst.stem
         work.mkdir(parents=True, exist_ok=True)
         parts, total = [], 0.0
         n = len(groups)
@@ -973,12 +1016,14 @@ def main() -> None:
             total += render_chunk(g, out, grade, INTERMEDIATE, part, log, args.preview, f"chunk {i + 1}/{n}", clean)
             parts.append(part)
         lst = work / "parts.txt"
-        lst.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in parts), encoding="utf-8")
+        lst.write_text("".join(concat_line(p) for p in parts), encoding="utf-8")
         f_inputs, f_graphs = finish_graph(1, "0:v", "0:a", fin, out, grade)
+        script = work / "graph.txt"             # in a file: many b-rolls overflow Windows' 32k command line
+        script.write_text(";".join(f_graphs), encoding="utf-8")
 
         def final(e_args: list[str]) -> None:
             ffmpeg_progress(["-f", "concat", "-safe", "0", "-i", str(lst), *f_inputs,
-                             "-filter_complex", ";".join(f_graphs), "-map", "[v]", "-map", "[a]", *e_args,
+                             "-/filter_complex", str(script), "-map", "[v]", "-map", "[a]", *e_args,
                              "-pix_fmt", "yuv420p", *TAGS, "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart",
                              str(pre)], total, "final encode", log)
         try:
@@ -988,8 +1033,12 @@ def main() -> None:
                 raise
             enc = fallback(e)
             final(enc)
-        for p in parts:
+        for p in (*parts, lst, script):
             p.unlink(missing_ok=True)
+        try:
+            work.rmdir()
+        except OSError:
+            pass
     master(pre, dst, args.loudness, log)
     pre.unlink(missing_ok=True)
     chs = chapters({**edl, "segments": segs})

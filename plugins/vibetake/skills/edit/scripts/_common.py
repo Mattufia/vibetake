@@ -116,8 +116,39 @@ def ffmpeg_progress(args: list[str], duration: float, label: str, log: Log, step
 
 
 def filter_path(p: Path | str) -> str:
-    """Escapes a path for use inside an ffmpeg filter option value."""
-    return str(p).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+    """Escapes a path for use inside a single-quoted ffmpeg filter option value ('…').
+    A quote can't be escaped inside quotes: close them, put \\\\\\' (the graph parser leaves \\',
+    which the option parser turns into '), reopen — "John's videos", O'Brien's user folder."""
+    return str(p).replace("\\", "/").replace(":", "\\:").replace("'", "'\\\\\\''")
+
+
+def concat_line(p: Path | str) -> str:
+    """A `file '…'` line of an ffmpeg concat list (a quote inside is '\\'')."""
+    return "file '" + Path(p).resolve().as_posix().replace("'", "'\\''") + "'\n"
+
+
+def spans_expr(spans, var: str = "t", comma: str = ",") -> str:
+    """An ffmpeg expression that is 1 inside any of the spans [(a, b)…] and 0 outside, for
+    enable=/select=/aselect=. Overlapping or touching spans are merged first, then searched as a
+    balanced if(lt(…)) tree: ffmpeg's parser fails past ~100 '+'-joined terms, and the tree stays
+    log2(n) deep and fast per sample (checked with 5000 spans). `comma`: "\\\\," where the caller
+    escapes commas instead of quoting the expression."""
+    merged: list[list[float]] = []
+    for a, b in sorted((float(a), float(b)) for a, b in spans):
+        if merged and a <= merged[-1][1] + 1e-6:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    if not merged:
+        return "0"
+
+    def node(lo: int, hi: int) -> str:
+        if hi - lo == 1:
+            a, b = merged[lo]
+            return f"between({var}{comma}{a:.4f}{comma}{b:.4f})"
+        mid = (lo + hi) // 2
+        return f"if(lt({var}{comma}{merged[mid][0]:.4f}){comma}{node(lo, mid)}{comma}{node(mid, hi)})"
+    return node(0, len(merged))
 
 
 def find_font() -> str | None:

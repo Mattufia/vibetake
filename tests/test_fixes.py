@@ -139,6 +139,25 @@ def main() -> None:
     gm = script(tmp, "render.py", "--out", "g.mp4", "--no-grade", check=False)
     checks["stale graphics layer: the master is refused"] = gm.returncode != 0 and "graphics layer" in (
         gm.stdout + gm.stderr)
+    # Same cut, but the captions changed after the layer was rendered (a word fixed, another engine).
+    sys.path.insert(0, str(SCRIPTS))
+    import os
+    cwd = os.getcwd()
+    os.chdir(tmp)
+    try:
+        from graphics import layer_inputs
+        (tmp / "02-work" / "captions.json").write_text('{"groups": []}', encoding="utf-8")
+        inputs = layer_inputs(None)
+    finally:
+        os.chdir(cwd)
+    (tmp / "02-work" / "graphics.meta.json").write_text(json.dumps({"timeline": signature(edl), "width": 320,
+                                                                    "height": 180, "inputs": inputs}))
+    same = script(tmp, "render.py", "--out", "g2.mp4", "--no-grade", check=False)
+    (tmp / "02-work" / "captions.json").write_text('{"groups": [1]}', encoding="utf-8")
+    changed = script(tmp, "render.py", "--out", "g3.mp4", "--no-grade", check=False)
+    checks["graphics layer older than its captions: refused; unchanged: renders"] = (
+        same.returncode == 0 and changed.returncode != 0 and "captions changed" in changed.stdout + changed.stderr)
+    (tmp / "02-work" / "captions.json").unlink()
     (tmp / "02-work" / "graphics.mov").unlink()
     (tmp / "02-work" / "graphics.meta.json").unlink()
 

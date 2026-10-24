@@ -16,8 +16,9 @@ the `anime` ones are for drawings; it runs on any GPU through Vulkan), brings it
 to the output size with lanczos, and stores it as the segment's picture: render.py
 uses it instead of grading and framing the original (the sound still comes from the
 original). Only for segments that need it and only once they're final — it's slow and
-the frames take a lot of disk. If the edit, the framing or the grade of the segment
-change, render.py ignores the stale file and says so.
+the frames take a lot of disk. The picture goes through render.py's own chain (HDR tone
+mapping, LUT, redaction, stabilizing, rotation, fit/framing, screen zooms); if any of
+it changes, render.py ignores the stale file and says so.
 
 Check the comparison still (02-work/upscale/seg_<n>_compare.png, plain stretch on the
 left, AI on the right): if skin looks plastic or detail looks invented, don't upscale
@@ -36,7 +37,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import HOME, die, ffmpeg_progress, ffprobe, filter_path, Log, run, tool  # noqa: E402
+from _common import HOME, die, ffmpeg_progress, ffprobe, Log, material_index, run, tool  # noqa: E402
 
 MODEL = "realesrgan-x4plus"
 WORK = Path("02-work/upscale")
@@ -53,12 +54,18 @@ def esrgan() -> str:
         "'realesrgan-ncnn-vulkan' for this OS) on the PATH or in ~/.vibetake/tools/realesrgan/")
 
 
-def signature(seg: dict, grade: dict, out: dict) -> str:
-    """What the upscaled picture depends on; a change makes it stale."""
-    key = {k: seg.get(k) for k in ("source", "in", "out", "frame")}
-    key["grade"] = grade.get(seg.get("name", Path(seg["source"]).name))
-    key["out"] = [out["width"], out["height"], out["fps"]]
-    return hashlib.sha1(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+def signature(seg: dict, grade: dict, edl: dict, material: dict) -> str:
+    """Everything the upscaled picture is made of (render.picture_chain's inputs); a change makes
+    it stale, so render.py falls back to the original instead of showing, say, an unblurred face."""
+    from render import seg_zooms
+    name = seg.get("name", Path(seg["source"]).name)
+    out = edl["output"]
+    key = {k: seg.get(k) for k in ("source", "in", "out", "frame", "redact", "stabilize", "rotate", "fit")}
+    key["grade"] = grade.get(name)
+    key["hdr"] = bool((material.get(name) or {}).get("hdr"))       # tone-mapped without a grade
+    key["zooms"] = seg_zooms(edl, seg)
+    key["out"] = [out["width"], out["height"], out["fps"], out.get("fit")]
+    return hashlib.sha1(json.dumps(key, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
 def crop_px(seg: dict, probe: dict) -> tuple[int, int]:
@@ -99,8 +106,11 @@ def cmd_run(args) -> None:
     segs, out = edl["segments"], edl["output"]
     if not 0 <= args.seg < len(segs):
         die(f"--seg must be between 0 and {len(segs) - 1}")
+    render.MATERIAL.update(material_index())
     s = segs[args.seg]
+    sig = signature(s, grade, edl, render.MATERIAL)             # before anything below touches the segment
     s["_probe"] = ffprobe(Path(s["source"]))
+    s["_zooms"] = render.seg_zooms(edl, s)
     W, H, fps = out["width"], out["height"], out["fps"]
     cw, ch = crop_px(s, s["_probe"])
     if W / cw <= 1.05:
@@ -115,9 +125,10 @@ def cmd_run(args) -> None:
         src_dir, up_dir = tmp / "in", tmp / "out"
         src_dir.mkdir()
         up_dir.mkdir()
-        g = grade.get(s.get("name", Path(s["source"]).name)) or {}
-        chain = [x for x in (g.get("pre"), f"lut3d=file='{filter_path(g['lut'])}'" if g.get("lut") else None) if x]
-        chain.append(render.framing(0, s, dur, fps, tmp) or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
+        # The very chain render.py uses (HDR, LUT, redaction, stabilizing, turn, fit/framing, screen
+        # zooms): an upscaled segment skips it at render time, so it must all be in the picture.
+        render.stab_detect(0, s, s["in"], dur + 0.25, tmp, log)
+        chain = render.picture_chain(0, s, out, grade, tmp, 0.0, dur)
         chain += [f"scale={cw}:{ch}:flags=lanczos", f"fps={fps}", f"trim=duration={dur:.6f}", "format=rgb24"]
         log(f"seg {args.seg}: {dur:.1f} s, crop {cw}×{ch} → ×4 → {W}×{H}")
         ffmpeg_progress(["-ss", f"{s['in']:.4f}", "-t", f"{dur + 0.25:.4f}", "-i", s["source"], "-vf",
@@ -142,13 +153,15 @@ def cmd_run(args) -> None:
         if args.test:
             log("trial only: nothing stored. Run without --test to upscale the segment.")
             return
-        dst = WORK / f"seg_{args.seg}.mkv"
+        # Named by what it is, not the segment's number: a moved segment never overwrites another's.
+        dst = WORK / f"seg_{sig}.mkv"
         ffmpeg_progress(["-framerate", str(fps), "-i", str(up_dir / "%06d.png"), "-vf",
                          f"scale={W}:{H}:flags=lanczos,format=yuv420p", "-c:v", "libx264", "-preset", "medium",
                          "-crf", "10", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
                          str(dst)], dur, "encode", log)
-    s.pop("_probe", None)
-    s["upscaled"] = {"file": str(dst.resolve()), "sig": signature(s, grade, out), "model": MODEL}
+    for k in [k for k in s if k.startswith("_")]:
+        s.pop(k)
+    s["upscaled"] = {"file": str(dst.resolve()), "sig": sig, "model": MODEL}
     edl_path.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
     log(f"seg {args.seg} upscaled → {dst}; render.py will use it")
 
@@ -158,9 +171,12 @@ def cmd_clear(args) -> None:
     edl = json.loads(edl_path.read_text(encoding="utf-8"))
     n = 0
     for k, s in enumerate(edl["segments"]):
-        if (args.seg is None or k == args.seg) and s.pop("upscaled", None):
+        up = s.pop("upscaled", None) if args.seg is None or k == args.seg else None
+        if up:
             n += 1
-            (WORK / f"seg_{k}.mkv").unlink(missing_ok=True)
+            # Another segment may share the file (same picture): keep it then.
+            if not any((o.get("upscaled") or {}).get("file") == up.get("file") for o in edl["segments"]):
+                Path(up.get("file") or WORK / f"seg_{k}.mkv").unlink(missing_ok=True)
     edl_path.write_text(json.dumps(edl, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"removed {n} upscaled segment(s)")
 

@@ -53,6 +53,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/cover.py preview               # at real size
    tokens (`font()`, `color()`), the project's icons, inline SVG drawn for the cover,
    CSS of any kind. Lay it out per platform (vertical and 16:9 are different
    compositions, not a resize).
+   Ids: letters, digits and hyphens, one per concept (`cover.py` and `graphics.py` refuse
+   others; a broken plan never stops the graphics layer, it's left out with a warning).
    A short (`shorts.py`) gets its own concepts in the same file: `"short": "<name>"` (and its
    own `"platforms"` if they differ) → `cover_<name>_<platform>_<n>.jpg`; `candidates
    --variant <name>` and `preview --variant <name>` work on that short.

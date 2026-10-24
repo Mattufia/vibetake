@@ -88,6 +88,7 @@ def remap_keep(kept: list[dict], tr: dict) -> str:
     def overlap(a, b):
         return max(0.0, min(a["end"], b["end"]) - max(a["start"], b["start"]))
     out, moved = [], []
+    last_id, last_hits = None, set()
     for k in kept:
         pool = (tr.get("silences") or []) if k["id"].upper().startswith("S") else tr["sentences"]
         hits = [x for x in pool if x["file"] == k["file"]
@@ -95,12 +96,17 @@ def remap_keep(kept: list[dict], tr: dict) -> str:
         if not hits:
             moved.append(f"{k['id']} → (gone)")
             continue
+        found = []
         for x in hits:
             new = x["id"].upper() if "id" in x else f"L{x['line']}"
-            if new not in out:
-                out.append(new)
+            found.append(new)
+            # Two old lines now one: once. The same line named twice (a hook and its place): twice.
+            if new in last_hits and k["id"] != last_id:
+                continue
+            out.append(new)
             if new != k["id"]:
                 moved.append(f"{k['id']} → {new}")
+        last_id, last_hits = k["id"], set(found)
     if not out:
         die("the transcript changed and none of the kept lines were found again: pass --keep")
     print("the transcript changed since the last cut: kept lines found again by time"
@@ -108,29 +114,28 @@ def remap_keep(kept: list[dict], tr: dict) -> str:
     return ",".join(out)
 
 
-def parse_keep(spec: str, sentences: list[dict], silences: list[dict] | None = None) -> tuple[list[int], list[str]]:
-    """Lines to keep, in order, and the silent stretches (S…) named among them."""
+def parse_keep(spec: str, sentences: list[dict], silences: list[dict] | None = None) -> list[int | str]:
+    """What to keep, in the order given: line numbers and the silent stretches (S…) named among them."""
     if spec == "auto":
-        return [s["line"] for s in sentences if not s.get("retake_of")], []
-    lines: list[int] = []
-    sil: list[str] = []
+        return [s["line"] for s in sentences if not s.get("retake_of")]
+    order: list[int | str] = []
     known_s = {x["id"].upper() for x in silences or []}
     for part in spec.replace(" ", "").split(","):
         if re.fullmatch(r"S\d+", part, re.I):
             if part.upper() not in known_s:
                 die(f"{part} isn't in the transcript's silent stretches ({', '.join(sorted(known_s)) or 'none'})")
-            sil.append(part.upper())
+            order.append(part.upper())
             continue
         m = re.fullmatch(r"L?(\d+)(?:-L?(\d+))?", part, re.I)
         if not m:
             die(f"can't read '{part}' (use L3, L3-L7, …)")
         a, b = int(m.group(1)), int(m.group(2) or m.group(1))
-        lines += list(range(a, b + 1)) if a <= b else list(range(a, b - 1, -1))
+        order += list(range(a, b + 1)) if a <= b else list(range(a, b - 1, -1))
     known = {s["line"] for s in sentences}
-    missing = [n for n in lines if n not in known]
+    missing = [n for n in order if isinstance(n, int) and n not in known]
     if missing:
         die(f"lines not in the transcript: {missing}")
-    return lines, sil
+    return order
 
 
 def quiet_db(path: str, track: int) -> np.ndarray:
@@ -216,39 +221,45 @@ def resolve_target(spec: str, tr: dict) -> tuple[str, float, float]:
     return name, seconds(a), seconds(b)
 
 
+def merge_forward(segments: list[dict]) -> None:
+    """Neighbors in the timeline that go on in the source (same file, the next one starting
+    inside or right after the previous) become one segment. A segment that goes back in the
+    source (a hook, then its place) or repeats a piece stays its own: that order was chosen."""
+    k = 0
+    while k + 1 < len(segments):
+        x, y = segments[k], segments[k + 1]
+        tol = 0.3 if x.get("_sil") or y.get("_sil") else 0.05   # a named silence's edges are measured loosely
+        if x["name"] == y["name"] and x["in"] - 1e-3 <= y["in"] <= x["out"] + tol and y["out"] >= x["out"] - 1e-3:
+            x["out"] = max(x["out"], y["out"])
+            x["lines"] = sorted(set(x["lines"]) | set(y["lines"]))
+            if y.get("role") and not x.get("role"):
+                x["role"] = y["role"]
+            x["_sil"] = x.get("_sil") or y.get("_sil")
+            del segments[k + 1]
+        else:
+            k += 1
+
+
 def apply_protection(segments: list[dict], ranges: list[dict], srcs: dict) -> list[str]:
-    """Make every protected source range part of the edit, whole: extend the segments of
-    that file that touch it (merging them), or add it as its own segment in source order."""
+    """Make every protected source range part of the edit, whole: extend each segment of that
+    file that touches it (a hook and its place are both extended, and stay two), or add it as
+    its own segment in source order."""
     notes = []
     for r in ranges:
         name, a, b = r["file"], r["start"], r["end"]
         touch = [k for k, sg in enumerate(segments) if sg["name"] == name and sg["in"] <= b + 0.3
                  and sg["out"] >= a - 0.3]
-        if touch:
-            k0 = touch[0]
-            sg = segments[k0]
-            sg["in"] = min([sg["in"], a] + [segments[k]["in"] for k in touch])
-            sg["out"] = max([sg["out"], b] + [segments[k]["out"] for k in touch])
-            sg["lines"] = sorted({n for k in touch for n in segments[k]["lines"]})
-            for k in reversed(touch[1:]):
-                del segments[k]
-        else:
+        for k in touch:
+            segments[k]["in"] = min(segments[k]["in"], a)
+            segments[k]["out"] = max(segments[k]["out"], b)
+        if not touch:
             new = {"source": srcs[name], "name": name, "in": a, "out": b, "lines": []}
             before = [k for k, sg in enumerate(segments) if sg["name"] == name and sg["out"] <= a]
             after = [k for k, sg in enumerate(segments) if sg["name"] == name and sg["in"] >= b]
             pos = before[-1] + 1 if before else (after[0] if after else len(segments))
             segments.insert(pos, new)
         notes.append(f"{r.get('id', '')} {r.get('what', '')} kept whole ({tc(a)}–{tc(b)}){': ' + r['why'] if r.get('why') else ''}".strip())
-    # Neighbors from the same file that now touch or overlap become one segment.
-    k = 0
-    while k + 1 < len(segments):
-        x, y = segments[k], segments[k + 1]
-        if x["name"] == y["name"] and y["in"] <= x["out"] + 0.05 and y["out"] >= x["in"]:
-            x["in"], x["out"] = min(x["in"], y["in"]), max(x["out"], y["out"])
-            x["lines"] = sorted(set(x["lines"]) | set(y["lines"]))
-            del segments[k + 1]
-        else:
-            k += 1
+    merge_forward(segments)
     return notes
 
 
@@ -300,7 +311,8 @@ def main() -> None:
     # A rebuild reuses the last run's choices unless they're given again, and keeps everything
     # placed on the edit (b-roll, sound effects, music, name…): they're anchored to words and
     # cuts, so they follow the new cut. A new cut file (a variant) starts from the main edit's.
-    prev, prev_edl = {}, {}
+    # Its settings too (format, pace, lines…): a variant differs only in what's given for it.
+    prev_edl = {}
     main_edl = Path("02-work/edl.json")
     for src in (Path(args.out), main_edl):
         if src.exists():
@@ -309,15 +321,19 @@ def main() -> None:
             except ValueError:
                 prev_edl = {}
             break
-    if Path(args.out).exists():
-        prev = prev_edl.get("params", {})
-    elif args.variant and Path("02-work/shorts.json").exists() and any(
-            s["name"] == args.variant for s in json.loads(Path("02-work/shorts.json").read_text(encoding="utf-8"))["shorts"]):
+    prev = prev_edl.get("params", {})
+    shorts_file = Path("02-work/shorts.json")
+    if args.variant and shorts_file.exists() and any(
+            s["name"] == args.variant for s in json.loads(shorts_file.read_text(encoding="utf-8"))["shorts"]):
         # A short (shorts.py) is its own video: not the long one's chapters or montage block.
         prev_edl = {k: v for k, v in prev_edl.items() if k not in ("chapters", "montage")}
+        prev_edl["segments"] = [sg for sg in prev_edl.get("segments", []) if sg.get("role") != "montage"]
         prev_edl["music"] = [mu for mu in prev_edl.get("music", []) if mu.get("block") != "montage"]
     keep_given = args.keep is not None
+    format_given = args.format is not None
     for k, v in DEFAULTS.items():
+        if k == "size" and format_given:
+            continue                           # a new --format replaces a saved --size
         if getattr(args, k) is None:
             setattr(args, k, prev.get(k, v))
     tsig = transcript_sig(tr)
@@ -329,13 +345,22 @@ def main() -> None:
     if (ingest / "material.json").exists():
         material = {m["name"]: m for m in json.loads((ingest / "material.json").read_text(encoding="utf-8"))["files"]}
     sents = {s["line"]: s for s in tr["sentences"]}
-    keep, keep_sil = parse_keep(args.keep, tr["sentences"], tr.get("silences"))
+    order = parse_keep(args.keep, tr["sentences"], tr.get("silences"))
+    keep = [x for x in order if isinstance(x, int)]
+    keep_sil = [x for x in order if isinstance(x, str)]
+    # Where each named silence goes: after the lines listed before it.
+    sil_at = [(x, sum(isinstance(y, int) for y in order[:i])) for i, x in enumerate(order) if isinstance(x, str)]
     sil_by_id = {x["id"].upper(): x for x in tr.get("silences") or []}
     args.transcript_sig = tsig
-    args.kept_spans = ([{"id": f"L{n}", "file": sents[n]["file"], "start": sents[n]["start"], "end": sents[n]["end"]}
-                        for n in keep if n in sents]
-                       + [{"id": s, "file": sil_by_id[s]["file"], "start": sil_by_id[s]["start"],
-                           "end": sil_by_id[s]["end"]} for s in keep_sil if s in sil_by_id])
+    args.kept_spans = [{"id": f"L{x}", "file": sents[x]["file"], "start": sents[x]["start"], "end": sents[x]["end"]}
+                       if isinstance(x, int) else {"id": x, "file": sil_by_id[x]["file"], "start": sil_by_id[x]["start"],
+                                                   "end": sil_by_id[x]["end"]} for x in order]
+    prot_ranges = prot["ranges"]
+    if args.variant:
+        # Protections are the main edit's: a variant takes only the ones next to its own lines.
+        prot_ranges = [r for r in prot_ranges if any(
+            s["file"] == r["file"] and s["start"] <= r["end"] + 0.3 and s["end"] >= r["start"] - 0.3
+            for s in args.kept_spans)]
     scale, default_pause = PACE[args.pace]
     max_pause = args.max_pause if args.max_pause is not None else default_pause
 
@@ -349,25 +374,25 @@ def main() -> None:
     def in_span(w, spans):
         return any(w["start"] < e and w["end"] > s for s, e, _ in spans)
 
-    kept: list[tuple[int, dict]] = []      # (line, word)
+    kept: list[tuple[int, dict, int]] = []      # (line, word, its place in --keep)
     dropped_fillers = 0
-    for n in keep:
+    for j, n in enumerate(keep):
         s = sents[n]
         for w in words[s["file"]]:
             if w["start"] >= s["start"] - 1e-3 and w["end"] <= s["end"] + 1e-3:
                 if args.fillers == "drop" and in_span(w, s.get("fillers", [])):
                     dropped_fillers += 1
                     continue
-                kept.append((n, w))
+                kept.append((n, w, j))
     if not kept:
         die("nothing to keep")
 
     # Runs of contiguous words: same file, consecutive in the source, short gap.
-    runs: list[list[tuple[int, dict]]] = []
-    file_of = {id(w): sents[n]["file"] for n, w in kept}
+    runs: list[list[tuple[int, dict, int]]] = []
+    file_of = {id(w): sents[n]["file"] for n, w, _ in kept}
     for item in kept:
         if runs:
-            pn, pw = runs[-1][-1]
+            pw = runs[-1][-1][1]
             same = file_of[id(pw)] == file_of[id(item[1])]
             if same and item[1]["_i"] == pw["_i"] + 1 and item[1]["start"] - pw["end"] <= max_pause:
                 runs[-1].append(item)
@@ -378,7 +403,7 @@ def main() -> None:
     # stays on its own (widened below), so the dead air isn't kept.
     def short(r):
         return r[-1][1]["end"] - r[0][1]["start"] < MIN_SEGMENT_S
-    merged: list[list[tuple[int, dict]]] = []
+    merged: list[list[tuple[int, dict, int]]] = []
     for r in runs:
         p = merged[-1] if merged else None
         if p and file_of[id(p[-1][1])] == file_of[id(r[0][1])] and r[0][1]["_i"] == p[-1][1]["_i"] + 1 \
@@ -453,12 +478,15 @@ def main() -> None:
         if fr:
             t_in, t_out = (round(round(t * fr) / fr, 4) for t in (t_in, t_out))
         if t_out - t_in < MIN_SEGMENT_S - 1e-3:
-            print(f"  left out (too short to cut alone): «{''.join(w['word'] for _, w in run).strip()}» "
+            print(f"  left out (too short to cut alone): «{''.join(w['word'] for _, w, _ in run).strip()}» "
                   f"{name} {s0:.2f}s — keep it with a neighbor if it's content")
             continue
         segments.append({"source": src, "name": name, "in": t_in, "out": t_out,
-                         "lines": sorted({n for n, _ in run}), "words": [run[0][1]["_i"], run[-1][1]["_i"]],
-                         "text": "".join(w["word"] for _, w in run).strip()})
+                         "lines": sorted({n for n, _, _ in run}), "words": [run[0][1]["_i"], run[-1][1]["_i"]],
+                         "text": "".join(w["word"] for _, w, _ in run).strip(), "_j": run[0][2]})
+    # A first line that comes later in the material is a cold open (hook).
+    if segments and len(keep) > 1 and keep[0] > min(keep[1:]) and segments[0]["_j"] == 0:
+        segments[0]["role"] = "hook"
     # Silent stretches to keep: the ones named in --keep, and with --pace natural every one
     # next to a kept line (the walk before the answer, the look after the line).
     kept_lines = set(keep)
@@ -475,12 +503,30 @@ def main() -> None:
                 if x["id"] not in sil_keep:
                     sil_keep.append(x["id"])
     sil_by_id = {x["id"]: x for x in tr.get("silences", [])}
+    for sid in sil_keep:
+        f = sil_by_id[sid]["file"]
+        srcs.setdefault(f, (material.get(f) or {}).get("file") or die(f"no source for {f}"))
+    # A silence named in --keep plays where it's listed ("L4,S1,L1": the walk, then L1) and joins
+    # the neighbor it continues in the source. Already inside a kept segment: nothing to add.
+    for sid, m in sil_at:
+        x = sil_by_id[sid]
+        if any(sg["name"] == x["file"] and sg["in"] <= x["start"] + 0.05 and sg["out"] >= x["end"] - 0.05
+               for sg in segments):
+            continue
+        pos = next((k for k, sg in enumerate(segments) if sg["_j"] >= m), len(segments))
+        segments.insert(pos, {"source": srcs[x["file"]], "name": x["file"], "in": x["start"], "out": x["end"],
+                              "lines": [], "_j": m - 0.5, "_sil": True})
+    merge_forward(segments)
+    # Silences --pace natural adds, and protections: in source order, extending what they touch.
     ranges = [{"id": "", "what": sid, "file": sil_by_id[sid]["file"], "start": sil_by_id[sid]["start"],
-               "end": sil_by_id[sid]["end"]} for sid in sil_keep]
-    ranges += [{**r, "what": r["what"]} for r in prot["ranges"]]
+               "end": sil_by_id[sid]["end"]} for sid in sil_keep if sid not in keep_sil]
+    ranges += [{**r, "what": r["what"]} for r in prot_ranges]
     for r in ranges:
         srcs.setdefault(r["file"], (material.get(r["file"]) or {}).get("file") or die(f"no source for {r['file']}"))
-    notes = apply_protection(segments, ranges, srcs)
+    notes = [f"{sid} where listed" for sid in dict.fromkeys(keep_sil)] + apply_protection(segments, ranges, srcs)
+    for sg in segments:
+        sg.pop("_j", None)
+        sg.pop("_sil", None)
     for sg in segments:
         fr = (material.get(sg["name"]) or {}).get("fps")
         if fr:
@@ -495,9 +541,6 @@ def main() -> None:
         else:
             sg.pop("words", None)
             sg["text"] = "(no speech)"
-    # A first line that comes later in the material is a cold open (hook).
-    if segments and len(keep) > 1 and keep[0] > min(keep[1:]):
-        segments[0]["role"] = "hook"
 
     first_src = material.get(segments[0]["name"], {})
     if args.size:
@@ -520,18 +563,22 @@ def main() -> None:
     # still covers most of the same piece keeps them through the re-cut.
     # One old segment → at most one new one (the one sharing most of it, at least half of each), so
     # a segment split in two doesn't fade out or transition twice.
+    # Montage shots keep their own fields (the block comes back as built): their mute never lands
+    # on a spoken segment of the same file. Equal candidates (a hook and its place): the one in
+    # the same place in the edit.
     kept_fx, taken = 0, {}
-    for old in prev_edl.get("segments", []):
-        if not any(k in old for k in CARRY):
+    for oi, old in enumerate(prev_edl.get("segments", [])):
+        if old.get("role") == "montage" or not any(k in old for k in CARRY):
             continue
         olap = lambda sg: min(old["out"], sg["out"]) - max(old["in"], sg["in"])  # noqa: E731
-        cands = [i for i, sg in enumerate(segments) if sg["name"] == old.get("name")
+        cands = [i for i, sg in enumerate(segments) if sg["name"] == old.get("name") and sg.get("role") != "montage"
                  and olap(sg) >= 0.5 * max(sg["out"] - sg["in"], old["out"] - old["in"])]
         if not cands:
             continue
-        i = max(cands, key=lambda i: olap(segments[i]))
-        if i not in taken or olap(segments[i]) > taken[i][0]:
-            taken[i] = (olap(segments[i]), old)
+        score = lambda i: (round(olap(segments[i]), 3), -abs(i - oi))  # noqa: E731
+        i = max(cands, key=score)
+        if i not in taken or score(i) > taken[i][0]:
+            taken[i] = (score(i), old)
     for i, (_, old) in taken.items():
         sg = segments[i]
         sg.update({k: old[k] for k in CARRY if k in old})
@@ -565,7 +612,10 @@ def main() -> None:
     print(f"{len(segments)} segments · {tc(total_src)} of material → {tc(total)} · pace {args.pace} · "
           f"fillers {args.fillers} · lines left out: {dropped_lines or 'none'}")
     for s in segments:
-        print(f"  [{tc(s['in'])}–{tc(s['out'])}] {s['name']}  L{','.join(map(str, s['lines']))}  {s['text'][:70]}")
+        # Montage shots (the re-inserted block) have no lines or text.
+        what = f"L{','.join(map(str, s['lines']))}  {s.get('text', '')[:70]}" if s.get("lines") is not None \
+            else f"({s.get('role', 'shot')})"
+        print(f"  [{tc(s['in'])}–{tc(s['out'])}] {s['name']}  {what}")
     for n in notes:
         print("  kept:", n)
     # What the edit leaves out, so it can be checked and said in the delivery.

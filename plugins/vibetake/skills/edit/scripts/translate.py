@@ -110,8 +110,14 @@ def cmd_apply(args) -> None:
     if not work.exists():
         die(f"no {work}: translate.py export --to {args.to} first")
     data = load_json(work)
-    if src.exists() and len(read_srt(src)) != len(data["cues"]):
-        die(f"{src.name} changed since the export (another cut?): export again — translations of unchanged cues stay")
+    if src.exists():
+        # The times always come from the delivered .srt as it is now (a re-cut that only moved
+        # things keeps the translation); a cue whose words changed needs translating again.
+        cur = read_srt(src)
+        if len(cur) != len(data["cues"]) or any(a["text"] != b["text"] for a, b in zip(cur, data["cues"])):
+            die(f"{src.name} changed since the export (another cut?): export again — translations of unchanged cues stay")
+        for c, now in zip(data["cues"], cur):
+            c["start"], c["end"] = now["start"], now["end"]
     missing = [c["i"] for c in data["cues"] if not c.get("to", "").strip()]
     if missing:
         die(f"cues without a translation: {missing[:20]}{' …' if len(missing) > 20 else ''}")

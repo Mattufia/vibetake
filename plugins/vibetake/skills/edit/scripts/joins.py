@@ -30,7 +30,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import die, ffprobe, filter_path, find_font, frac, tc, tool  # noqa: E402
+from _common import die, ffprobe, filter_path, find_font, frac, spans_expr, tc, tool  # noqa: E402
 from _timeline import resolve_broll, starts  # noqa: E402
 
 WINDOW_S = 1.0          # joins.mp4: this much before and after each join
@@ -84,7 +84,7 @@ def frames(video: Path, idx: list[int], w: int, h: int) -> dict[int, np.ndarray]
     want = sorted(set(i for i in idx if i >= 0))
     if not want:
         return {}
-    sel = "+".join(f"eq(n\\,{i})" for i in want)
+    sel = spans_expr([(i, i) for i in want], "n", "\\,")      # a '+' chain fails past ~100 frames
     p = subprocess.run([tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-i", str(video),
                         "-vf", f"select='{sel}'", "-fps_mode", "passthrough", "-f", "rawvideo",
                         "-pix_fmt", "bgr24", "-"], capture_output=True)
@@ -170,7 +170,7 @@ def reel(video: Path, joins: list[dict], total: float, dst: Path) -> bool:
             spans[-1][2].append(j["n"])
         else:
             spans.append([a, b, [j["n"]]])
-    sel = "+".join(f"between(t\\,{a:.3f}\\,{b - 0.001:.3f})" for a, b, _ in spans)
+    sel = spans_expr([(a, b - 0.001) for a, b, _ in spans], "t", "\\,")   # a '+' chain fails past ~100 joins
     font = find_font()
     ffont = f"fontfile='{filter_path(font)}':" if font else ""
     labels = ",".join(

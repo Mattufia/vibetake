@@ -457,8 +457,8 @@ copy to publish with**.
 - **Video: versioned, never overwritten.** Each master is `<name>_v<N>.mp4`; every round of
   changes is a new version (`render.py --overwrite` only to fix the latest before delivery). The
   `.srt`, covers and copy are overwritten. Other formats and alternative hooks are variants:
-  **the same `--variant <v>` on every step** (`cutlist`, `reframe`, `subtitles`, `graphics
-  cues|render`, `render`, `qa`), each with its own cut, framing, captions and layer.
+  **the same `--variant <v>` on every step** (`cutlist` starts from the main edit's settings and
+  lines; `reframe`, `subtitles`, `graphics cues|render`, `render`, `qa`), each with its own files.
 - **Several shorts from a long video**: `shorts.py` — each a variant with its own hook, cover
   and copy: **`${CLAUDE_SKILL_DIR}/references/shorts.md`**.
 - **Copy** (`copy.txt`): a section per platform, from the transcript, in the

@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -149,6 +150,26 @@ def cmd_init(args) -> None:
     print(f"Remotion project → {PROJ} (kit pieces in src/kit, your components in src/custom)")
 
 
+COVER_PLATFORMS = ("youtube", "reels", "tiktok", "shorts")
+
+
+def cover_problems(plan: dict) -> list[str]:
+    """What in covers.json would make Remotion refuse every composition (ids it can't take,
+    two concepts with one id, a platform it doesn't know)."""
+    out, seen = [], set()
+    for c in plan.get("concepts", []):
+        cid, short = str(c.get("id", "")), str(c.get("short", "") or "")
+        if not re.fullmatch(r"[A-Za-z0-9-]+", cid) or (short and not re.fullmatch(r"[A-Za-z0-9-]+", short)):
+            out.append(f"concept id '{cid}'{f' (short {short})' if short else ''}: letters, digits and hyphens only")
+        if (short, cid) in seen:
+            out.append(f"two concepts with id '{cid}'{f' in short {short}' if short else ''}")
+        seen.add((short, cid))
+        for pl in (c.get("platforms") or plan.get("platforms") or []):
+            if pl not in COVER_PLATFORMS:
+                out.append(f"platform '{pl}' (use {', '.join(COVER_PLATFORMS)})")
+    return out
+
+
 def cmd_sync(args) -> None:
     if not (PROJ / "src").exists():
         die("no Remotion project yet: graphics.py init")
@@ -157,8 +178,15 @@ def cmd_sync(args) -> None:
     work = Path("02-work")
     # Covers: their plan (covers.json) and the frames and cut-outs they use.
     cp = work / "covers.json"
-    (data / "covers.json").write_text(cp.read_text(encoding="utf-8") if cp.exists()
-                                      else '{"platforms": [], "concepts": []}', encoding="utf-8")
+    cover_plan = cp.read_text(encoding="utf-8") if cp.exists() else '{"platforms": [], "concepts": []}'
+    probs = cover_problems(json.loads(cover_plan))
+    if probs:
+        if getattr(args, "covers_only", False):
+            die("covers.json: " + "; ".join(probs))
+        # A broken cover plan must never stop the graphics layer: leave the covers out until it's fixed.
+        print("WARNING: covers.json left out of the Remotion project until fixed: " + "; ".join(probs))
+        cover_plan = '{"platforms": [], "concepts": []}'
+    (data / "covers.json").write_text(cover_plan, encoding="utf-8")
     pc = PROJ / "public" / "covers"
     pc.mkdir(parents=True, exist_ok=True)
     for f in (work / "covers").glob("*.png") if (work / "covers").exists() else []:
@@ -386,6 +414,16 @@ def cmd_still(args) -> None:
             print(f"WARNING: at {t:.2f} s the graphics {prob}")
 
 
+def layer_inputs(variant: str | None) -> dict:
+    """Fingerprints of what a graphics layer is made from — its captions (or none), plan, design
+    and cue sheet — so render.py can tell a layer made before any of them changed."""
+    import hashlib
+    paths = work_paths(variant)
+    plan = paths["plan"] if paths["plan"].exists() else Path("02-work/graphics.json")
+    files = {"captions": paths["captions"], "plan": plan, "design": Path("02-work/design.json"), "cues": paths["cues"]}
+    return {k: hashlib.sha1(f.read_bytes()).hexdigest()[:12] if f.exists() else None for k, f in files.items()}
+
+
 def cmd_render(args) -> None:
     cmd_sync(args)
     out = work_paths(args.variant)["layer"].resolve()
@@ -395,7 +433,8 @@ def cmd_render(args) -> None:
         die("remotion render failed (see above)")
     cues = load(Path(args.out))
     out.with_suffix(".meta.json").write_text(json.dumps(
-        {"timeline": cues.get("timeline"), "width": cues["width"], "height": cues["height"]}), encoding="utf-8")
+        {"timeline": cues.get("timeline"), "width": cues["width"], "height": cues["height"],
+         "inputs": layer_inputs(args.variant)}), encoding="utf-8")
     print(f"graphics layer → {out} (render.py lays it over the edit)")
 
 
