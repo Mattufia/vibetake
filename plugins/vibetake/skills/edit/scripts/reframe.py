@@ -194,9 +194,14 @@ def main() -> None:
 
     # Zoom per segment: alternate at jump cuts within the same file.
     segs = edl["segments"]
+    screens = {z["name"] for z in edl.get("screen_zooms", [])}     # screen.py zooms them: no punch of its own
     zooms, prev = [], None
     for s in segs:
         z = 1.0
+        if s["name"] in screens:
+            zooms.append(z)
+            prev = s
+            continue
         if s.get("role") == "hook" and args.punch == "auto":
             z = args.zoom                    # the cold open gets the closer shot: it's the punch line
         elif args.punch == "auto" and prev is not None and prev["name"] == s["name"] and s["in"] - prev["out"] > 0.05:
@@ -256,8 +261,8 @@ def main() -> None:
                     for i in range(i0, i1)]
         else:
             keys = [[0.0, round(fixed_center(fx[i0:i1], cw), 4), round(fixed_center(ty[i0:i1], ch), 4)]]
-        bump = args.bump if moving_on and i_seg > 0 else 0.0
-        drift = min(args.drift, DRIFT_RATE * (s["out"] - s["in"])) if moving_on else 0.0
+        bump = args.bump if moving_on and i_seg > 0 and s["name"] not in screens else 0.0
+        drift = min(args.drift, DRIFT_RATE * (s["out"] - s["in"])) if moving_on and s["name"] not in screens else 0.0
         s["frame"] = {"mode": how, "zoom": z, "crop": [round(cw, 4), round(ch, 4)], "keys": keys,
                       "bump": round(bump, 4), "drift": round(drift, 4)}
         moving = (max(k[1] for k in keys) - min(k[1] for k in keys)) * sw

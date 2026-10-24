@@ -146,28 +146,64 @@ def zoom_at(t: float, dur: float, bump: float, drift: float) -> float:
     return (1 + impact) * (1 + drift * min(t / dur, 1) if dur > 0 else 1)
 
 
-def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path, lead: float = 0.0) -> str:
+ZOOM_EASE = 0.45     # a screen zoom eases in and out over this long
+
+
+def screen_zoom(src_t: float, zooms: list[dict], bw: float, bh: float, sw: int, sh: int) -> tuple[float, float, float, float]:
+    """(progress 0-1, zoom, center x, center y) of the screen zooms at a source moment: in from
+    `from`, held, out after `to`; the box fitted with a margin inside the crop, up to its max."""
+    acc = None
+    for z in sorted(zooms, key=lambda z: z["from"]):
+        a, b = z["from"], z["to"]
+        if not a - 1e-6 <= src_t <= b + ZOOM_EASE:
+            continue
+        u = min((src_t - a) / ZOOM_EASE, 1.0) if src_t < b else 1.0 - min((src_t - b) / ZOOM_EASE, 1.0)
+        p = u * u * (3 - 2 * u)                                    # smoothstep
+        x, y, w, h = z["box"]
+        need = max(w * sw * 1.4 / bw, h * sh * 1.4 / bh)
+        zb = min(max(1.0 / need, 1.0), float(z.get("max", 2.5)))
+        if acc is None:
+            acc = (p, zb, x + w / 2, y + h / 2)
+        else:
+            # Overlapping zooms: the later one takes over as it eases in, gliding from the earlier.
+            ap, az, ax, ay = acc
+            acc = (max(ap, p), az + (zb - az) * p, ax + (x + w / 2 - ax) * p, ay + (y + h / 2 - ay) * p)
+    return acc or (0.0, 1.0, 0.5, 0.5)
+
+
+def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path, lead: float = 0.0,
+            out: dict | None = None) -> str:
     """Crop for the segment from reframe.py — fixed or the operator path, with the impact
-    zoom and drift — sent frame by frame to the crop filter; or a plain center crop to the
-    output aspect when there's no framing."""
+    zoom and drift — and the screen zooms (screen.py), sent frame by frame to the crop filter;
+    or a plain center crop to the output aspect when there's neither."""
     fr = seg.get("frame")
+    zooms = seg.get("_zooms") or []
+    sw, sh = display_dims(seg["_probe"])
+    if not fr and zooms and out:
+        # A screen recording without framing: the output's aspect, centered, zoomed where it's asked.
+        asp = out["width"] / out["height"]
+        fr = {"crop": [min(1.0, sh * asp / sw), min(1.0, sw / asp / sh)], "keys": [[0, 0.5, 0.5]]}
     if not fr:
         return ""
-    sw, sh = display_dims(seg["_probe"])
     bw, bh = fr["crop"][0] * sw, fr["crop"][1] * sh
     keys = fr["keys"] or [[0, 0.5, 0.5]]
     kt = [k_[0] for k_ in keys]
     bump, drift = fr.get("bump", 0.0), fr.get("drift", 0.0)
-    sizing = bool(bump or drift) and dynamic_crop_ok()
+    sizing = bool(bump or drift or zooms) and dynamic_crop_ok()
     lines, first = [], None
     span = seg["out"] - seg["in"]          # keys, bump and drift are in source time from the cut
     for i in range(frames(dur, fps) + 1):
         t = i / fps - lead                  # the input starts `lead` seconds before the cut (a handle)
         z = zoom_at(max(t, 0), span, bump, drift) if sizing else 1.0
-        cw, ch = max(2, round(bw / z / 2) * 2), max(2, round(bh / z / 2) * 2)
-        cw, ch = min(cw, sw // 2 * 2), min(ch, sh // 2 * 2)
         cx = float(np.interp(t, kt, [k_[1] for k_ in keys]))
         cy = float(np.interp(t, kt, [k_[2] for k_ in keys]))
+        if zooms:
+            p, zb, zx, zy = screen_zoom(seg["in"] + t, zooms, bw, bh, sw, sh)
+            if sizing:
+                z *= 1 + (zb - 1) * p
+            cx, cy = cx + (zx - cx) * p, cy + (zy - cy) * p
+        cw, ch = max(2, round(bw / z / 2) * 2), max(2, round(bh / z / 2) * 2)
+        cw, ch = min(cw, sw // 2 * 2), min(ch, sh // 2 * 2)
         x = int(min(max(cx * sw - cw / 2, 0), sw - cw))
         y = int(min(max(cy * sh - ch / 2, 0), sh - ch))
         if first is None:
@@ -348,7 +384,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
         # The whole picture fitted (fit), framing from reframe.py, or a plain center crop to the output aspect.
         win = lead + span + (post * v if simple else 0)
         how = seg.get("fit") or out.get("fit")
-        chain.append(fit(k, how, W, H) if how else (rot not in (90, 270) and framing(k, seg, win, fps, workdir, lead))
+        chain.append(fit(k, how, W, H) if how else (rot not in (90, 270) and framing(k, seg, win, fps, workdir, lead, out))
                      or f"crop='min(iw,ih*{W}/{H})':'min(ih,iw*{H}/{W})'")
     chain += [f"scale={W}:{H}:flags={'bilinear' if preview else 'lanczos'}", "setsar=1"]
     flip = seg.get("flip")
@@ -815,6 +851,13 @@ def main() -> None:
             s["out"] = round(s["out"] * src_fps) / src_fps
     for w in edges(segs, out["fps"]):
         print(f"WARNING: {w}")
+    # Screen zooms (screen.py) are anchored to moments of the source: each segment takes its own.
+    for s in segs:
+        s["_zooms"] = [z for z in edl.get("screen_zooms", []) if z["name"] == s.get("name")
+                       and z["from"] < s["out"] and z["to"] + ZOOM_EASE > s["in"]]
+    if any(s["_zooms"] for s in segs) and not dynamic_crop_ok():
+        print("WARNING: this ffmpeg can't change the crop size mid-stream: screen zooms only pan (a recent ffmpeg "
+              "build zooms)")
     if args.out:
         dst = Path(args.out)
     elif args.preview:
@@ -888,7 +931,8 @@ def main() -> None:
         elif abs(gm["width"] / gm["height"] - out["width"] / out["height"]) > 0.01:
             stale.append(f"the graphics layer is {gm['width']}×{gm['height']}, another shape than this output "
                          "(it would be stretched)")
-    unframed = [i for i, s in enumerate(segs) if not (s.get("frame") or s.get("_up") or s.get("fit") or out.get("fit"))]
+    unframed = [i for i, s in enumerate(segs) if not (s.get("frame") or s.get("_up") or s.get("fit") or out.get("fit")
+                                                      or s.get("_zooms"))]
     if unframed:
         log(f"WARNING: {len(unframed)} segment(s) without framing (plain center crop) — run reframe.py after "
             "every re-cut")

@@ -11,11 +11,12 @@ Screencasts and step-by-step instructional videos.
 - **Subtitles**: `.srt` by default; burned-in only for feed.
 - **Graphics**: usually measured (dynamic for short social tutorials); screen recordings often read best inside a
   composition (`design.md` section 2) rather than full frame; callouts drawn in the
-  graphics layer — a ring on the click, the step number, shortcuts and values. Where text
-  would be too small, a deliberate zoom into that area set by hand (that segment's `frame`).
-- **Traps**: on-screen text (UI, code, values) must stay legible after any
-  reframe or zoom; a vertical crop of a screen recording is usually unreadable —
-  say so and propose zoom-ins instead.
+  graphics layer — a ring on the click, the step number, shortcuts and values.
+- **Zoom into the action** (`screen.py`, `references/screen.md`): the menu that opens, the
+  click, the value — chosen from its sheets; essential for a vertical version.
+- **Traps**: on-screen text (UI, code, values) must stay legible after any zoom; a vertical
+  version of a screen recording works only with zooms that follow the action.
 - **Color**: Basic, on the camera shots only; never grade screen recordings (`match.py skip` them: UI colors
   must stay true).
-- **Framing**: never reframe or punch into screen recordings (UI must stay readable and still); the operator framing is for camera shots only.
+- **Framing**: never reframe or punch into screen recordings — only the zooms above (reframe.py
+  leaves recordings with screen zooms alone); the operator framing is for camera shots only.

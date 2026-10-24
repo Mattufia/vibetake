@@ -227,14 +227,14 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   (what to illustrate, length, coverage, never over the hook): **`${CLAUDE_SKILL_DIR}/references/broll.md`**.
 - **No speech, or a stretch built on music** (aftermovie, place, product, an intro): `montage.py`
   — moments chosen from their sheets, cut on the beat: **`${CLAUDE_SKILL_DIR}/references/montage.md`**.
+  **Screen recordings**: zooms into the action, chosen from sheets (`screen.py`, `references/screen.md`).
 - **Anything finer is a field of a segment** in `edl.json` (trim, move, `frame.zoom`), and so
   are the effects: speed and ramps, freezes, reverse/loop/boomerang, J/L cuts, transitions
   (xfade, whip, push), fades; stabilize, fit, chroma key, flip/rotate/tilt, picture-in-picture,
   split screen, graphics behind the person, blurred boxes that follow a face (`redact.py`), a
   look; voice effects, bleeped words. For a reason (a reveal, a beat, a gag, a time jump), not
   decoration. Fields, commands, rules: **`${CLAUDE_SKILL_DIR}/references/effects.md`**.
-- **Nothing here for what's asked? Build it** with ffmpeg or a Remotion component and say
-  how — never answer that it can't be done when the tools can do it.
+- **Nothing here for what's asked? Build it** (ffmpeg, a Remotion component), say how — never "it can't be done".
 - `render.py` works from the **original files**: color from `02-work/color/grade.json`, framing,
   constant frame rate, 12 ms audio fades so cuts never click, cuts on the source's frame grid so
   sync never drifts. It reports expected vs actual picture and sound durations.
