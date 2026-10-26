@@ -148,6 +148,7 @@ const Element: React.FC<{ el: El }> = ({ el }) => {
     const wPx = (el.width ?? 0.6) * W;
     body = <Three3D model={el.model ?? "text"} text={el.text} name={el.name} src={el.src} move={el.move}
       finish={el.finish} colorToken={el.color} depth={el.depth} startFrame={start}
+      values={el.values} labels={el.labels} highlight={el.highlight} suffix={el.suffix}
       widthPx={Math.round(wPx)} heightPx={Math.round(el.height !== undefined ? el.height * height : wPx)} />;
   } else if (el.type === "custom") {
     const C = CUSTOM[el.component];

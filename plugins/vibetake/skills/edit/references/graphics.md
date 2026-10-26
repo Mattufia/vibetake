@@ -142,7 +142,9 @@ head or shoulders cross it; check a still of the render, not of the layer.
    **A 3D object** (`"type": "3d"`, Three.js): `model` is `text` (the `text`, in the
    design's display face), `icon` (`name`, a filled one: Simple Icons or Phosphor
    fill/duotone — stroke icons extrude as nothing), `logo` (`src`, an SVG in `brand/`)
-   or `glb` (`src`, the user's model in `brand/`). `move`: `turn` (swings in to face
+   or `glb` (`src`, the user's model in `brand/`), or `bars` (`values`, optional
+   `labels` and `suffix`; `highlight` the index of the bar in the color, the rest in
+   ink; they grow one after another, tilted so the depth shows). `move`: `turn` (swings in to face
    the camera), `spin`, `float`, `push` (comes from the back), `orbit`, `still`.
    `finish`: `matte`, `gloss`, `metal`; `color` a design token (accent by default);
    `depth` the extrusion, share of the height (0.3). The box is `width` × `height`
@@ -150,9 +152,9 @@ head or shoulders cross it; check a still of the render, not of the layer.
 
    **3D or 2D is a style, like a typeface.** If the user asks for 3D, or the design
    or the references are 3D, it can be the whole video: headlines, charts, lists,
-   captions, the close. A custom component can build on `Three3D` (`../kit/Three`) or
-   its own `ThreeCanvas` scene for what the element doesn't cover (3D bars, words that
-   pop out in depth). When nobody said, decide from the design and the references and
+   captions (`"captions": {"3d": true}` in `design.json`), the close. A custom component
+   can build on `Three3D` and the pieces in `../kit/Three` (`loadFont`, `extrude`,
+   `Studio`) or its own `ThreeCanvas` scene for what the kit doesn't cover. When nobody said, decide from the design and the references and
    mix with intent: where depth adds something (an object, a product, a big word, a
    moment that has to hit) it goes 3D; flat is the default where it adds nothing. Either
    way, text that has to be read faces the camera while it's read — the turn happens
@@ -219,7 +221,9 @@ head or shoulders cross it; check a still of the render, not of the layer.
 5. **Captions in the layer** (`subtitles.py`, default engine): drawn on top of every
    element, except where a graphic already shows the words (above). The Graphics composition's `captionStyle` adjusts them without touching the
    timing: `animation` (pop · karaoke · bounce · none), `yShift`, `scale`,
-   `highlightColor`, `textColor`, `box`, `upper`. In Studio (`npm run studio` in
+   `highlightColor`, `textColor`, `box`, `upper`. `"captions": {"3d": true}` in
+   `design.json` extrudes them in the captions face: flat faces in their color, dark
+   sides as the outline, the active word coming forward (left-to-right scripts). In Studio (`npm run studio` in
    `02-work/remotion`) they're in the props panel; saving writes them into `src/Root.tsx`,
    which `graphics.py init` then leaves alone.
 

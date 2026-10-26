@@ -21,6 +21,7 @@ export type Design = {
     skew?: number; pad?: number };
   motion: { enter: Enter; stagger: number; stiffness: number; damping: number; mass?: number;
     distance: number; exitFrames: number; blur?: number };
+  captions?: { "3d"?: boolean };   // captions extruded in the captions face (Captions.tsx)
 };
 export type Enter = "rise" | "drop" | "scale" | "mask" | "blur" | "slide" | "typewriter" | "pop";
 
@@ -28,6 +29,7 @@ const d = raw as unknown as Partial<Design>;
 
 export const design: Design = {
   concept: d.concept,
+  captions: d.captions,
   fonts: d.fonts ?? {},
   colors: { ink: "#ffffff", paper: "#000000", accent: "#ffffff", ...(d.colors ?? {}) },
   type: { case: "sentence", tracking: 0, lineHeight: 1.05, scale: 1, ...(d.type ?? {}) },

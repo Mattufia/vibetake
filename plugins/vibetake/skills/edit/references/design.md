@@ -75,7 +75,8 @@ type, motion, checks) applies to all of them.
   "highlight": {"style": "marker|box|underline|color|outline|none", "color": "accent", "text": "paper",
                 "skew": -3, "pad": 0.1},
   "motion":    {"enter": "rise|drop|slide|scale|pop|blur|mask|typewriter", "stagger": 0.05,
-                "stiffness": 200, "damping": 18, "distance": 0.5, "exitFrames": 7, "blur": 14}
+                "stiffness": 200, "damping": 18, "distance": 0.5, "exitFrames": 7, "blur": 14},
+  "captions":  {"3d": false}
 }
 ```
 

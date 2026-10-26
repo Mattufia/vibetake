@@ -140,10 +140,12 @@ def remotion(*a: str) -> list[str]:
 
 
 def gl_flags() -> list[str]:
-    """WebGL for a plan with 3D (kit/Three.tsx): the GPU through ANGLE on Windows and macOS,
+    """WebGL for a plan with 3D or 3D captions (kit/Three.tsx): the GPU through ANGLE on Windows and macOS,
     software (SwiftShader) on Linux, which works without a display. 2D plans keep the default."""
     plan = PROJ / "src" / "data" / "graphics.json"
-    has3d = plan.exists() and any(e.get("type") == "3d" for e in load(plan).get("elements", []))
+    des = PROJ / "src" / "data" / "design.json"
+    has3d = (plan.exists() and any(e.get("type") == "3d" for e in load(plan).get("elements", []))) or (
+        des.exists() and (load(des).get("captions") or {}).get("3d"))
     return [f"--gl={'swangle' if sys.platform.startswith('linux') else 'angle'}"] if has3d else []
 
 

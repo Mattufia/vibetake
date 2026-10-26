@@ -164,7 +164,7 @@ uv run tests/test_setup.py         # machine profile, install plan, tools found 
 uv run tests/test_organize.py      # loose files → 00-raw/ and brand/, nothing overwritten, undo
 uv run tests/test_refs.py          # references made viewable, a reference video's rhythm measured
 uv run tests/test_cut_rules.py     # reactions vs fillers, silent stretches, natural pace, protected ranges
-uv run tests/test_design.py        # project fonts and icons, palette, Remotion layer with design + safe-zone check, 3D text (network, Node)
+uv run tests/test_design.py        # project fonts and icons, palette, Remotion layer with design + safe-zone check, 3D text, bars and captions (network, Node)
 uv run tests/test_stage.py         # composition: the edit placed in a stage, frame-synced, page and frame components (Node)
 uv run tests/test_timing.py        # speed, ramps, freezes, reverse, boomerang, J/L cuts, transitions, fades: frame by frame
 uv run tests/test_effects_edges.py # transitions beside straight cuts, L+J on one segment, freeze at 0, smooth, J/L as played

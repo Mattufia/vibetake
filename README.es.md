@@ -170,7 +170,7 @@ uv run tests/test_setup.py         # perfil de la máquina, plan de instalación
 uv run tests/test_organize.py      # archivos sueltos → 00-raw/ y brand/, nada sobrescrito, deshacer
 uv run tests/test_refs.py          # referencias hechas visibles, ritmo medido de un video de referencia
 uv run tests/test_cut_rules.py     # reacciones vs muletillas, tramos en silencio, ritmo natural, rangos protegidos
-uv run tests/test_design.py        # tipografías e íconos del proyecto, paleta, capa Remotion con diseño + chequeo de zona segura, texto 3D (red, Node)
+uv run tests/test_design.py        # tipografías e íconos del proyecto, paleta, capa Remotion con diseño + chequeo de zona segura, texto, barras y subtítulos 3D (red, Node)
 uv run tests/test_stage.py         # composición: la edición puesta en un escenario, sincronizada al cuadro, componentes de página y marco (Node)
 uv run tests/test_timing.py        # velocidad, rampas, congelados, reversa, boomerang, cortes J/L, transiciones, fundidos: cuadro a cuadro
 uv run tests/test_effects_edges.py # transiciones junto a cortes secos, L+J en un segmento, congelado en 0, suave, J/L como se reproduce

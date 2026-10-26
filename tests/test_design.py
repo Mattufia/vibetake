@@ -161,6 +161,31 @@ def main() -> None:
         if not ok3:
             print("DEBUG 3d", p.stdout[-800:], p.stderr[-800:])
         checks["remotion: 3D text — absent before its moment, then shaded, in the accent, inside its box"] = ok3
+        # 3D bars (the highlighted one in the accent, the rest in ink) and 3D captions (design → captions.3d):
+        # white faces with dark extruded sides, low in the frame.
+        plan3d = {"elements": [{"type": "3d", "model": "bars", "values": [12, 30, 45], "labels": ["a", "b", "c"],
+                                "highlight": 2, "from": {"t": 0.3}, "x": 0.5, "y": 0.35, "width": 0.8, "height": 0.3}]}
+        (tmp / "02-work" / "graphics.json").write_text(json.dumps(plan3d), encoding="utf-8")
+        d3 = json.loads((tmp / "02-work" / "design.json").read_text(encoding="utf-8"))
+        (tmp / "02-work" / "design.json").write_text(json.dumps({**d3, "captions": {"3d": True}}), encoding="utf-8")
+        run(tmp, S("subtitles.py"), "--engine", "remotion")
+        run(tmp, S("graphics.py"), "init")
+        p = run(tmp, S("graphics.py"), "still", "2.5")
+        okb = okc = (st / "layer_002.50.png").exists()
+        if okb:
+            im = rgba(st / "layer_002.50.png", 1080, 1920).astype(int)
+            top, low = im[int(1920 * 0.18):int(1920 * 0.52)], im[int(1920 * 0.55):]
+            on = top[:, :, 3] > 200
+            okb = ((on & (top[:, :, 1] > top[:, :, 2] + 60)).sum() > 2000          # the accent bar
+                   and (on & (top[:, :, :3].min(2) > 200)).sum() > 2000)          # the ink bars
+            on = low[:, :, 3] > 200
+            okc = ((on & (low[:, :, :3].min(2) > 235)).sum() > 1000                # flat white faces
+                   and (on & (low[:, :, :3].max(2) < 90)).sum() > 300)             # dark sides
+        if not (okb and okc):
+            print("DEBUG 3d bars/captions", p.stdout[-800:], p.stderr[-800:])
+        (tmp / "02-work" / "design.json").write_text(json.dumps(d3), encoding="utf-8")
+        checks["remotion: 3D bars — the highlighted bar in the accent, the rest in ink"] = okb
+        checks["remotion: 3D captions — white faces, dark extruded sides"] = okc
 
     # Covers as free canvases (Remotion stills): concepts render per platform, preview at real size.
     if shutil.which("node") and (tmp / "02-work" / "remotion" / "node_modules").exists():
