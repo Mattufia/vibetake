@@ -12,6 +12,7 @@ this video's design.
 
 A stage in the plan (a composed page with the edit's picture placed in it) also renders the
 clean edit once, to 02-work/footage.mp4, and again whenever the cut or the grade changes.
+A 3D element (Three.js) renders with the GPU's GL (--gl=angle; swangle on Linux).
 
 init copies the kit (motion pieces, no house style) and installs it once per project;
 every still/render first syncs the project with 02-work: design.json (this video's
@@ -138,6 +139,14 @@ def remotion(*a: str) -> list[str]:
     return [shutil.which("node") or "node", str(cli.resolve()), *a]
 
 
+def gl_flags() -> list[str]:
+    """WebGL for a plan with 3D (kit/Three.tsx): the GPU through ANGLE on Windows and macOS,
+    software (SwiftShader) on Linux, which works without a display. 2D plans keep the default."""
+    plan = PROJ / "src" / "data" / "graphics.json"
+    has3d = plan.exists() and any(e.get("type") == "3d" for e in load(plan).get("elements", []))
+    return [f"--gl={'swangle' if sys.platform.startswith('linux') else 'angle'}"] if has3d else []
+
+
 def cmd_init(args) -> None:
     PROJ.mkdir(parents=True, exist_ok=True)
     for f in KIT.rglob("*"):
@@ -226,7 +235,7 @@ def cmd_sync(args) -> None:
     if Path("brand").is_dir():
         pb.mkdir(parents=True, exist_ok=True)
         for f in Path("brand").iterdir():
-            if f.suffix.lower() in (".png", ".svg", ".jpg", ".jpeg", ".webp"):
+            if f.suffix.lower() in (".png", ".svg", ".jpg", ".jpeg", ".webp", ".glb"):
                 shutil.copy2(f, pb / f.name)
     if getattr(args, "covers_only", False) and not (work / "graphics.json").exists():
         for name in ("cues.json", "design.json"):
@@ -273,6 +282,9 @@ def cmd_sync(args) -> None:
         lines.append(f'  loadFont({{ family: {json.dumps(f["family"])}, url: staticFile("fonts/{Path(f["file"]).name}"), '
                      f'weight: "{f["weight"]}", style: "{"italic" if f.get("italic") else "normal"}" }}),')
     lines.append("]);")
+    # 3D text (kit/Three.tsx) reads the font file itself: family|weight → file.
+    lines.append("export const FONT_FILES: Record<string, string> = " + json.dumps(
+        {f"{f['family']}|{f['weight']}": f"fonts/{Path(f['file']).name}" for f in fonts}, ensure_ascii=False) + ";")
     (data / "fonts.ts").write_text("\n".join(lines) + "\n", encoding="utf-8")
     # Icons: inline SVG strings, keyed by file stem (brand-whatsapp, ui-check, custom-…).
     icons = {p.stem: p.read_text(encoding="utf-8") for p in sorted((work / "icons").glob("*.svg"))} \
@@ -429,7 +441,7 @@ def cmd_still(args) -> None:
         frame = min(int(round(t * cues["fps"])), cues["frames"] - 1)
         layer = (outdir / f"layer_{t:06.2f}.png").resolve()
         p = subprocess.run(remotion("still", "Graphics", str(layer), f"--frame={frame}", "--image-format=png",
-                                    "--log=error"), cwd=PROJ)
+                                    "--log=error", *gl_flags()), cwd=PROJ)
         if p.returncode:
             die("remotion still failed (see above)")
         bg = background_frame(t, cues["width"], cues["height"])
@@ -457,7 +469,7 @@ def cmd_render(args) -> None:
     cmd_sync(args)
     out = work_paths(args.variant)["layer"].resolve()
     p = subprocess.run(remotion("render", "Graphics", str(out), "--codec=prores", "--prores-profile=4444",
-                                "--pixel-format=yuva444p10le", "--image-format=png"), cwd=PROJ)
+                                "--pixel-format=yuva444p10le", "--image-format=png", *gl_flags()), cwd=PROJ)
     if p.returncode:
         die("remotion render failed (see above)")
     cues = load(Path(args.out))

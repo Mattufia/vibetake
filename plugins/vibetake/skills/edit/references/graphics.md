@@ -123,6 +123,7 @@ head or shoulders cross it; check a still of the render, not of the layer.
   {"type": "list",    "from": {"line": 4}, "items": [{"icon": "ui-check", "text": "…", "at": {"word": "…"}}]},
   {"type": "cta",     "from": {"word": "escribinos"}, "icon": "brand-whatsapp", "lines": ["Escribinos", "por WhatsApp"]},
   {"type": "icon",    "from": {"word": "mensajes"}, "name": "ui-chat-circle-dots-duotone", "anim": "draw"},
+  {"type": "3d",      "from": {"word": "Acme"}, "model": "logo", "src": "logo.svg", "move": "turn", "finish": "gloss", "width": 0.6},
   {"type": "custom",  "from": {"t": 5}, "component": "MyChart", "props": {}}
 ]}
 ```
@@ -137,6 +138,22 @@ head or shoulders cross it; check a still of the render, not of the layer.
    phone screen) is a React component of its own in `02-work/remotion/src/custom/`,
    built on the kit's pieces and the design tokens — SVG is written inline exactly as
    in HTML, and its paths can be animated.
+
+   **A 3D object** (`"type": "3d"`, Three.js): `model` is `text` (the `text`, in the
+   design's display face), `icon` (`name`, a filled one: Simple Icons or Phosphor
+   fill/duotone — stroke icons extrude as nothing), `logo` (`src`, an SVG in `brand/`)
+   or `glb` (`src`, the user's model in `brand/`). `move`: `turn` (swings in to face
+   the camera), `spin`, `float`, `push` (comes from the back), `orbit`, `still`.
+   `finish`: `matte`, `gloss`, `metal`; `color` a design token (accent by default);
+   `depth` the extrusion, share of the height (0.3). The box is `width` × `height`
+   (square without `height`). It's lit like a studio and moves by frame only.
+
+   **3D or 2D, when nobody said**: 3D for the thing itself — the logo or product as the
+   protagonist, the hero moment or reveal, the brand close, a physical object. 2D for
+   everything that has to be read fast: data, lists, labels, captions, steps. One or
+   two 3D moments a video at most, or it stops being special; a sober editorial design
+   may have none. A real-looking material (glass, liquid, cloth) or an animated model is
+   Blender's job (`from-scratch.md`). Write what was chosen and why in `project.md`.
 
    **A stage** (the composition grammar, `design.md` section 2) turns the frame into a
    designed page for a span of the video: its own background, and the edit's picture

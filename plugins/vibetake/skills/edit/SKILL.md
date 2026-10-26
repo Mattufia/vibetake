@@ -408,8 +408,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --kind pop --line L5 --word vent
   only the graphics layer (alpha, or opaque where a `stage` composes the footage
   itself); `still` checks frames over the real image first.
   Scene plan, idea → graphic, sound: **`${CLAUDE_SKILL_DIR}/references/graphics.md`**.
-  A map, 3D or another effect a Remotion skill covers: load that skill first (`remotion-maps`,
-  `remotion-markup`), as `graphics.md` says.
+  A 3D logo/word/object is `"type": "3d"` (3D or 2D: `graphics.md`); a map or a 3D scene:
+  load that Remotion skill first (`remotion-maps`, `remotion-markup`).
 
 ## 8. Generating video from scratch (no filmed material)
 

@@ -143,6 +143,24 @@ def main() -> None:
         info = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=pix_fmt",
                                "-of", "csv=p=0", str(mov)], capture_output=True, text=True).stdout.strip() if mov.exists() else ""
         checks[f"remotion: full layer rendered with alpha ({info})"] = info.startswith("yuva")
+        # 3D: extruded text in the project font, lit (shaded, not flat), in the design's accent, in its box.
+        plan3d = {"elements": [{"type": "3d", "model": "text", "text": "Hola", "from": {"t": 0.6}, "move": "turn",
+                                "finish": "gloss", "x": 0.5, "y": 0.4, "width": 0.6, "height": 0.2}]}
+        (tmp / "02-work" / "graphics.json").write_text(json.dumps(plan3d), encoding="utf-8")
+        p = run(tmp, S("graphics.py"), "still", "0.3", "2.5")
+        st = tmp / "02-work" / "graphics-stills"
+        ok3 = (st / "layer_002.50.png").exists() and (st / "layer_000.30.png").exists()
+        if ok3:
+            im = rgba(st / "layer_002.50.png", 1080, 1920).astype(float)
+            on = im[:, :, 3] > 200
+            ys, xs = np.nonzero(on)
+            px = im[on][:, :3]
+            ok3 = (on.mean() > 0.005 and ys.min() > 1920 * 0.28 and ys.max() < 1920 * 0.52
+                   and px[:, 1].mean() > px[:, 2].mean() + 40 and px.mean(1).std() > 8)
+            ok3 = ok3 and (rgba(st / "layer_000.30.png", 1080, 1920)[:, :, 3] > 0).mean() < 0.0005
+        if not ok3:
+            print("DEBUG 3d", p.stdout[-800:], p.stderr[-800:])
+        checks["remotion: 3D text — absent before its moment, then shaded, in the accent, inside its box"] = ok3
 
     # Covers as free canvases (Remotion stills): concepts render per platform, preview at real size.
     if shutil.which("node") and (tmp / "02-work" / "remotion" / "node_modules").exists():

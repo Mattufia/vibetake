@@ -10,11 +10,12 @@ import { KineticText } from "./kit/KineticText";
 import { Surface, shadows } from "./kit/Surface";
 import { Footage } from "./kit/Footage";
 import { Counter, Icon, Wipe } from "./kit/Pieces";
+import { Three3D } from "./kit/Three";
 import { CUSTOM } from "./custom";
 import { Captions, CaptionStyle } from "./kit/Captions";
 
 type El = {
-  type: "headline" | "label" | "counter" | "list" | "cta" | "icon" | "custom" | "stage";
+  type: "headline" | "label" | "counter" | "list" | "cta" | "icon" | "custom" | "stage" | "3d";
   from?: At; until?: At; beat?: boolean;   // beat: enter on the music's nearest beat (within 0.12 s)
   x?: number; y?: number; width?: number; size?: number; align?: "left" | "center" | "right";
   rotate?: number; surface?: boolean | Record<string, unknown>; enter?: any; unit?: any;
@@ -142,6 +143,12 @@ const Element: React.FC<{ el: El }> = ({ el }) => {
       </div>);
   } else if (el.type === "icon") {
     body = <Icon name={el.name} sizePx={sizePx} startFrame={start} colorToken={el.color} anim={el.anim ?? "pop"} />;
+  } else if (el.type === "3d") {
+    // The box: width (share of the frame's width) × height (share of its height, default square).
+    const wPx = (el.width ?? 0.6) * W;
+    body = <Three3D model={el.model ?? "text"} text={el.text} name={el.name} src={el.src} move={el.move}
+      finish={el.finish} colorToken={el.color} depth={el.depth} startFrame={start}
+      widthPx={Math.round(wPx)} heightPx={Math.round(el.height !== undefined ? el.height * height : wPx)} />;
   } else if (el.type === "custom") {
     const C = CUSTOM[el.component];
     body = C ? <C {...(el.props ?? {})} startFrame={start} endFrame={end} sizePx={sizePx} /> : null;
