@@ -33,13 +33,28 @@ export const spokenTimes = (words: string[], from: number): (number | null)[] =>
   });
 };
 
-export const useSpring = (startFrame: number, opts?: { stiffness?: number; damping?: number; mass?: number }) => {
+/** The beat nearest to `t` if one is within `within` seconds (music placed with audio.py), else `t`:
+ * a key element can land on the beat instead of a hair off it. */
+export const onBeat = (t: number, within = 0.12): number => {
+  const beats: number[] = (cues as any).beats ?? [];
+  const b = beats.reduce((best, x) => (Math.abs(x - t) < Math.abs(best - t) ? x : best), Infinity);
+  return Math.abs(b - t) <= within ? b : t;
+};
+
+/** Weight by size: `size` (px, the element's larger side) makes big things heavier and slower and small
+ * ones quicker, with the same bounce (damping grows with √mass, so the damping ratio stays). */
+export const sizeWeight = (size?: number) => (size ? Math.min(2.5, Math.max(0.5, size / 400)) : 1);
+
+export const useSpring = (startFrame: number,
+  opts?: { stiffness?: number; damping?: number; mass?: number; size?: number }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const w = sizeWeight(opts?.size);
   return spring({
     frame: frame - startFrame, fps,
-    config: { stiffness: opts?.stiffness ?? design.motion.stiffness, damping: opts?.damping ?? design.motion.damping,
-      mass: opts?.mass ?? design.motion.mass ?? 1 },
+    config: { stiffness: opts?.stiffness ?? design.motion.stiffness,
+      damping: (opts?.damping ?? design.motion.damping) * Math.sqrt(w),
+      mass: (opts?.mass ?? design.motion.mass ?? 1) * w },
   });
 };
 

@@ -131,6 +131,10 @@ def main() -> None:
     g = [s["gain_db"] for s in json.loads((tmp / "02-work" / "edl.json").read_text(encoding="utf-8"))["sfx"][-2:]]
     checks[f"--weight minor sits 8 dB under main ({g[0] - g[1]:.1f})"] = abs(g[0] - g[1] - 8) < 0.05
     (tmp / "02-work" / "edl.json").write_text(before, encoding="utf-8")
+    # Music beats on the timeline: shifted by at/in, repeated per loop, none before the music starts.
+    tb = graphics.timeline_beats([{"source": "m", "at": 2.0, "in": 1.0, "duration": 4.0}],
+                                 lambda _: [0.5, 1.5, 3.0], 9.0)
+    checks[f"music beats placed on the timeline ({tb})"] = tb == [2.5, 4.0, 5.5, 6.5, 8.0]
     placed, _ = sfx.resolve(edl["segments"], edl["output"]["fps"],
                             [{"sound": "riser", "event": 1.8, "anchor": {"name": "talk.mp4", "time": 10.0}}])
     checks["a riser starts its length before the anchor (peak on it)"] = (

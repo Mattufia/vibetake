@@ -5,7 +5,7 @@ import { AbsoluteFill, Sequence, continueRender, delayRender, Easing, interpolat
 import plan from "./data/graphics.json";
 import { fontsReady } from "./data/fonts";
 import { color, design, font, applyCase } from "./kit/design";
-import { At, enterStyle, secondsOf, spokenTimes, useExit, useSpring } from "./kit/motion";
+import { At, enterStyle, onBeat, secondsOf, spokenTimes, useExit, useSpring } from "./kit/motion";
 import { KineticText } from "./kit/KineticText";
 import { Surface, shadows } from "./kit/Surface";
 import { Footage } from "./kit/Footage";
@@ -15,7 +15,7 @@ import { Captions, CaptionStyle } from "./kit/Captions";
 
 type El = {
   type: "headline" | "label" | "counter" | "list" | "cta" | "icon" | "custom" | "stage";
-  from?: At; until?: At;
+  from?: At; until?: At; beat?: boolean;   // beat: enter on the music's nearest beat (within 0.12 s)
   x?: number; y?: number; width?: number; size?: number; align?: "left" | "center" | "right";
   rotate?: number; surface?: boolean | Record<string, unknown>; enter?: any; unit?: any;
   [k: string]: any;
@@ -46,7 +46,7 @@ const Placed: React.FC<{ el: El; startFrame: number; endFrame?: number; children
 const Stage: React.FC<{ el: El }> = ({ el }) => {
   const frame = useCurrentFrame();
   const { fps, width: W, height: H } = useVideoConfig();
-  const start = Math.round(secondsOf(el.from, 0) * fps);
+  const start = Math.round((el.beat ? onBeat(secondsOf(el.from, 0)) : secondsOf(el.from, 0)) * fps);
   const end = el.until !== undefined ? Math.round(secondsOf(el.until) * fps) : undefined;
   const pin = Math.min(1, useSpring(start));
   // The exit eases out and is fully done by `until`, so nothing jumps when the stage ends.
@@ -81,13 +81,13 @@ const Stage: React.FC<{ el: El }> = ({ el }) => {
 
 const Element: React.FC<{ el: El }> = ({ el }) => {
   const { fps, height } = useVideoConfig();
-  const start = Math.round(secondsOf(el.from, 0) * fps);
+  const start = Math.round((el.beat ? onBeat(secondsOf(el.from, 0)) : secondsOf(el.from, 0)) * fps);
   const end = el.until !== undefined ? Math.round(secondsOf(el.until) * fps) : undefined;
   const sizePx = (el.size ?? 0.05) * height;
   const { width: W } = useVideoConfig();
   const pad = el.surface ? 2 * (design.surface.padding * sizePx) : 0;
   const maxW = (el.width ?? 0.8) * W - pad;
-  const cardP = useSpring(start);
+  const cardP = useSpring(start, { size: el.surface ? maxW : undefined });   // a big card enters heavier
   const subP = useSpring(start + 8);
   const wrapSurface = (node: React.ReactNode) =>
     el.surface ? (

@@ -27,6 +27,7 @@ frames of the output:
     face      where the head is on screen every 0.5 s (top/bottom, 0-1 of the height)
     safe      the safe zone for this format
     captions  where burned-in subtitles sit (so graphics take another band)
+    beats     the music's beats on the timeline (audio.py beats, cached next to the track)
 The graphics project (Remotion or canvas) reads it as data: every element enters on
 the frame of the word that names it, and stays out of the face and caption bands.
 Sound effects anchor to the same words (sfx.py place --line --word), so picture and
@@ -46,7 +47,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import die, load_json as load, tool, work_paths  # noqa: E402
-from _timeline import resolve_broll, seg_time, signature, starts, total  # noqa: E402
+from _timeline import place_music, resolve_broll, seg_time, signature, starts, total  # noqa: E402
 from subtitles import SAFE_H, SAFE_V, SAFE_X_V, face_band, timeline_words  # noqa: E402
 
 
@@ -87,7 +88,35 @@ def build(edl: dict, tr: dict, faces: dict, material: dict) -> dict:
             "safe": {"x0": sx[0], "y0": sv[0], "x1": sx[1], "y1": sv[1]},
             "captions": {"default_y": 0.70 if vertical else 0.86,
                          "note": "subtitles.py moves them below or above the face; keep graphics clear of both"},
-            "hook": hook, "cuts": [round(x, 3) for x in t0[1:]], "lines": lines, "face": face}
+            "hook": hook, "cuts": [round(x, 3) for x in t0[1:]], "lines": lines, "face": face,
+            "beats": timeline_beats(place_music(edl.get("music", []), segs, fps), beats_of, end)}
+
+
+def timeline_beats(placed: list[dict], beats_of, end: float) -> list[float]:
+    """Each music item's beats where they play: at + (beat - in), repeated every loop of the track."""
+    out = []
+    for mu in placed:
+        stop, dur = min(end, mu.get("until", end)), float(mu.get("duration") or 0)
+        if dur <= 0:
+            continue
+        for b in beats_of(mu["source"]):
+            t, k = mu["at"] + b - mu["in"], 0
+            while t + k * dur < stop:   # ponytail: loops restart at the track's start, like render's -stream_loop
+                if t + k * dur >= mu["at"]:
+                    out.append(round(t + k * dur, 3))
+                k += 1
+    return sorted(set(out))
+
+
+def beats_of(source: str) -> list[float]:
+    import audio
+    cache = Path(source).with_suffix(".beats.json")
+    if not cache.exists():
+        try:
+            cache.write_text(json.dumps(audio.find_beats(Path(source))), encoding="utf-8")
+        except SystemExit:      # too short to find a beat
+            return []
+    return load(cache)["beats"]
 
 
 KIT = Path(__file__).resolve().parent.parent / "kit" / "remotion"

@@ -78,6 +78,12 @@ with timeline ranges.
   hard cuts with no animation at all) comes from the design.
 - One motion language across the video: the same easing, the same direction for the
   same kind of element.
+- **Weight follows size**: a big card enters heavier and slower, a small label
+  quicker (`useSpring(start, {size: px})` in the kit; cards get it already).
+  What matters enters with movement, not just a fade — but not everything bounces.
+- **With music, key entries land on the beat**: `"beat": true` on the element, or
+  `onBeat(seconds)` in a custom component. The word still rules: only the hook,
+  the reveal and the call to action, and only when a beat is that close.
 
 ## Bands that don't overlap
 
@@ -123,7 +129,8 @@ head or shoulders cross it; check a still of the render, not of the layer.
 
    Timing: `{"t": seconds}`, `{"word": "x", "after": seconds}` (when it's said),
    `{"line": n, "word": i}`; `"sync": true` on a headline makes each word enter as
-   the voice says it. Position: `x`, `y` (center, 0–1 of the frame), `width`, `size`
+   the voice says it; `"beat": true` moves the entry onto the music's nearest beat
+   when one is within 0.12 s (`cues.json` has the beats). Position: `x`, `y` (center, 0–1 of the frame), `width`, `size`
    (font size, share of the height), `align`, `rotate`, `wipe`. Per element, `enter`,
    `unit` (word/char/line), `color`, `surface` (true, or overrides) change the design
    locally. Anything the kit doesn't cover (a chart, an illustrated scene, a mock
