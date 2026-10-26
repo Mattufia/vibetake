@@ -148,12 +148,17 @@ head or shoulders cross it; check a still of the render, not of the layer.
    `depth` the extrusion, share of the height (0.3). The box is `width` × `height`
    (square without `height`). It's lit like a studio and moves by frame only.
 
-   **3D or 2D, when nobody said**: 3D for the thing itself — the logo or product as the
-   protagonist, the hero moment or reveal, the brand close, a physical object. 2D for
-   everything that has to be read fast: data, lists, labels, captions, steps. One or
-   two 3D moments a video at most, or it stops being special; a sober editorial design
-   may have none. A real-looking material (glass, liquid, cloth) or an animated model is
-   Blender's job (`from-scratch.md`). Write what was chosen and why in `project.md`.
+   **3D or 2D is a style, like a typeface.** If the user asks for 3D, or the design
+   or the references are 3D, it can be the whole video: headlines, charts, lists,
+   captions, the close. A custom component can build on `Three3D` (`../kit/Three`) or
+   its own `ThreeCanvas` scene for what the element doesn't cover (3D bars, words that
+   pop out in depth). When nobody said, decide from the design and the references and
+   mix with intent: where depth adds something (an object, a product, a big word, a
+   moment that has to hit) it goes 3D; flat is the default where it adds nothing. Either
+   way, text that has to be read faces the camera while it's read — the turn happens
+   on the way in or out. A real-looking material (glass, liquid, cloth) or an animated
+   model is Blender's job (`from-scratch.md`). Write what was chosen and why in
+   `project.md`.
 
    **A stage** (the composition grammar, `design.md` section 2) turns the frame into a
    designed page for a span of the video: its own background, and the edit's picture
