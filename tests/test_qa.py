@@ -81,6 +81,16 @@ def main() -> None:
     _, out = qa(tmp, "good.mp4")
     checks["room sound → no digital-silence warning"] = status(out, "sound: no digital silence") == "PASS"
 
+    # One channel phase-flipped: fine in stereo, cancels on a phone speaker.
+    for name, right in (("wide", "c0"), ("phase", "-1*c0")):
+        ff(tmp, "-i", "good.mp4", "-c:v", "copy", "-af", f"pan=stereo|c0=c0|c1={right}", "-c:a", "aac", "-ac", "2",
+           "-movflags", "+faststart", f"{name}.mp4")
+    _, out = qa(tmp, "wide.mp4")
+    ok_wide = status(out, "sound: mono fold-down") == "PASS"
+    _, out = qa(tmp, "phase.mp4")
+    checks["mono fold-down: same L/R → PASS, flipped phase → WARN"] = (
+        ok_wide and status(out, "sound: mono fold-down") == "WARN")
+
     # Quiet master (−8 dB) and no faststart.
     ff(tmp, "-i", "good.mp4", "-c:v", "copy", "-af", "volume=-8dB", "-c:a", "aac", "quiet.mp4")
     code, out = qa(tmp, "quiet.mp4")

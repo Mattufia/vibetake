@@ -14,7 +14,8 @@ Every sound is placed by its *event point*: the start for pop, click, hit and di
 the peak for whoosh (its middle) and riser (its end) — so the sound lands on the
 frame of the cut, the word or the graphic. Anchors are moments of the source (like
 b-roll), so re-cutting doesn't break them. Each sound is leveled at placement to
-~10 dB under the cleaned voice (--gain adjusts); render.py mixes them over the music.
+~10 dB under the cleaned voice (--weight minor: 8 dB lower still, for the secondary sounds;
+--gain fine-tunes); render.py mixes them over the music.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ from _timeline import anchor_from, to_timeline, total  # noqa: E402
 
 SR = 48000
 TARGET_RMS_DB = -30.0      # cleaned voice sits at about -20: SFX ~10 dB under it
+MINOR_DB = -8.0            # --weight minor: secondary sounds this far under the main ones
 KINDS = ("whoosh", "pop", "click", "hit", "riser", "ding")
 
 
@@ -160,7 +162,7 @@ def cmd_place(args) -> None:
             cmd_make(args)
         info = load(idx_path)[args.kind]
         src, event, label = Path(info["file"]).resolve(), info["event"], args.kind
-    gain = level_db(read_audio(src)) + args.gain
+    gain = level_db(read_audio(src)) + args.gain + (MINOR_DB if args.weight == "minor" else 0.0)
     item = {"sound": label, "source": str(src), "event": event, "gain_db": round(gain, 2),
             "anchor": anchor_from(args, edl), "offset": args.offset, "note": args.note or ""}
     edl.setdefault("sfx", []).append(item)
@@ -243,6 +245,8 @@ def main() -> None:
     p.add_argument("--cut", type=int, help="the cut before this segment (0-based index in edl.json)")
     p.add_argument("--offset", type=float, default=0.0, help="seconds relative to the anchor")
     p.add_argument("--gain", type=float, default=0.0, help="dB over the default level (~10 dB under the voice)")
+    p.add_argument("--weight", choices=["main", "minor"], default="main",
+                   help="main: the sound that matters; minor: secondary ones, well under it")
     p.add_argument("--note")
     sub.add_parser("check")
     sub.add_parser("clear")

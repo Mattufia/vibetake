@@ -125,6 +125,12 @@ def main() -> None:
     env_d = diff[: n // win * win].reshape(-1, win).mean(1)
     onset = np.argmax(env_d > env_d.max() * 0.3) * 0.01
     checks[f"hit lands on its word ({onset:.2f} s vs {target:.2f} s)"] = abs(onset - target) < 0.04
+    before = (tmp / "02-work" / "edl.json").read_text(encoding="utf-8")
+    for w in ("main", "minor"):
+        run(tmp, str(SCRIPTS / "sfx.py"), "place", "--kind", "pop", "--line", f"L{ln['line']}", "--weight", w)
+    g = [s["gain_db"] for s in json.loads((tmp / "02-work" / "edl.json").read_text(encoding="utf-8"))["sfx"][-2:]]
+    checks[f"--weight minor sits 8 dB under main ({g[0] - g[1]:.1f})"] = abs(g[0] - g[1] - 8) < 0.05
+    (tmp / "02-work" / "edl.json").write_text(before, encoding="utf-8")
     placed, _ = sfx.resolve(edl["segments"], edl["output"]["fps"],
                             [{"sound": "riser", "event": 1.8, "anchor": {"name": "talk.mp4", "time": 10.0}}])
     checks["a riser starts its length before the anchor (peak on it)"] = (

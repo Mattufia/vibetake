@@ -15,7 +15,8 @@ if anything FAILs. Checks:
     size        resolution = the edit's output; platform aspect, length and file size
     duration    picture = sound = the edit's timeline
     picture     unintended black or frozen stretches
-    sound       loudness on target, true peak under the ceiling, long silences
+    sound       loudness on target, true peak under the ceiling, long silences, mono
+                fold-down (a phone speaker: sound that cancels when L+R are summed)
     subtitles   .srt rules (≤2 lines of ≤42 chars, 1–7 s, no overlaps, inside the
                 video); burned-in captions inside the safe zone
     delivery    .srt present; per platform, 2–3 covers (cover_<platform>_<n>.jpg) at the
@@ -45,6 +46,7 @@ from _timeline import total as timeline_total  # noqa: E402
 from audio import TARGETS, measure  # noqa: E402
 from subtitles import SAFE_V as SUB_SAFE_V, SAFE_X_V  # noqa: E402
 
+MONO_DROP_DB = 4.5   # summed to mono, louder drops than this mean phase cancellation
 WRT: dict = {}   # the video's writing system: caption line length and glyph width (set in main)
 
 # Keep in sync with references/platforms.md (values change; verify periodically).
@@ -378,6 +380,14 @@ def main() -> None:
         sil = [(s, e) for s, e in intervals(err, "silence_start", "silence_end") if s > 1 and min(e, vd) < vd - 1]
         r.ok(not sil, "sound: long silences", ", ".join(f"{tc(s)}–{tc(min(e, vd))}" for s, e in sil) or "none",
              "WARN")
+        if (a.get("channels") or 1) >= 2 and m["I"] is not None:
+            # ponytail: both channels set to (L+R)/2 so ebur128 weights it like the stereo; identical L/R
+            # lose 0 dB, wide uncorrelated music ~3 dB, out-of-phase sound much more
+            mono = measure(video, af="pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1")["I"]
+            drop = m["I"] - mono if mono is not None else 99.0
+            r.ok(drop <= MONO_DROP_DB, "sound: mono fold-down", f"{drop:.1f} dB quieter in mono" +
+                 (" — something is out of phase (a stereo widener, a flipped mic): fix it, phones play mono"
+                  if drop > MONO_DROP_DB else ""), "WARN")
         dead = digital_silence(video, vd)
         r.ok(not dead, "sound: no digital silence", (", ".join(f"{tc(s)}–{tc(e)}" for s, e in dead) or "none")
              + (" — sounds like a dropout: fill it with room tone" if dead else ""), "WARN")
@@ -474,6 +484,12 @@ def main() -> None:
     lines += [f"| {icon[s]} | {c} | {d} |" for s, c, d in r.rows]
     lines += ["", "Contact sheets (safe zone in green on vertical): " + ", ".join(f"qa/{s}" for s in shots) +
               " — look at them: framing, captions readable, nothing cut off."]
+    lines += ["", "## Artistic review (fill in after looking at the frames)", "",
+              "For the first second, each graphic and the ending: what the frame shows, what failed, what was "
+              "fixed. Score 1–10 without self-flattery; under 7 gets fixed or explained.", "",
+              "- Does the first half second stop the scroll?", "- Does it read on a phone?", "",
+              "| Moment | Seen | Failed → fixed |", "|---|---|---|", "| first second | | |", "| ending | | |", "",
+              "| Composition | Motion | Legibility | Story | Satisfaction |", "|---|---|---|---|---|", "| | | | | |"]
     notes = [REMINDERS[p] for p in args.platform if p in REMINDERS]
     if notes:
         lines += ["", "## When uploading", ""] + [f"- {n}" for n in notes]

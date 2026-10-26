@@ -32,6 +32,9 @@ the safe zone and the caption position. Plan on it:
 - **Keywords, not sentences.** On screen long enough to read (~0.3 s per word +
   0.5 s), then out.
 - Not every line needs a graphic: leave breathing room, or everything becomes noise.
+- **Contrast of energy**: mark the peaks (the hook, the reveal, the call to action)
+  and keep calm around them. The same intensity from start to end flattens
+  everything: alternate explosive, fluid and contemplative stretches.
 
 ## Ideas, if you don't have a better one
 
@@ -219,6 +222,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py check
   the same frame, and survive re-cuts.
 - **The voice rules**: sounds sit ~10 dB under it by default (`--gain` to adjust). A
   sound on a stressed word: lower it or move it into the pause.
+- **A hierarchy, not a wall**: one main sound per moment at the default level; the
+  ones around it with `--weight minor` (8 dB lower). Everything loud is nothing loud.
 - **Don't stack**: two sounds closer than ~120 ms blur into one (`check` warns).
   Five elements in two seconds don't need five pops — pick the one that matters.
 - The synthesized set is clean, license-free and generic. Brand or scripted work

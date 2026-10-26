@@ -478,17 +478,17 @@ loudness):
 uv run ${CLAUDE_SKILL_DIR}/scripts/qa.py --platform reels --platform tiktok --loudness social   # the latest version
 ```
 
-It checks format, duration, picture = sound, black or frozen stretches, loudness,
+It checks format, duration, picture = sound, black or frozen stretches, loudness, mono,
 `.srt` rules, captions in the safe zone, platform limits, covers and copy — and it
 **listens**: the export is transcribed again and compared with the edit's words (a cut
 mid-word, a lost or doubled word, a leftover filler). Report and upload reminders in
 `03-delivery/qa/qa.md`. **A FAIL is fixed before delivering**; a WARN is judged (listen
 where it points) and mentioned if it stays.
 
-- **Look at the QA contact sheets** (`03-delivery/qa/`, the vertical safe zone in
-  green): framing, readable captions, nothing cut off, the first frame works alone.
-- Platform limits and export settings: `${CLAUDE_SKILL_DIR}/references/platforms.md`
-  (they change: verify when a limit matters).
+- **Look at the QA contact sheets** (`03-delivery/qa/`, safe zone in green) and fill
+  in qa.md's **artistic review**: first second, each graphic, the ending — what you saw,
+  what failed, what you fixed; honest 1–10 scores. No quality claim without frames.
+- Platform limits and export settings (they change): `${CLAUDE_SKILL_DIR}/references/platforms.md`.
 - In the delivery, say in one line what was left out, what was resolved on your
   own judgment, what the master was encoded with, and any WARN that stays.
 - **Then `qa.py --cleanup`** deletes the heavy disposable intermediates (preview,
