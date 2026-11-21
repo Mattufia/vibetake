@@ -25,6 +25,9 @@ if anything FAILs. Checks:
     listening   the export transcribed again and compared with the edit's words: words
                 missing, doubled or extra (a cut mid-word, a lost phrase, a leftover
                 filler) that stills can't show
+    pacing      where viewers could drop: stretches with nothing new on screen (5 s
+                vertical, 10 s horizontal), first words after 1 s, over 2 s after the
+                last word — each with a proposal; the user decides, nothing is changed
 Upload reminders per platform go at the end of the report.
 --cleanup deletes the heavy disposable intermediates (preview, render chunks,
 normalized copies) — only when nothing failed. Look at the sheets anyway.
@@ -310,6 +313,35 @@ def zoom_jumps(segs: list[dict], fps: float) -> list[str]:
     return out
 
 
+STILL_MAX = {"vertical": 5.0, "horizontal": 10.0}   # seconds with nothing new on screen before eyes wander
+HOOK_MAX = 1.0       # the first words later than this: the scroll wins
+TAIL_MAX = 2.0       # after the last word, longer than this reads as the end already happened
+
+
+def visual_changes(video: Path) -> list[float]:
+    """Times where the picture changes (cuts, b-roll, a graphic arriving), from the export."""
+    err = run([tool("ffmpeg"), "-hide_banner", "-nostats", "-i", str(video), "-an", "-vf",
+               "scale=160:-2,scdet=threshold=6", "-f", "null", "-"], check=False).stderr
+    return [float(t) for t in re.findall(r"lavfi\.scd\.time: ([\d.]+)", err)]
+
+
+def pacing(changes: list[float], words: list[dict], vd: float, vertical: bool) -> list[str]:
+    """Where viewers drop: stretches with nothing new, a slow start, an ending that drags.
+    Each with what could be done — a proposal for the user, never applied on its own."""
+    out, limit = [], STILL_MAX["vertical" if vertical else "horizontal"]
+    marks = [0.0, *sorted(changes), vd]
+    for a, b in zip(marks, marks[1:]):
+        if b - a > limit:
+            out.append(f"{tc(a)}–{tc(b)} {b - a:.1f} s with nothing new on screen → b-roll, a graphic or a "
+                       "punch-in there, or tighten it")
+    if words and words[0]["t"] > HOOK_MAX:
+        out.append(f"the first words come at {words[0]['t']:.1f} s → start on the voice or move the hook first")
+    if words and vd - words[-1]["end"] > TAIL_MAX:
+        out.append(f"{vd - words[-1]['end']:.1f} s after the last word → end sooner, or put the CTA or a "
+                   "closing graphic there")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", nargs="?", help="default: the latest version in 03-delivery/")
@@ -373,6 +405,13 @@ def main() -> None:
         r.ok(abs(vd - exp) <= 2 / o["fps"], "duration: matches the edit", f"{tc(vd)} (edit {tc(exp)})")
         jumps = zoom_jumps(edl["segments"], o["fps"])
         r.ok(not jumps, "picture: zooms glide", "; ".join(jumps) or "no abrupt zoom", "WARN")
+        words = []
+        if tp.exists():
+            from subtitles import timeline_words
+            words = timeline_words(edl, json.loads(tp.read_text(encoding="utf-8")))
+        drops = pacing(visual_changes(video), words, vd, H > W)
+        r.ok(not drops, "pacing: where viewers could drop (proposals, the user decides)",
+             "; ".join(drops) or "no still stretch, starts on the voice, ends on time", "WARN")
     r.ok(a is not None and abs(vd - ad) <= 1.5 / max(fps, 1), "duration: picture = sound",
          f"video {vd:.3f} s · audio {ad:.3f} s")
 

@@ -136,6 +136,19 @@ def main() -> None:
     checks["cleanup: skipped on FAIL, done on PASS"] = kept and not (tmp / "02-work" / "preview.mp4").exists() \
         and not (tmp / "02-work" / "render").exists()
 
+    # Pacing: proposals where viewers could drop, never applied.
+    from qa import pacing, visual_changes
+    ws = [{"t": 0.3, "end": 0.6}, {"t": 7.0, "end": 7.4}]
+    drops = pacing([2.0, 4.0, 12.0], ws, 10.0, True)
+    checks[f"pacing: 8 s still stretch and a dragging end flagged, each with a proposal ({len(drops)})"] = (
+        len(drops) == 2 and "nothing new" in drops[0] and "→" in drops[0] and "after the last word" in drops[1])
+    checks["pacing: a slow start flagged"] = any("first words" in d for d in pacing([], [{"t": 2.0, "end": 2.5}], 3, True))
+    checks["pacing: lively vertical passes"] = not pacing([1, 3, 5, 7], ws, 7.6, True)
+    ff(tmp, "-f", "lavfi", "-i", "color=red:s=320x568:r=30:d=2", "-f", "lavfi", "-i", "color=blue:s=320x568:r=30:d=2",
+       "-filter_complex", "[0][1]concat=n=2:v=1", "-c:v", "libx264", "-preset", "ultrafast", "cut.mp4")
+    ch = visual_changes(tmp / "cut.mp4")
+    checks[f"pacing: a cut in the export is seen ({ch})"] = any(abs(t - 2.0) < 0.1 for t in ch)
+
     # Zooms that read as glitches, from the edit alone.
     sys.path.insert(0, str(SCRIPTS))
     from qa import zoom_jumps

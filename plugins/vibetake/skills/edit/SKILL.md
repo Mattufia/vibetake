@@ -512,6 +512,10 @@ It checks format, duration, picture = sound, black or frozen stretches, loudness
 mid-word, a lost or doubled word, a leftover filler). Report and upload reminders in
 `03-delivery/qa/qa.md`. **A FAIL is fixed before delivering**; a WARN is judged (listen
 where it points) and mentioned if it stays.
+**Pacing is the user's call**: the `pacing` row (still stretches, a slow start, an
+ending that drags) is never fixed on your own. Bring each one to the user with what
+you'd do there ("6 s fijo en 0:12 — le metería b-roll del producto o lo acorto, ¿qué
+preferís?") and change only what they choose. A slow, quiet stretch can be intended.
 
 - **Look at the QA contact sheets** (`03-delivery/qa/`, safe zone in green) and fill
   in qa.md's **artistic review**: first second, each graphic, the ending — what you saw,
