@@ -524,6 +524,20 @@ where it points) and mentioned if it stays.
   render chunks, normalized copies) — only if nothing failed. Cleaned audio and
   grades stay: re-renders need them. No need to mention it.
 
+**Closing the project** — only when the user says it's all done ("ya está", "terminé",
+"listo, cerralo"), never on your own; if they seem done but didn't say it, offer it in one
+line. First list, then ask:
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/finish.py          # what goes and how much it frees; deletes nothing
+uv run ${CLAUDE_SKILL_DIR}/scripts/finish.py --yes    # only after the user says yes
+```
+
+Show the user what will be deleted and the space freed, and what stays: the originals
+(`00-raw`, never touched), `project.md`, the latest version of each video with its `.srt`,
+covers and copy, and the edit's text files (so a later change starts from the edit; color,
+cleanup and other heavy steps run again). Older versions go too: say so. Delete only on a clear yes.
+
 ## 12. Safe margins
 
 **9:16: read `${CLAUDE_SKILL_DIR}/references/safe-margins.md` before placing any text.**

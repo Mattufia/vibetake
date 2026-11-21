@@ -164,6 +164,7 @@ uv run tests/test_audio.py         # limpieza sobre el crudo (ruido, nivel, sin 
 uv run tests/test_audio_inputs.py  # el origen del sonido: canales, mejor pista, grabaciones aparte, ambiente
 uv run tests/test_subs.py          # reglas de .srt, grupos de palabras, esquivar caras, subtítulos quemados
 uv run tests/test_qa.py            # QA de entrega: un archivo bueno pasa, las fallas plantadas se detectan, zooms que parecen fallas
+uv run tests/test_finish.py        # cierre del proyecto: primero lista, libera lo pesado, conserva finales y originales
 uv run tests/test_graphics.py      # hoja de cues, SFX sintetizados sobre su palabra, capa de gráficos, subtítulos apagados
 uv run tests/test_delivery.py      # versiones, chequeo del copy, bordes de corte en el audio, chequeo de escucha
 uv run tests/test_setup.py         # perfil de la máquina, plan de instalación, herramientas fuera del PATH
