@@ -34,6 +34,7 @@ Captions and bleeps follow the sound that is really heard.
 | `"flip": "h\|v\|both"` · `"rotate": 90\|180\|270` · `"rotate": -3` | mirror · turn (a clip recorded sideways; 90/270 use a center crop) · tilt a few degrees (zoomed so no corner shows) |
 | `"pip": {"source": "<file>", "in": 3.0, "corner": "top-right", "scale": 0.32}` | another clip in a corner over this segment (a reaction, the screen being talked about), muted; in a vertical video the corners sit inside the safe band |
 | `"split": {"source": "<file>", "in": 3.0, "side": "left\|right\|top\|bottom"}` | the screen in two: the other clip on that side, this one's center on the other |
+| `"fx": "drunk\|shake\|glitch\|dream\|vhs"` · `{"type": "drunk", "amount": 0.6}` | a picture effect over the whole segment, for a moment in what's said (SKILL.md, moments): `drunk` sways, rocks and smears (pair with `"voice": "drunk"`), `shake` a jolt that dies out in a second (a hit, a bang), `glitch` bursts of jumps, split color and flashes (something breaks, a shock), `dream` soft glow and trail (a memory, a fantasy), `vhs` old tape (the past, "en los 90"); `amount` 0–1 (1 by default), or any ffmpeg video chain. Cut the segment at the words so it starts and ends with them |
 | `"emphasis": true` | the moment of a punchline, a reveal or a hit: reframe.py gives it the impact zoom (once per cut, a few per minute; SKILL.md, framing) |
 | `"behind": true` | the graphics layer goes behind the person in this segment (a big title they stand in front of): `references/graphics.md` |
 | `output.look: {"vignette": 0.4, "grain": 0.3, "bw": true}` | over the whole edit, b-roll included (0–1 each) |
@@ -51,8 +52,8 @@ when a re-cut makes the segment longer, cutlist.py warns: look at it again.
 
 ## Sound
 
-- **A voice effect on a segment**: `"voice": "phone|radio|megaphone|echo|hall|robot|deep|high|whisper"`
-  (a call, a flashback, a gag, a disguised voice), or any ffmpeg audio filter chain.
+- **A voice effect on a segment**: `"voice": "phone|radio|megaphone|echo|hall|robot|deep|high|whisper|drunk"`
+  (a call, a flashback, a gag, a disguised voice, a drunk line), or any ffmpeg audio filter chain.
 - **Censor words**: `edl.json` `"bleep": {"words": ["puta*", "boludo"], "sound": "beep|mute"}`
   (accents and case ignored, ñ kept: `ano` doesn't catch `año`; `*` = any ending). render.py beeps or silences each
   time they're said (from the transcript, so it follows re-cuts), subtitles star them.

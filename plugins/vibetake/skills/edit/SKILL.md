@@ -236,8 +236,30 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   are the effects: speed and ramps, freezes, reverse/loop/boomerang, J/L cuts, transitions
   (xfade, whip, push), fades; stabilize, fit, chroma key, flip/rotate/tilt, picture-in-picture,
   split screen, graphics behind the person, blurred boxes that follow a face (`redact.py`), a
-  look; voice effects, bleeped words. For a reason (a reveal, a beat, a gag, a time jump), not
+  look; picture fx (drunk, shake, glitch, dream, vhs); voice effects, bleeped words. For a reason (a reveal, a beat, a gag, a time jump), not
   decoration. Fields, commands, rules: **`${CLAUDE_SKILL_DIR}/references/effects.md`**.
+- **Moments: the edit answers what's said, by default.** Once the cut holds, read
+  `transcript.md` line by line and mark what can be *shown*, not just heard: a literal
+  image ("ponerte en pedo", "me explotó la cabeza", "volé"), a state (drunk, dizzy,
+  scared, in love), an exaggeration, a punchline, a number or a price, a before/after
+  or contrast, the brand or product named. Each gets a treatment tied to its exact
+  words — cut the segment at them (`cutlist.py`) so it starts and ends there: a picture
+  `fx` (a drunk sway on "ponerte en pedo", a shake on a hit, a glitch on "se me rompió
+  todo", a dream on a memory, vhs on "en los 90"), a `voice` to match, an impact zoom
+  (`"emphasis": true`), a freeze, a speed ramp, a sound effect, a kinetic word
+  (graphics). One idea per moment, held only while the words last; the literal joke
+  over the generic flourish. How many, by type: an ad, a vlog or a talking head for
+  feeds 2–4 per minute; a tutorial or corporate piece 0–1 (a number, a step that
+  matters); a testimonial, a podcast or a serious line none. Write them in
+  `project.md` (moment → words → treatment) and list them in the delivery.
+- **"Más disruptivo" / "more disruptive" / "más arriesgado"** is a level, not a mood:
+  double the moments (every line that can be shown, gets shown), bolder treatments
+  (`fx` at full amount, voice effects, speed ramps, whips, a freeze with a sound
+  hit), cuts tighter on the beat, the music one energy level up. Still tied to the
+  words: more literal, never random noise. Every delivery of a video with speech
+  ends with one line offering it ("¿Lo querés más disruptivo? Le sumo …" with two
+  concrete moments you'd add), unless it's already at that level or the type doesn't
+  take it (testimonial, corporate).
 - **Nothing here for what's asked? Build it** (ffmpeg, a Remotion component), say how — never "it can't be done".
 - `render.py` works from the **original files**: color from `02-work/color/grade.json`, framing,
   constant frame rate, 12 ms audio fades so cuts never click, cuts on the source's frame grid so
@@ -496,7 +518,8 @@ where it points) and mentioned if it stays.
   what failed, what you fixed; honest 1–10 scores. No quality claim without frames.
 - Platform limits and export settings (they change): `${CLAUDE_SKILL_DIR}/references/platforms.md`.
 - In the delivery, say in one line what was left out, what was resolved on your
-  own judgment, what the master was encoded with, and any WARN that stays.
+  own judgment, what the master was encoded with, and any WARN that stays; list the
+  moments and their treatments, and offer the "más disruptivo" level (section 3).
 - **Then `qa.py --cleanup`** deletes the heavy disposable intermediates (preview,
   render chunks, normalized copies) — only if nothing failed. Cleaned audio and
   grades stay: re-renders need them. No need to mention it.

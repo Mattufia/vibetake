@@ -173,7 +173,7 @@ uv run tests/test_cut_rules.py     # reacciones vs muletillas, tramos en silenci
 uv run tests/test_design.py        # tipografías e íconos del proyecto, paleta, capa Remotion con diseño + chequeo de zona segura, texto, barras y subtítulos 3D (red, Node)
 uv run tests/test_stage.py         # composición: la edición puesta en un escenario, sincronizada al cuadro, componentes de página y marco (Node)
 uv run tests/test_timing.py        # velocidad, rampas, congelados, reversa, boomerang, cortes J/L, transiciones, fundidos: cuadro a cuadro
-uv run tests/test_effects_edges.py # transiciones junto a cortes secos, L+J en un segmento, congelado en 0, suave, J/L como se reproduce
+uv run tests/test_effects_edges.py # transiciones junto a cortes secos, L+J en un segmento, congelado en 0, suave, J/L como se reproduce, efectos de imagen (drunk, shake, glitch, dream, vhs)
 uv run tests/test_montage.py       # montaje con música: momentos, cortes en el beat, planos más cortos cuando sube, bloques alrededor del habla
 uv run tests/test_shorts.py        # shorts de un video largo: rangos sin tomas repetidas, gancho, corte/subtítulos/render propios, QA por short
 uv run tests/test_translate.py     # .srt traducido: mismos tiempos, cues muy rápidos o muy largos marcados, CJK sin espacios

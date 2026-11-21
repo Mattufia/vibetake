@@ -271,7 +271,40 @@ VOICE = {        # "voice" of a segment; anything else is taken as an ffmpeg aud
     "deep": pitch(-4),
     "high": pitch(5),
     "whisper": "afftfilt=real='hypot(re,im)*cos((random(0)*2-1)*2*3.14)':imag='hypot(re,im)*sin((random(1)*2-1)*2*3.14)':win_size=128:overlap=0.8",
+    "drunk": pitch(-1.5) + ",vibrato=f=1.3:d=0.35",
 }
+
+
+def picture_fx(fx, W: int, H: int) -> str:
+    """The segment's "fx": a picture effect tied to what's said or happens (references/effects.md).
+    "drunk" or {"type": "drunk", "amount": 0–1}; anything else is taken as an ffmpeg video chain.
+    Runs on the output's clock (t = seconds from the segment's front handle)."""
+    if not fx:
+        return ""
+    kind, a = (fx, 1.0) if isinstance(fx, str) else (fx.get("type", ""), float(fx.get("amount", 1)))
+    a = min(max(a, 0.0), 1.0)
+    big = lambda s: f"scale={W * s // 2 * 2:.0f}:{H * s // 2 * 2:.0f}"   # room to move without showing an edge
+    fxs = {
+        # sways and rocks slowly, the picture smears into its own trail, a bit soft and warm
+        "drunk": f"{big(1 + 0.16 * a)},rotate='{0.035 * a:.4f}*sin(2*PI*t/2.3)':ow={W * (1 + 0.07 * a) // 2 * 2:.0f}:"
+                 f"oh={H * (1 + 0.07 * a) // 2 * 2:.0f},crop={W}:{H}:x='(iw-ow)/2*(1+sin(2*PI*t/3.1))':"
+                 f"y='(ih-oh)/2*(1+sin(2*PI*t/2.7))',tmix=frames=5:weights='1 1 1 2 4',"
+                 f"eq=saturation={1 + 0.3 * a:.2f},gblur=sigma={max(1.2 * a, 0.1):.2f}",
+        # a hit: hard jolt that dies out in about a second
+        "shake": f"{big(1 + 0.08 * a)},crop={W}:{H}:x='(iw-ow)/2*(1+exp(-3*t)*sin(t*61))':"
+                 f"y='(ih-oh)/2*(1+exp(-3*t)*sin(t*47+1))'",
+        # bursts every 0.6 s: the frame jumps sideways, colors split, a hue flash; grain throughout
+        "glitch": f"{big(1 + 0.06 * a)},crop={W}:{H}:x='(iw-ow)/2*(1+if(lt(mod(t,0.6),0.1),sin(t*731),0))':y='(ih-oh)/2',"
+                  f"rgbashift=rh={round(14 * a)}:bh={-round(14 * a)},hue=h='if(lt(mod(t,0.6),0.07),120,0)',"
+                  f"noise=alls={round(18 * a)}:allf=t",
+        # a memory, a fantasy: soft trail, glow, lifted
+        "dream": f"tmix=frames=6,gblur=sigma={max(3 * a, 0.1):.1f},eq=brightness={0.05 * a:.3f}:"
+                 f"saturation={1 + 0.25 * a:.2f},vignette",
+        # old tape: bleeding color, soft, washed, grain, scanlines
+        "vhs": f"rgbashift=rh={round(6 * a)}:bh={-round(6 * a)},gblur=sigma=0.8,eq=saturation={1 - 0.25 * a:.2f}:"
+               f"contrast=1.08,noise=alls={round(12 * a)}:allf=t,drawgrid=w=iw:h=4:t=1:c=black@{0.25 * a:.2f}",
+    }
+    return fxs.get(kind, kind)
 
 
 _FILTERS: set | None = None
@@ -474,8 +507,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
               f"stop_mode=clone:stop_duration={post + end_hold + 0.2:.6f}",
               f"trim=duration={pre + dur + post:.6f}", "setpts=PTS-STARTPTS"]
     sz = smooth_zoom(seg.get("frame") or {}, pre, dur, fps)
-    if sz:
-        chain.append(sz)
+    chain += [x for x in (sz, picture_fx(seg.get("fx"), W, H)) if x]
     for side in ("in", "out"):
         f = seg.get(f"fade_{side}")
         if f and float(f.get("dur", 0.5)) > 0:         # dur 0: no fade (fade's d=0 isn't "none")

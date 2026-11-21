@@ -9,7 +9,7 @@
 A transition next to straight cuts, an L and a J eating one short segment from both ends, a fade
 as long as its segment, a freeze at a segment's start, smooth slow motion that really
 interpolates, J/L as played (first/last/transition), captions that follow the sound that is
-heard, a pass that can't grow forever, ñ in bleeps, the last chapter's length.
+heard, a pass that can't grow forever, ñ in bleeps, the last chapter's length, picture fx.
 """
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import numpy as np
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,6 +146,29 @@ def main() -> None:
     checks["bleep: 'ano' doesn't catch 'año', 'ano*' doesn't catch 'años', '*' alone catches nothing"] = (
         not tl.bleeped("año", ["ano"]) and not tl.bleeped("Años", ["ano*"]) and tl.bleeped("anos", ["ano*"])
         and not tl.bleeped("hola", ["*"]) and tl.bleeped("Coño!", ["coño"]))
+
+    # Picture fx: every named effect renders and changes the picture; drunk moves over time; a raw
+    # ffmpeg chain is taken as is; the drunk voice renders.
+    ff(tmp, "-f", "lavfi", "-i", f"testsrc2=s=320x180:r={FPS}:d=3", "-f", "lavfi", "-i", "sine=f=440:sample_rate=48000:d=3",
+       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "pat.mp4")
+
+    def frames_of(f: str) -> np.ndarray:
+        raw = subprocess.run([FF, "-v", "error", "-i", str(tmp / f), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                             capture_output=True, check=True).stdout
+        return np.frombuffer(raw, np.uint8).reshape(-1, 180, 320).astype(float)
+    render_edl(tmp, [{"in": 0.0, "out": 2.0}], "plain.mp4", "pat.mp4")
+    plain = frames_of("plain.mp4")
+    for kind in ("drunk", "shake", "glitch", "dream", "vhs", "negate"):
+        seg = {"in": 0.0, "out": 2.0, "fx": kind if kind != "drunk" else {"type": "drunk", "amount": 0.8}}
+        if kind == "drunk":
+            seg["voice"] = "drunk"
+        r = render_edl(tmp, [seg], f"fx_{kind}.mp4", "pat.mp4")
+        got = frames_of(f"fx_{kind}.mp4") if r.returncode == 0 else None
+        diff = float(np.abs(got[:len(plain)] - plain[:len(got)]).mean()) if got is not None else 0.0
+        checks[f"fx {kind}: renders and changes the picture (mean diff {diff:.1f})"] = got is not None and diff > 2
+        if kind == "drunk" and got is not None:
+            sway = float(np.abs(got[15] - got[45]).mean() - np.abs(plain[15] - plain[45]).mean())
+            checks[f"fx drunk: the frame sways over time ({sway:.1f})"] = sway > 1
 
     # Chapters: the last one needs its 10 s too.
     _, warn = youtube([(0, "a"), (30, "b"), (60, "c")], total=65)

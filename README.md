@@ -167,7 +167,7 @@ uv run tests/test_cut_rules.py     # reactions vs fillers, silent stretches, nat
 uv run tests/test_design.py        # project fonts and icons, palette, Remotion layer with design + safe-zone check, 3D text, bars and captions (network, Node)
 uv run tests/test_stage.py         # composition: the edit placed in a stage, frame-synced, page and frame components (Node)
 uv run tests/test_timing.py        # speed, ramps, freezes, reverse, boomerang, J/L cuts, transitions, fades: frame by frame
-uv run tests/test_effects_edges.py # transitions beside straight cuts, L+J on one segment, freeze at 0, smooth, J/L as played
+uv run tests/test_effects_edges.py # transitions beside straight cuts, L+J on one segment, freeze at 0, smooth, J/L as played, picture fx (drunk, shake, glitch, dream, vhs)
 uv run tests/test_montage.py       # montage to music: moments, cuts on the beat, shorter shots when loud, blocks around speech
 uv run tests/test_shorts.py        # shorts from a long video: ranges without retakes, hook, own cut/captions/render, QA per short
 uv run tests/test_translate.py     # translated .srt: same timing, too-fast and too-long cues flagged, CJK without spaces
