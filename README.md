@@ -151,13 +151,13 @@ uv run tests/test_match.py         # shot matching: groups, references, darks ke
 uv run tests/test_edit.py          # cuts and render: A/V sync, no clicks, retakes out, cuts in silence
 uv run tests/test_joins.py         # every join of the preview: sheets, a short reel, small/light/level jumps, flashes
 uv run tests/test_take_quality.py  # two takes of a line compared: softer, shakier, blown out; a shared look says nothing
-uv run tests/test_reframe.py       # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
+uv run tests/test_reframe.py       # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom only on emphasis, and it glides
 uv run tests/test_speaker.py       # several people: who says each sentence (mics, mouths), framing follows them
 uv run tests/test_broll.py         # b-roll anchored to words, sound underneath, follows re-cuts
 uv run tests/test_audio.py         # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen (its own piece per project, energy follows the edit)
 uv run tests/test_audio_inputs.py  # the sound's source: channels, best track, separate recordings, ambience
 uv run tests/test_subs.py          # .srt rules, word groups, face avoidance, burn-in
-uv run tests/test_qa.py            # delivery QA: a good file passes, planted faults are caught
+uv run tests/test_qa.py            # delivery QA: a good file passes, planted faults are caught, zooms that read as glitches
 uv run tests/test_graphics.py      # cue sheet, synthesized SFX on their word, graphics layer, captions off
 uv run tests/test_delivery.py      # versions, copy checks, cut edges on the audio, listening check
 uv run tests/test_setup.py         # machine profile, install plan, tools found outside PATH

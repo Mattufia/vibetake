@@ -124,21 +124,31 @@ def main() -> None:
     checks["fixed crop sits at the middle of the travel"] = \
         abs(reframe.fixed_center(np.r_[0.4, 0.5], 0.32) - 0.45) < 1e-6
 
-    # 5. Impact zoom: second segment enters closer, then settles.
+    # 5. Impact zoom: only on an "emphasis" segment, never on a cut that already changes the zoom;
+    #    rendered sub-pixel, so it glides instead of stepping.
     run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"), "--punch", "auto", "--bump", "0.08", "--drift", "0")
     segs = json.loads((work / "edl.json").read_text())["segments"]
-    checks["bump only after a cut, auto picks fixed for the still bar"] = (
+    checks["no emphasis → no impact zoom"] = all(s["frame"]["bump"] == 0 for s in segs)
+    edl["segments"][1]["emphasis"] = True
+    (work / "edl.json").write_text(json.dumps(edl))
+    run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"), "--punch", "auto", "--bump", "0.08", "--drift", "0")
+    segs = json.loads((work / "edl.json").read_text())["segments"]
+    checks["emphasis on a cut that punches in → still one move only"] = segs[1]["frame"]["bump"] == 0
+    run(tmp, "uv", "run", str(SCRIPTS / "reframe.py"), "--punch", "auto", "--bump", "0.08", "--drift", "0",
+        "--zoom", "1.0")
+    segs = json.loads((work / "edl.json").read_text())["segments"]
+    checks["emphasis, same zoom → impact zoom; auto picks fixed for the still bar"] = (
         segs[0]["frame"]["bump"] == 0 and segs[1]["frame"]["bump"] == 0.08
         and all(s["frame"]["mode"] == "fixed" for s in segs))
     run(tmp, "uv", "run", str(SCRIPTS / "render.py"), "--out", "b.mp4", "--no-grade")
 
-    def bar_width(t: float) -> int:
-        raw = subprocess.run([FF, "-v", "error", "-ss", str(t), "-i", str(tmp / "b.mp4"), "-frames:v", "1", "-vf",
-                              "format=gray", "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
-        img = np.frombuffer(raw, np.uint8).reshape(1920, 1080)
-        return int((img[960] > 128).sum())
-    hit, settled = bar_width(3.0 + 1 / 30), bar_width(4.0)
-    checks[f"impact zoom: closer on entry ({hit} px) than settled ({settled} px)"] = hit > settled * 1.04
+    raw = subprocess.run([FF, "-v", "error", "-ss", "3.0", "-i", str(tmp / "b.mp4"), "-frames:v", "18", "-vf",
+                          "format=gray", "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
+    rows = np.frombuffer(raw, np.uint8).reshape(-1, 1920, 1080)[:, 960].astype(float)
+    widths = (rows > 128).sum(1)
+    checks[f"impact zoom: closer on entry ({widths[1]} px) than settled ({widths[-1]} px)"] =         widths[1] > widths[-1] * 1.04
+    steps = np.abs(np.diff(widths[1:]))
+    checks[f"impact zoom glides: no frame jumps more than a third of the move ({steps.max()} px)"] =         steps.max() < (widths[1] - widths[-1]) / 3
 
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")

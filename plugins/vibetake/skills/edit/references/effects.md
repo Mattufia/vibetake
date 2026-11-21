@@ -34,6 +34,7 @@ Captions and bleeps follow the sound that is really heard.
 | `"flip": "h\|v\|both"` · `"rotate": 90\|180\|270` · `"rotate": -3` | mirror · turn (a clip recorded sideways; 90/270 use a center crop) · tilt a few degrees (zoomed so no corner shows) |
 | `"pip": {"source": "<file>", "in": 3.0, "corner": "top-right", "scale": 0.32}` | another clip in a corner over this segment (a reaction, the screen being talked about), muted; in a vertical video the corners sit inside the safe band |
 | `"split": {"source": "<file>", "in": 3.0, "side": "left\|right\|top\|bottom"}` | the screen in two: the other clip on that side, this one's center on the other |
+| `"emphasis": true` | the moment of a punchline, a reveal or a hit: reframe.py gives it the impact zoom (once per cut, a few per minute; SKILL.md, framing) |
 | `"behind": true` | the graphics layer goes behind the person in this segment (a big title they stand in front of): `references/graphics.md` |
 | `output.look: {"vignette": 0.4, "grain": 0.3, "bw": true}` | over the whole edit, b-roll included (0–1 each) |
 

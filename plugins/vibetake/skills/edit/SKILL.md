@@ -213,12 +213,16 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
   warns when a crop is smaller than the output (1080p horizontal cut to vertical is stretched
   ~1.8×, softer): say so, or once the segment is final recover detail with AI —
   `upscale.py run --seg N --test 2` first, never a plain resize to "gain" resolution.
-- **Zoom at every cut**: at jump cuts the base zoom alternates between 1.0 and
-  `--zoom` (1.12; half for a face that already fills the frame), so the jump reads
-  as a closer shot; each segment after a cut enters with a short impact zoom
-  (`--bump`, +6%, settles in ~0.15 s) and pushes in slowly while it lasts
-  (`--drift`, +3%). `--punch off` disables it (testimonial, corporate, screen
-  recordings); `--bump 0 --drift 0` keeps only the alternation.
+- **Zoom at jump cuts, one move per cut**: at jump cuts the base zoom alternates
+  between 1.0 and `--zoom` (1.12; half for a face that already fills the frame), so
+  the jump reads as a closer shot; each segment pushes in slowly while it lasts
+  (`--drift`, +3%). The impact zoom (`--bump`, +3.5%, eases out over ~0.4 s) is for
+  moments, not cuts: put `"emphasis": true` on the segment of a punchline, a reveal
+  or a hit (a few per minute, at least 4 s apart, on segments of 0.8 s or more) and
+  it fires there, unless that cut already changes the zoom. Impact and push-in are
+  rendered sub-pixel, so they glide; `qa.py` flags zooms that would read as a glitch.
+  `--punch off` disables it all (testimonial, corporate, screen recordings);
+  `--bump 0 --drift 0` keeps only the alternation.
 - **Hook (feed)**: pick the line that works on its own and opens a loop (1.5–4 s) — a
   promise, a conflict, a surprise — reading `transcript.md` in context. First with
   `--keep "L9,L1-L12"` (also kept in place) or `"L9,L1-L8,L10-L12"` (moved).

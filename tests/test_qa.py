@@ -136,6 +136,18 @@ def main() -> None:
     checks["cleanup: skipped on FAIL, done on PASS"] = kept and not (tmp / "02-work" / "preview.mp4").exists() \
         and not (tmp / "02-work" / "render").exists()
 
+    # Zooms that read as glitches, from the edit alone.
+    sys.path.insert(0, str(SCRIPTS))
+    from qa import zoom_jumps
+
+    def sg(length: float, zoom: float = 1.0, bump: float = 0.0) -> dict:
+        return {"in": 0.0, "out": length, "frame": {"zoom": zoom, "bump": bump}}
+    checks["zooms: spaced impacts on long segments pass"] = not zoom_jumps([sg(3), sg(3, bump=0.035), sg(3),
+                                                                           sg(3, bump=0.035)], 30)
+    j = zoom_jumps([sg(3), sg(0.5, bump=0.035), sg(1, bump=0.035), sg(3), sg(0.6, 1.12), sg(3)], 30)
+    checks[f"zooms: cut-off, crowded and in-and-out flagged ({len(j)})"] = (
+        len(j) == 3 and "cut off" in j[0] and "after the last" in j[1] and "back out" in j[2])
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     shutil.rmtree(tmp, ignore_errors=True)

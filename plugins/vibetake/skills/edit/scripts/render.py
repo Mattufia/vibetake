@@ -137,13 +137,25 @@ def dynamic_crop_ok() -> bool:
     return _DYNAMIC_CROP
 
 
-BUMP_S = 0.15        # the impact zoom settles in this time
+from _timeline import BUMP_S  # noqa: E402  (the impact zoom settles in this time)
+ZOOM_ANCHOR = (0.5, 0.4)   # impact and drift zoom toward where the face sits, so it stays put
 
 
-def zoom_at(t: float, dur: float, bump: float, drift: float) -> float:
-    """Extra zoom over the base: a short impact on entry (eases out) times a slow push-in."""
-    impact = bump * (1 - min(t / BUMP_S, 1)) ** 3 if bump else 0.0
-    return (1 + impact) * (1 + drift * min(t / dur, 1) if dur > 0 else 1)
+def smooth_zoom(fr: dict, pre: float, dur: float, fps: float) -> str:
+    """Impact zoom and drift as a sub-pixel zoom of the finished frame (perspective, cubic), on
+    the output's constant frame grid: a crop resized in whole pixels steps visibly instead.
+    `in` counts output frames from the front handle; the segment starts at `pre`."""
+    bump, drift = float(fr.get("bump") or 0), float(fr.get("drift") or 0)
+    if not (bump or drift) or dur <= 0:
+        return ""
+    t = f"max(in/{fps:.6f}-{pre:.6f},0)"
+    z = f"(1+{bump:.5f}*pow(1-min({t}/{BUMP_S},1),3))*(1+{drift:.5f}*min({t}/{dur:.6f},1))"
+    m = f"(1/{z})"                                       # the share of the frame that stays
+    ax, ay = ZOOM_ANCHOR
+    x0, y0 = f"{ax}*W*(1-{m})", f"{ay}*H*(1-{m})"
+    x1, y1 = f"{x0}+W*{m}", f"{y0}+H*{m}"
+    return (f"perspective=x0='{x0}':y0='{y0}':x1='{x1}':y1='{y0}':x2='{x0}':y2='{y1}':x3='{x1}':y3='{y1}':"
+            "eval=frame:interpolation=cubic")
 
 
 ZOOM_EASE = 0.45     # a screen zoom eases in and out over this long
@@ -173,9 +185,9 @@ def screen_zoom(src_t: float, zooms: list[dict], bw: float, bh: float, sw: int, 
 
 def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path, lead: float = 0.0,
             out: dict | None = None) -> str:
-    """Crop for the segment from reframe.py — fixed or the operator path, with the impact
-    zoom and drift — and the screen zooms (screen.py), sent frame by frame to the crop filter;
-    or a plain center crop to the output aspect when there's neither."""
+    """Crop for the segment from reframe.py — fixed or the operator path — and the screen zooms
+    (screen.py), sent frame by frame to the crop filter; or a plain center crop to the output
+    aspect when there's neither. Impact zoom and drift come later (smooth_zoom)."""
     fr = seg.get("frame")
     zooms = seg.get("_zooms") or []
     sw, sh = display_dims(seg["_probe"])
@@ -188,13 +200,11 @@ def framing(k: int, seg: dict, dur: float, fps: float, workdir: Path, lead: floa
     bw, bh = fr["crop"][0] * sw, fr["crop"][1] * sh
     keys = fr["keys"] or [[0, 0.5, 0.5]]
     kt = [k_[0] for k_ in keys]
-    bump, drift = fr.get("bump", 0.0), fr.get("drift", 0.0)
-    sizing = bool(bump or drift or zooms) and dynamic_crop_ok()
+    sizing = bool(zooms) and dynamic_crop_ok()
     lines, first = [], None
-    span = seg["out"] - seg["in"]          # keys, bump and drift are in source time from the cut
     for i in range(frames(dur, fps) + 1):
         t = i / fps - lead                  # the input starts `lead` seconds before the cut (a handle)
-        z = zoom_at(max(t, 0), span, bump, drift) if sizing else 1.0
+        z = 1.0
         cx = float(np.interp(t, kt, [k_[1] for k_ in keys]))
         cy = float(np.interp(t, kt, [k_[2] for k_ in keys]))
         if zooms:
@@ -463,6 +473,9 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     chain += [f"tpad=start_mode=clone:start_duration={(lack if simple else pre):.6f}:"
               f"stop_mode=clone:stop_duration={post + end_hold + 0.2:.6f}",
               f"trim=duration={pre + dur + post:.6f}", "setpts=PTS-STARTPTS"]
+    sz = smooth_zoom(seg.get("frame") or {}, pre, dur, fps)
+    if sz:
+        chain.append(sz)
     for side in ("in", "out"):
         f = seg.get(f"fade_{side}")
         if f and float(f.get("dur", 0.5)) > 0:         # dur 0: no fade (fade's d=0 isn't "none")
@@ -912,10 +925,9 @@ def main() -> None:
     log(f"rendering {len(segs)} segments → {dst} ({out['width']}×{out['height']} @ {out['fps']} fps, "
         f"{enc_name}, color on {graded}/{len(segs)} segments)")
 
-    if any((s.get("frame") or {}).get("bump") or (s.get("frame") or {}).get("drift") for s in segs) \
-            and not dynamic_crop_ok():
-        log("WARNING: this ffmpeg can't change the crop size mid-stream: impact zoom and drift skipped "
-            "(punch-ins still alternate). A recent ffmpeg build enables them.")
+    if edl.get("screen_zooms") and not dynamic_crop_ok():
+        log("WARNING: this ffmpeg can't change the crop size mid-stream: screen zooms only pan "
+            "(no zoom in). A recent ffmpeg build enables them.")
     overlays, warnings = resolve_broll(segs, out["fps"], edl.get("broll", []))
     for w in warnings:
         log(f"WARNING: {w}")

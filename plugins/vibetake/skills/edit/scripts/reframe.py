@@ -5,7 +5,7 @@
 """Framing for every segment of 02-work/edl.json: fixed or camera-operator crop, plus zooms.
 
     uv run reframe.py [--mode auto|fixed|operator] [--punch auto|off] [--zoom 1.12]
-                      [--bump 0.06] [--drift 0.03] [--edl 02-work/edl.json]
+                      [--bump 0.035] [--drift 0.03] [--edl 02-work/edl.json]
 
 Each segment gets the simplest framing that works (--mode auto):
 - full: the source already has the output's aspect (shot vertical for a vertical
@@ -19,10 +19,11 @@ Each segment gets the simplest framing that works (--mode auto):
   (continuous across segments from the same take).
 Zooms: at every jump cut (two consecutive segments from the same file with
 something removed between them) the base zoom alternates between 1.0 and --zoom,
-centered on the face, so the jump reads as a cut to a closer shot. On entering
-each segment after a cut, a short impact zoom (--bump, settles in ~0.15 s); during
-the segment, a slow push-in (--drift, at most 1% per second). --punch off disables
-all three. Writes the result back into edl.json; render.py applies it.
+centered on the face, so the jump reads as a cut to a closer shot. A segment
+marked "emphasis": true (a punchline, a reveal, a hit) enters with an impact zoom
+(--bump, settles in ~0.4 s) unless its cut already changes the zoom: one move per
+cut. During each segment, a slow push-in (--drift, at most 1% per second). Impact
+and push-in are rendered sub-pixel, so they glide. --punch off disables all three. Writes the result back into edl.json; render.py applies it.
 """
 from __future__ import annotations
 
@@ -178,7 +179,8 @@ def main() -> None:
                     help="auto: fixed when one position holds the face, operator when it moves")
     ap.add_argument("--punch", choices=("auto", "off"), default="auto", help="off: no punch-in, bump or drift")
     ap.add_argument("--zoom", type=float, default=1.12, help="punch-in zoom (1.10–1.15 reads as a new shot)")
-    ap.add_argument("--bump", type=float, default=0.06, help="impact zoom on entering a segment (0 = none)")
+    ap.add_argument("--bump", type=float, default=0.035,
+                    help='impact zoom entering an "emphasis" segment (0 = none)')
     ap.add_argument("--drift", type=float, default=0.03, help="slow push-in across a segment (0 = none)")
     args = ap.parse_args()
     args.edl = args.edl or str(work_paths(args.variant)["edl"])
@@ -261,7 +263,10 @@ def main() -> None:
                     for i in range(i0, i1)]
         else:
             keys = [[0.0, round(fixed_center(fx[i0:i1], cw), 4), round(fixed_center(ty[i0:i1], ch), 4)]]
-        bump = args.bump if moving_on and i_seg > 0 and s["name"] not in screens else 0.0
+        # The impact zoom marks a moment (a segment with "emphasis": true — a punchline, a reveal, a
+        # hit), never every cut, and never on a cut that already changes the zoom: one move per cut.
+        bump = args.bump if (moving_on and i_seg > 0 and s.get("emphasis") and s["name"] not in screens
+                             and z == zooms[i_seg - 1]) else 0.0
         drift = min(args.drift, DRIFT_RATE * (s["out"] - s["in"])) if moving_on and s["name"] not in screens else 0.0
         s["frame"] = {"mode": how, "zoom": z, "crop": [round(cw, 4), round(ch, 4)], "keys": keys,
                       "bump": round(bump, 4), "drift": round(drift, 4)}

@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import (DELIVERY, ffprobe, filter_path, find_font, frac, latest_video, run, tc, tool,  # noqa: E402
                      work_paths, writing)
-from _timeline import total as timeline_total  # noqa: E402
+from _timeline import BUMP_S, seg_time, starts, total as timeline_total  # noqa: E402
 from audio import TARGETS, measure  # noqa: E402
 from subtitles import SAFE_V as SUB_SAFE_V, SAFE_X_V  # noqa: E402
 
@@ -290,6 +290,26 @@ def listen(video: Path, edl: dict, ing: Path, lang: str | None, r: Report) -> No
          + (" — listen there: a cut mid-word, a lost or doubled word, a leftover filler" if issues else ""), "WARN")
 
 
+def zoom_jumps(segs: list[dict], fps: float) -> list[str]:
+    """Zooms that read as glitches, not shots: an impact cut off before it settles, impacts
+    too close together, a zoom that flips in and back out within a second."""
+    out, last_bump = [], -99.0
+    at = starts(segs, fps)
+    for i, s in enumerate(segs):
+        fr, length = s.get("frame") or {}, seg_time(s)
+        if fr.get("bump"):
+            if length < 2 * BUMP_S:
+                out.append(f"{tc(at[i])} impact zoom on a {length:.2f} s segment: cut off before it settles")
+            if at[i] - last_bump < 4:
+                out.append(f"{tc(at[i])} impact zoom {at[i] - last_bump:.1f} s after the last one")
+            last_bump = at[i]
+        if 0 < i < len(segs) - 1 and length < 1.0:
+            z0, z1, z2 = ((g.get("frame") or {}).get("zoom", 1.0) for g in segs[i - 1:i + 2])
+            if z1 != z0 and z2 == z0:
+                out.append(f"{tc(at[i])} zoom in and back out within {length:.2f} s")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video", nargs="?", help="default: the latest version in 03-delivery/")
@@ -351,6 +371,8 @@ def main() -> None:
              + (", scaled up for upload" if upscaled else "") + ")")
         exp = timeline_total(edl["segments"], o["fps"])
         r.ok(abs(vd - exp) <= 2 / o["fps"], "duration: matches the edit", f"{tc(vd)} (edit {tc(exp)})")
+        jumps = zoom_jumps(edl["segments"], o["fps"])
+        r.ok(not jumps, "picture: zooms glide", "; ".join(jumps) or "no abrupt zoom", "WARN")
     r.ok(a is not None and abs(vd - ad) <= 1.5 / max(fps, 1), "duration: picture = sound",
          f"video {vd:.3f} s · audio {ad:.3f} s")
 

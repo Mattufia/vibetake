@@ -157,13 +157,13 @@ uv run tests/test_match.py         # igualar tomas: grupos, referencias, oscuras
 uv run tests/test_edit.py          # cortes y render: sincronía A/V, sin clics, fuera tomas repetidas, cortes en silencio
 uv run tests/test_joins.py         # cada unión de la vista previa: hojas, un reel corto, saltos chicos/de luz/de nivel, destellos
 uv run tests/test_take_quality.py  # dos tomas de una frase comparadas: más blanda, más movida, quemada; un look compartido no dice nada
-uv run tests/test_reframe.py       # encuadre: completo/fijo/operador por segmento; suavizados, cortes; acercamientos, zoom de impacto
+uv run tests/test_reframe.py       # encuadre: completo/fijo/operador por segmento; suavizados, cortes; acercamientos, zoom de impacto solo en énfasis, y se desliza
 uv run tests/test_speaker.py       # varias personas: quién dice cada frase (micrófonos, bocas), el encuadre las sigue
 uv run tests/test_broll.py         # b-roll anclado a palabras, el sonido debajo, sigue los re-cortes
 uv run tests/test_audio.py         # limpieza sobre el crudo (ruido, nivel, sin retraso), volumen por destino, ducking, musicgen (una pieza propia por proyecto, la energía sigue la edición)
 uv run tests/test_audio_inputs.py  # el origen del sonido: canales, mejor pista, grabaciones aparte, ambiente
 uv run tests/test_subs.py          # reglas de .srt, grupos de palabras, esquivar caras, subtítulos quemados
-uv run tests/test_qa.py            # QA de entrega: un archivo bueno pasa, las fallas plantadas se detectan
+uv run tests/test_qa.py            # QA de entrega: un archivo bueno pasa, las fallas plantadas se detectan, zooms que parecen fallas
 uv run tests/test_graphics.py      # hoja de cues, SFX sintetizados sobre su palabra, capa de gráficos, subtítulos apagados
 uv run tests/test_delivery.py      # versiones, chequeo del copy, bordes de corte en el audio, chequeo de escucha
 uv run tests/test_setup.py         # perfil de la máquina, plan de instalación, herramientas fuera del PATH
