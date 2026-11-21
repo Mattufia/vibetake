@@ -6,9 +6,29 @@ brand can't use unlicensed music). Keep where every track came from in `project.
 ## 1. Synthesized (default for backgrounds)
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --mood calm|upbeat|lofi|cinematic --duration <edit length> [--bpm] [--key] [--seed]
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --mood <mood> --duration <edit length> --energy "<s>:low|mid|high,..." [--bpm] [--key] [--seed]
 uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file 02-work/music/<mood>.wav
 ```
+
+**Scored for this video, never a default.** The music comes from what the video is
+and what happens in it, decided after the cut:
+
+- **Mood** from the profile, the topic and the tone of the transcript: `calm`
+  (explaining, relaxed), `warm` (emotional, testimonial, family), `lofi` (casual,
+  study, desk, cooking), `upbeat` (positive, product, lifestyle), `energetic` (sport,
+  action, a fast ad), `cinematic` (epic, travel, a reveal), `tense` (a problem, a
+  mystery, a before). Two moods in one video (a problem then the solution): two beds,
+  each with `--duration` of its part.
+- **Tempo** from the pace of the cut: few cuts and calm speech, the low end of the
+  mood's range; fast cuts or a lot of action, the high end (`--bpm`).
+- **Energy** (`--energy`) from the edit's own times: `low` under a quiet start or a
+  serious line, `high` from the hook, the reveal, the action or the payoff, `mid`
+  for the rest; back to `low`/`mid` toward the close. A rise gets a drum fill into it.
+- The seed comes from the project, so each video sounds different and the same edit
+  reproduces it. The user doesn't like it: another `--seed` (new key, tempo,
+  chords), or another mood if it's the feel that's wrong.
+- Write in `project.md` what was chosen and why (mood, bpm, key, seed, energy: the
+  `.beats.json` has them), and tell the user in one line.
 
 Computed note by note (pads, bass, arpeggio, drums, reverb): free to use anywhere,
 exactly the length of the edit (get it with `broll.py check`), with an ending, and

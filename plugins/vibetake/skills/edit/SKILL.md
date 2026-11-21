@@ -331,7 +331,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
 - **Start the music where it has energy** (`--in` <seconds into the track>), not on a
   slow intro, and fade it out at the end. `--start` is where it enters the edit.
 - **Music source**: a bed synthesized to the length (`musicgen.py`) for quick,
-  informal videos; a real track for scripted, brand or music-driven ones. **Never
+  informal videos — scored for this video (mood from its topic and tone, tempo from
+  the cut's pace, energy rising and falling with what happens on screen), never the
+  same bed by habit; a real track for scripted, brand or music-driven ones. **Never
   anything the user can't publish**; third-party material (music, effects, stock,
   fonts) free-licensed, source and license in `project.md`. Where from, licenses:
   **`${CLAUDE_SKILL_DIR}/references/music.md`** (also cutting on the beat: `audio.py beats`).

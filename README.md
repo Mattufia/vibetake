@@ -154,7 +154,7 @@ uv run tests/test_take_quality.py  # two takes of a line compared: softer, shaki
 uv run tests/test_reframe.py       # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom
 uv run tests/test_speaker.py       # several people: who says each sentence (mics, mouths), framing follows them
 uv run tests/test_broll.py         # b-roll anchored to words, sound underneath, follows re-cuts
-uv run tests/test_audio.py         # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen
+uv run tests/test_audio.py         # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen (its own piece per project, energy follows the edit)
 uv run tests/test_audio_inputs.py  # the sound's source: channels, best track, separate recordings, ambience
 uv run tests/test_subs.py          # .srt rules, word groups, face avoidance, burn-in
 uv run tests/test_qa.py            # delivery QA: a good file passes, planted faults are caught

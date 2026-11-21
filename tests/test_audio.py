@@ -129,6 +129,28 @@ def main() -> None:
     checks["musicgen: no clipping"] = float(np.abs(g).max()) < 0.99
     checks["musicgen: beats every 0.5 s at 120 bpm"] = bool(beats) and np.allclose(np.diff(beats), 0.5, atol=0.002)
 
+    # Every video its own piece: the seed comes from the project folder, so two
+    # projects never share the same default; the same project reproduces it.
+    metas = []
+    for name in ("proyecto-a", "proyecto-b", "proyecto-a"):
+        d = tmp / name
+        d.mkdir(exist_ok=True)
+        run(d, "uv", "run", str(SCRIPTS / "musicgen.py"), "--mood", "calm", "--duration", "8",
+            "--out", f"m{len(metas)}.wav")
+        metas.append(json.loads((d / f"m{len(metas)}.beats.json").read_text()))
+    style = [(m["seed"], m["key"], m["bpm"], m["progression"]) for m in metas]
+    checks["musicgen: two projects, two pieces"] = style[0][0] != style[1][0]
+    checks["musicgen: same project, same piece"] = style[0] == style[2]
+    checks["musicgen: tempo within the mood's range"] = all(70 <= m["bpm"] <= 86 for m in metas)
+
+    # Energy follows the edit: a low opening is quieter than the high body.
+    run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--mood", "upbeat", "--duration", "16",
+        "--bpm", "120", "--seed", "4", "--energy", "0:low,8:high", "--out", "arc.wav")
+    a = pcm(tmp / "arc.wav", 48000)
+    rms = lambda x: float(np.sqrt((x.astype(float) ** 2).mean()))  # noqa: E731
+    lo, hi = rms(a[48000 * 1:48000 * 7]), rms(a[48000 * 9:48000 * 14])
+    checks[f"musicgen: low section quieter than high ({lo:.3f} < {hi:.3f})"] = lo < hi * 0.8
+
     for name, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     shutil.rmtree(tmp, ignore_errors=True)
