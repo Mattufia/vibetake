@@ -173,6 +173,25 @@ where the eye expects them, moving only when it means something. Every insert sh
 what's being said, or what words can't. Go all out on pacing and story: cut what
 doesn't earn its place, protect what makes it human.
 
+**A reference video sets the style of the whole edit.** When the user sends one ("que
+quede como este", a file, or a link: `yt-dlp` it into `references/`), run `refs.py`, look
+at its sheets, and write a style brief in `project.md` before cutting — then every step
+follows it, not the type's defaults:
+- **Rhythm**: its average and median shot (`average_shot_s`, `median_shot_s`) are the
+  target for yours, within what the material allows (never cut mid-thought to hit a
+  number); its `first_cut_s` says how fast it opens.
+- **Camera and zooms**: from the frame-per-shot sheet — static, punch-ins at cuts,
+  constant motion — set `reframe.py` (`--zoom`, `--drift`, `--punch`) to match.
+- **Color**: `look.reads_as` (bright/dark, contrast, saturation, warm/cold) picks the
+  closest look and intensity in section 4, compared with the footage's own numbers.
+- **Captions and graphics**: style, size, case, how much text — `design.md`.
+- **Music**: mood and tempo near its `sound.bpm`, the same energy; its loudness (`lufs`)
+  says whether the music leads or sits under the voice.
+- **Moments and effects**: as many and as bold as it has (whips, flashes, fx, sound hits).
+Take its criteria, never its content: nothing from the reference appears in the video,
+and the brand still rules. In the delivery, one line per aspect: what was taken from it.
+Without a reference, everything stays as usual (the type profile and this guide).
+
 **The edit lives in `02-work/edl.json`**: which piece of which file, in what
 order, and why. Everything renders from it, so a change ("drop the part about
 X") is an edit to that list and a new render, never a redo.

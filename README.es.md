@@ -33,7 +33,9 @@ máquina va a `~/.vibetake/machine.json`, nunca adentro del plugin.
 Una carpeta por video, con todo suelto adentro: los clips, el audio aparte (un
 micrófono de solapa, una grabadora), referencias que te gustan (portadas, otros videos,
 capturas) y, si los tienes, el logo, las tipografías o un LUT. No hace falta ordenar
-nada: lo primero que hace Vibetake es ordenar la carpeta solo.
+nada: lo primero que hace Vibetake es ordenar la carpeta solo. Un video de referencia
+(un archivo o un link) marca el estilo de toda la edición: ritmo, zooms, color, subtítulos,
+música y efectos. Sin referencia, edita como siempre.
 
 ```text
 mi-video/                         mi-video/
@@ -169,7 +171,7 @@ uv run tests/test_graphics.py      # hoja de cues, SFX sintetizados sobre su pal
 uv run tests/test_delivery.py      # versiones, chequeo del copy, bordes de corte en el audio, chequeo de escucha
 uv run tests/test_setup.py         # perfil de la máquina, plan de instalación, herramientas fuera del PATH
 uv run tests/test_organize.py      # archivos sueltos → 00-raw/ y brand/, nada sobrescrito, deshacer
-uv run tests/test_refs.py          # referencias hechas visibles, ritmo medido de un video de referencia
+uv run tests/test_refs.py          # referencias hechas visibles, ritmo, color y tempo medidos de un video de referencia
 uv run tests/test_cut_rules.py     # reacciones vs muletillas, tramos en silencio, ritmo natural, rangos protegidos
 uv run tests/test_design.py        # tipografías e íconos del proyecto, paleta, capa Remotion con diseño + chequeo de zona segura, texto, barras y subtítulos 3D (red, Node)
 uv run tests/test_stage.py         # composición: la edición puesta en un escenario, sincronizada al cuadro, componentes de página y marco (Node)

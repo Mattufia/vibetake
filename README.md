@@ -32,7 +32,9 @@ up front, with a real transcription test on the GPU. The machine profile goes to
 
 One folder per video, with everything loose inside: the clips, separate audio (a
 lavalier, a recorder), references you like (covers, other videos, screenshots), and if you have them, the logo, fonts or a LUT. No
-need to sort anything: the first thing Vibetake does is tidy the folder itself.
+need to sort anything: the first thing Vibetake does is tidy the folder itself. A reference
+video (a file or a link) sets the style of the whole edit: rhythm, zooms, color, captions,
+music and effects. Without one, it edits as usual.
 
 ```text
 my-video/                         my-video/
@@ -163,7 +165,7 @@ uv run tests/test_graphics.py      # cue sheet, synthesized SFX on their word, g
 uv run tests/test_delivery.py      # versions, copy checks, cut edges on the audio, listening check
 uv run tests/test_setup.py         # machine profile, install plan, tools found outside PATH
 uv run tests/test_organize.py      # loose files → 00-raw/ and brand/, nothing overwritten, undo
-uv run tests/test_refs.py          # references made viewable, a reference video's rhythm measured
+uv run tests/test_refs.py          # references made viewable, a reference video's rhythm, look and tempo measured
 uv run tests/test_cut_rules.py     # reactions vs fillers, silent stretches, natural pace, protected ranges
 uv run tests/test_design.py        # project fonts and icons, palette, Remotion layer with design + safe-zone check, 3D text, bars and captions (network, Node)
 uv run tests/test_stage.py         # composition: the edit placed in a stage, frame-synced, page and frame components (Node)

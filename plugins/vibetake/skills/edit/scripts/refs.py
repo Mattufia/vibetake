@@ -10,14 +10,16 @@ References are someone else's covers, graphics, captions or edits the user likes
 guide the style and are never put in the video. This makes each one viewable:
     photos   → itself, or a JPG preview when it's a format that can't be opened as is
                (HEIC, TIFF, RAW…)
-    videos   → contact sheets (a regular grid and one frame per shot) and the rhythm:
-               length, shot changes per minute, average shot length
+    videos   → contact sheets (a regular grid and one frame per shot), the rhythm (length,
+               shot changes per minute, average/median/shortest shot, first cut), the look
+               (brightness, contrast, saturation, warmth) and the sound (loudness, tempo)
     others   → listed (a PDF, a link file): open them
 Already done and unchanged → skipped.
 """
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -52,6 +54,43 @@ def photo(p: Path, prev_dir: Path, stem: str) -> dict:
     return entry
 
 
+def look(p: Path) -> dict:
+    """The reference's picture in numbers (one frame a second), to match the grade to it:
+    brightness and contrast (0–255 luma), saturation, warmth (red-minus-blue chroma: + warm)."""
+    err = subprocess.run([tool("ffmpeg"), "-hide_banner", "-nostats", "-i", str(p), "-an", "-vf",
+                          "fps=1,scale=320:-2,signalstats,metadata=print", "-f", "null", "-"],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace").stderr
+    val = lambda k: [float(x) for x in re.findall(rf"lavfi\.signalstats\.{k}=([\d.]+)", err)]  # noqa: E731
+    mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None  # noqa: E731
+    y, lo, hi, sat, u, v = (val(k) for k in ("YAVG", "YLOW", "YHIGH", "SATAVG", "UAVG", "VAVG"))
+    out = {"brightness": mean(y), "contrast": mean([b - a for a, b in zip(lo, hi)]), "saturation": mean(sat),
+           "warmth": mean([b - a for a, b in zip(u, v)])}
+    if None in out.values():
+        return out
+    words = ["bright" if out["brightness"] > 140 else "dark" if out["brightness"] < 80 else "mid-key",
+             "punchy" if out["contrast"] > 190 else "flat" if out["contrast"] < 130 else "normal contrast",
+             "saturated" if out["saturation"] > 45 else "muted" if out["saturation"] < 20 else "natural color",
+             "warm" if out["warmth"] > 6 else "cold" if out["warmth"] < -6 else "neutral"]
+    out["reads_as"] = ", ".join(words)      # ponytail: rough thresholds; the sheets have the last word
+    return out
+
+
+def sound(p: Path) -> dict | None:
+    """How loud it is, and the music's tempo if there's a beat to find."""
+    from audio import find_beats, measure
+    try:
+        m = measure(p)
+    except Exception:            # noqa: BLE001 — no audio stream
+        return None
+    out = {"lufs": m.get("I")}
+    try:
+        b = find_beats(p)
+        out["bpm"] = round(b["bpm"])
+    except (Exception, SystemExit):   # noqa: BLE001 — too short, or no steady beat
+        pass
+    return out
+
+
 def video(p: Path, prev_dir: Path, font: str | None, log: Log, stem: str) -> dict:
     m = detect(p)
     m["stem"] = stem
@@ -62,8 +101,13 @@ def video(p: Path, prev_dir: Path, font: str | None, log: Log, stem: str) -> dic
         return entry
     s = sheets_and_scenes(m, p, prev_dir, font, log)
     cuts = len(s["shot_changes"])
+    marks = [0.0, *s["shot_changes"], m["duration"]]
+    shots = sorted(b - a for a, b in zip(marks, marks[1:]))
     entry.update({"shot_changes_per_min": s["shot_changes_per_min"],
                   "average_shot_s": round(m["duration"] / (cuts + 1), 2),
+                  "median_shot_s": round(shots[len(shots) // 2], 2), "shortest_shot_s": round(shots[0], 2),
+                  "first_cut_s": round(marks[1], 2),
+                  "look": look(p), "sound": sound(p),
                   "sheets": [str(prev_dir / x) for x in s["sheets"]]})
     if m.get("hdr"):
         entry["warning"] = "HDR: the sheets look flat — judge colors loosely"
@@ -114,8 +158,12 @@ def main() -> None:
     print(f"{len(refs)} reference(s) → {out}")
     for e in refs:
         if e["kind"] == "video":
+            snd = e.get("sound") or {}
             print(f"  video  {e['name']}: {e['duration']:.0f} s · {e['shot_changes_per_min']} shot changes/min "
-                  f"(a shot every {e['average_shot_s']} s) · look at: {', '.join(e['sheets'])}")
+                  f"(a shot every {e['average_shot_s']} s, first cut at {e.get('first_cut_s', '?')} s) · "
+                  f"{(e.get('look') or {}).get('reads_as', '')}"
+                  + (f" · music ~{snd['bpm']} BPM" if snd.get("bpm") else "")
+                  + f" · look at: {', '.join(e['sheets'])}")
         elif e["kind"] == "photo":
             print(f"  photo  {e['name']}: look at {e.get('view') or '—'}")
         else:
