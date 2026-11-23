@@ -163,6 +163,7 @@ uv run tests/test_reframe.py       # encuadre: completo/fijo/operador por segmen
 uv run tests/test_speaker.py       # varias personas: quién dice cada frase (micrófonos, bocas), el encuadre las sigue
 uv run tests/test_broll.py         # b-roll anclado a palabras, el sonido debajo, sigue los re-cortes
 uv run tests/test_audio.py         # limpieza sobre el crudo (ruido, nivel, sin retraso), volumen por destino, ducking, musicgen (una pieza propia por proyecto, la energía sigue la edición)
+uv run tests/test_sound.py         # generadores de música y efectos: cada clima, instrumento y efecto; cambiar una parte conserva el resto
 uv run tests/test_audio_inputs.py  # el origen del sonido: canales, mejor pista, grabaciones aparte, ambiente
 uv run tests/test_subs.py          # reglas de .srt, grupos de palabras, esquivar caras, subtítulos quemados
 uv run tests/test_qa.py            # QA de entrega: un archivo bueno pasa, las fallas plantadas se detectan, zooms que parecen fallas, propuestas de ritmo
