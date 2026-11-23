@@ -60,84 +60,55 @@ Only when the user wants it (SKILL.md section 5). The edit is delivered without 
 
 ## 1. Synthesized (when the user wants music and brings no track)
 
+**You are the composer.** Write the whole piece as a score for this video: no presets,
+no numbers that pick for you. What's written is exactly what plays.
+
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --feel "light=.7,drive=.4,tension=.2,organic=.8,size=.3,color=.5,sway=.2" --duration <edit length> --energy "<s>:low|mid|high,..." [--bpm] [--key] [--seed]
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --list                                    # instruments, kits, patterns, notation
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --score 02-work/music/piece.json --check --speech "0.5-12,14-30"
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --score 02-work/music/piece.json --out 02-work/music/music.wav
 uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file 02-work/music/music.wav
 ```
 
-**Scored for this video, never a default.** There are no styles to pick from. From
-the brief, set seven numbers (0–1) for the whole piece; mode, tempo, chords, melody,
-rhythm, instruments and room are composed from them:
-
-| Feel | Read it from | 0 → 1 |
-|---|---|---|
-| `light` | the brief's tone: what the whole video leaves you with | dark, heavy → luminous, hopeful |
-| `drive` | cuts per minute, speech rate, action on screen | still → pushing forward |
-| `tension` | is the *whole* video unresolved? (a problem that gets solved isn't) | settled → unresolved |
-| `organic` | people, hands, nature, craft vs screens, tech, city at night | electronic → played by people |
-| `size` | close and personal vs landscapes, events, big claims | intimate → huge |
-| `color` | how refined or adult the subject and the look are | plain triads → rich sevenths and ninths |
-| `sway` | relaxed, humor, dance, walking vs precise, formal | straight → loose, swung |
-
-- Decide each number from this video's evidence, not from its genre: two vlogs can
-  land far apart. One feel for the whole video. Two beds with different emotions only
-  if the brief says the video really turns (or the user asks).
-- **Energy** (`--energy`) from the edit's own times: `low` under a quiet start or a
-  serious line (less music, same emotion), `high` from the hook, the reveal, the action or the payoff, `mid`
-  for the rest; back to `low`/`mid` toward the close. A rise gets a drum fill into it.
-- The seed comes from the project, so each video sounds different and the same edit
-  reproduces it. The user doesn't like it: another `--seed` (new key and ideas on the
-  same feel), or move the number that's wrong ("más alegre" is more `light`).
-- Write under the brief in `project.md` the feel and why (with bpm, key, mode and seed: the
-  `.beats.json` has them), and tell the user in one line.
-
-**The writing follows the rules of music** (`_compose.py`): chords move by function
-and phrases close on cadences; a question ends open and its answer lands on the tonic;
-voices move as little as possible; the melody is a motif that returns, with chord tones
-on strong beats and long notes, dissonance that resolves by step and singable leaps.
-
-Computed note by note: free to use anywhere, needs nothing but numpy, exactly the
-length of the edit (get it with `broll.py check`), with a `.beats.json` for cutting on
-the beat. It's still synthesized: under the voice, ducked, it works best. When the
-music carries the video (a montage, a brand piece), listen first and tell the user
-it's synthesized, so they can bring their own track if they want one.
-
-### Directing the piece
-
-`musicgen.py --list` shows everything available (the feel, 26 instruments, patterns,
-kits, modes). The feel is only the starting point; say what the video needs:
-
-```
-musicgen.py --feel "light=.3,drive=.5,tension=.6,size=.9" --duration 42 --form "intro:2,build:4,drop:6,outro:2" \
-  --progression "i VI III VII" --instrument "lead=choir,bass=bass_808" --pattern "bass=octave" \
-  --hit "12.4,31.0" --ending ring --no-melody --out 02-work/music/main.wav
+```json
+{"version": 3, "bpm": 112, "key": "D", "mode": "major", "duration": 42.6, "kit": "acoustic", "ending": "ring",
+ "motifs": {"hook": "F#5:1 A5:.5 B5:.5 A5:2"},
+ "parts": {
+   "guitarra": {"instrument": "nylon", "role": "keys", "pattern": "broken", "gain": -11},
+   "bajo": {"instrument": "bass_electric", "role": "bass", "pattern": "root"},
+   "silbido": {"instrument": "flute", "role": "lead", "gain": -14}},
+ "sections": [
+   {"name": "entra", "bars": 4, "chords": ["D", "A", "Bm", "G"], "parts": ["guitarra"]},
+   {"name": "cuerpo", "bars": 8, "energy": 0.7, "chords": ["D", "A", "G", "A"],
+    "groove": {"kick": "X.....X...X.....", "snare": "....X.......X...", "shaker": "x.x.x.x.x.x.x.x."},
+    "notes": {"silbido": "r:8 @hook r:4 @hook-2 r:4 | r:8 @hook D6:4"}}]}
 ```
 
-- **Land on the edit**: `--hit` puts an impact on those seconds; without `--bpm` the
-  tempo moves up to 5% so they fall on bars. `--energy` (`low|mid|high` or 0–1) or
-  `--form` shapes the arc. A melody only enters from energy 0.6: keep speech over
-  lower sections, or use `--no-melody` for a pure bed.
-- **Compare**: `--variations 3` gives three takes (`_v1`, `_v2`, `_v3`).
-- **Change one thing, keep the rest** (the user liked it except…): every render writes
-  `<out>.score.json`. Reopen it with `--score` plus only the change:
+- **Parts are yours**: any name and as many as it needs. `role` (pad, keys, bass, arp,
+  lead, drums, fx) only sets its mix and its patterns; a name with no role mixes as lead.
+- **Notes**: `note:beats[:velocity]`, `r` rests, `+` stacks, `@motif` or `@motif+2`
+  transposed, `|` is only for reading. Beats count from the section's start. A part with
+  `notes` in a section plays them instead of its pattern. `[beat, length, note, velocity]`
+  lists also work.
+- **Section**: `bars`, `chords` (roman or names, `"Am:2"` holds two bars), optional
+  `parts` (who plays; default all), `patterns`, `groove`, `notes`, `energy` (only its level).
+- **Nothing is added.** No automatic fills, crashes, risers or endings: write them.
+- **By default it accompanies**: low gains, space for the voice, the melody in the gaps
+  between phrases. It leads only if the user asks.
 
-| The user says | Do |
-|---|---|
-| "sin batería", "solo piano y bajo" | `--mute drums`, `--solo keys,bass` |
-| "más lento", "más agudo", "en menor" | `--bpm 84`, `--key E`, `--mode minor` |
-| "otra melodía en el estribillo" | `--regen chorus:lead` (`--seed` for another idea) |
-| "cambiá los acordes del verso" | `--regen verse:chords` |
-| "otro ritmo acá", "otro bajo" | `--regen chorus:drums`, `--regen verse:bass` |
-| "otro instrumento" | `--instrument lead=flute` |
-| "más oscuro, más sucio, más grande" | `--bright 0.7`, `--warmth 0.5`, `--lofi 0.4`, `--reverb 0.45`, `--width 1.3` |
-| "la melodía más baja" | `--gain lead=-4` |
+**Run `--check` before rendering** and read every warning: notes clashing with the
+chord, dissonance that doesn't resolve, phrases with no close, unsingable leaps, no
+motif that returns, melody over the voice (`--speech`), and a score that contradicts the
+brief. They're a musician's notes, not rules: fix them or keep them on purpose.
 
-- **Note by note**: anything flags don't reach, edit the score: each section has
-  `bars`, `energy`, `chords` (`"Am:2"` holds two bars), optional `parts` (which play),
-  `patterns`, `groove` (drum lines of 16 steps), and `notes` per part as `[beat, length, note, velocity]`, with
-  notes as MIDI numbers or names (`"E5"`). Notes written for a part replace its pattern
-  in that section. Then render it with `--score`.
-- **Stems**: `--stems` writes one WAV per part in `<out>.stems/`.
+**Then listen to it against the video** and adjust from what the user says. Mix flags
+work on a score without touching the notes: `--mute`, `--solo`, `--gain "bajo=-3"`,
+`--instrument`, `--bpm`, `--key`, `--reverb`, `--width`, `--bright`, `--warmth`, `--lofi`,
+`--sidechain`, `--hit`, `--ending`, `--stems`. Anything else: edit the score.
+
+Write under the brief in `project.md` the key, tempo and why. It's still synthesized:
+under the voice it works best. When the music carries the video (a montage, a brand
+piece), tell the user it's synthesized, so they can bring their own track.
 
 ### Cutting on the beat (any track)
 

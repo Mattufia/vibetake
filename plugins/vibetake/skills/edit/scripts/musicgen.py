@@ -4,12 +4,14 @@
 # ///
 """A composer in code: original music for the edit, no samples, no licenses, no GPU.
 
-    uv run musicgen.py --feel "light=.7,drive=.4,tension=.2,organic=.8,size=.3,color=.5,sway=.2" --duration 45
-                       [--energy "0:low,6.2:high,38:mid"] [--out ...]
-    uv run musicgen.py --list                                   # the feel, instruments, patterns, kits…
+    uv run musicgen.py --list                                   # instruments, patterns, kits, notation
+    uv run musicgen.py --score piece.json --check               # read it like a musician: warnings
+    uv run musicgen.py --score piece.json --out music.wav       # play it
 
-There are no styles: the feel is read from the video and the harmony, melody, rhythm and sound are
-composed from it with the rules of tonal writing (functions, cadences, periods, voice leading).
+The piece is written by the composer as a score ("version": 3): any parts, sections, chords, motifs,
+notes and drums. Nothing is added or dropped: what's written is what plays.
+
+The older sketch from numbers still works (--feel "light=.7,drive=.4,…" --duration 45):
 
 Compose (all optional; what isn't said comes from the feel and the seed):
     --bpm --key --mode --progression "i VI III VII" or "Am F C G:2" --form "intro:4,verse:8,chorus:8,outro:2"
@@ -76,7 +78,7 @@ ENERGY_BY_NAME = {"intro": 0.3, "verse": 0.55, "build": 0.68, "pre": 0.68, "chor
 
 # ---------------------------------------------------------------- the piece as data
 
-def parse_kv(spec: str | None, flag: str) -> dict[str, str]:
+def parse_kv(spec: str | None, flag: str, parts=PARTS) -> dict[str, str]:
     out = {}
     for item in (spec or "").split(","):
         if not item.strip():
@@ -85,8 +87,8 @@ def parse_kv(spec: str | None, flag: str) -> dict[str, str]:
         if not sep:
             die(f"{flag}: '{item}' — use part=value")
         k = k.strip()
-        if k not in PARTS:
-            die(f"{flag}: no part '{k}' (parts: {', '.join(PARTS)})")
+        if k not in parts:
+            die(f"{flag}: no part '{k}' (parts: {', '.join(parts)})")
         out[k] = v.strip()
     return out
 
@@ -253,6 +255,7 @@ def transpose(score: dict, semitones: int) -> None:
     score["progression"] = [chord(c) for c in score["progression"]]
     for s in score["sections"]:
         s["chords"] = [chord(c) for c in s["chords"]]
+        s["notes"] = {k: notes_of(v, score.get("motifs", {})) for k, v in s.get("notes", {}).items()}
         for written in s.get("notes", {}).values():
             for item in written:
                 if len(item) == 4:
@@ -264,9 +267,12 @@ def transpose(score: dict, semitones: int) -> None:
 
 def apply_changes(score: dict, a) -> None:
     """The flags change the piece the same way on a new score and on a reopened one."""
+    written = is_written(score)
+    if a.regen and written:
+        die("--regen rewrites generated parts: in a written score, change the notes yourself")
     if a.score and a.key and sy.pitch_class(a.key) != sy.pitch_class(score["key"]):
         transpose(score, (sy.pitch_class(a.key) - sy.pitch_class(score["key"]) + 6) % 12 - 6)
-    if a.score and a.mode and a.mode != score["mode"]:             # another scale: the melody is written again
+    if a.score and a.mode and a.mode != score["mode"] and not written:             # another scale: the melody is written again
         for s in score["sections"]:
             s.get("notes", {}).pop("lead", None)
     for flag in ("key", "mode", "swing", "kit", "ending"):
@@ -285,37 +291,41 @@ def apply_changes(score: dict, a) -> None:
             score["progression"] = prog
             for s in score["sections"]:
                 s["chords"] = list(prog)
-                s.get("notes", {}).pop("lead", None)
+                if not written:
+                    s.get("notes", {}).pop("lead", None)
     if a.groove:
         score["groove"] = parse_groove(a.groove)
-    for k, v in parse_kv(a.instrument, "--instrument").items():
+    for k, v in parse_kv(a.instrument, "--instrument", score["parts"]).items():
         if v not in sy.INSTRUMENTS:
             die(f"--instrument: no '{v}' (see --list)")
         if k in ("drums", "fx"):
             die(f"--instrument: {k} has no instrument (use --kit for drums)")
         score["parts"][k]["instrument"] = v
-    for k, v in parse_kv(a.pattern, "--pattern").items():
-        if v not in PATTERNS.get(k, ()):
-            die(f"--pattern: {k} has {', '.join(PATTERNS.get(k, ())) or 'no patterns'}")
+    for k, v in parse_kv(a.pattern, "--pattern", score["parts"]).items():
+        have = PATTERNS.get(score["parts"][k].get("role", k), ())
+        if v not in have:
+            die(f"--pattern: {k} has {', '.join(have) or 'no patterns'}")
         score["parts"][k]["pattern"] = v
-    for k, v in parse_kv(a.gain, "--gain").items():
+    for k, v in parse_kv(a.gain, "--gain", score["parts"]).items():
         try:
             score["parts"][k]["gain"] += float(v)
         except ValueError:
             die(f"--gain: '{k}={v}' — use dB, e.g. pad=-3")
     if a.mute:
         for k in a.mute.split(","):
-            if k.strip() not in PARTS:
+            if k.strip() not in score["parts"]:
                 die(f"--mute: no part '{k}'")
             score["parts"][k.strip()]["mute"] = True
     if a.solo:
         keep = {k.strip() for k in a.solo.split(",")}
-        if keep - set(PARTS):
-            die(f"--solo: no part {', '.join(keep - set(PARTS))}")
+        if keep - set(score["parts"]):
+            die(f"--solo: no part {', '.join(keep - set(score['parts']))}")
         for k, p in score["parts"].items():
             p["mute"] = k not in keep
     if a.no_melody:
-        score["parts"]["lead"]["mute"] = True
+        for k, part in score["parts"].items():
+            if part.get("role", k) == "lead":
+                part["mute"] = True
     for k in ("reverb", "width", "bright", "warmth", "lofi", "sidechain"):
         v = getattr(a, k)
         if v is not None:
@@ -325,7 +335,8 @@ def apply_changes(score: dict, a) -> None:
     fit_length(score)
     if score["kit"] not in sy.KITS:
         die(f"no kit '{score['kit']}' (see --list)")
-    write_melodies(score)
+    if not written:
+        write_melodies(score)
 
 
 def parse_groove(spec: str) -> dict[str, str]:
@@ -383,6 +394,158 @@ def fit_length(score: dict) -> None:
         score["sections"][-1]["bars"] += need - have
 
 
+# ---------------------------------------------------------------- a score written by hand
+
+def is_written(score: dict) -> bool:
+    return score.get("version") == 3
+
+
+def notes_of(written, motifs: dict) -> list:
+    """A part's notes: a list of [beat, length, note, velocity], or the compact line
+    'E5:1 G5:.5 r:.5 C5+E5:2:.8 @hook @hook+2 |' (note:beats[:velocity], r rests, + stacks, @ a motif, | is only for reading)."""
+    if not isinstance(written, str):
+        return written
+    out, beat = [], 0.0
+    for tok in written.split():
+        if tok == "|":
+            continue
+        if tok.startswith("@"):
+            name, shift = re.fullmatch(r"@([^+-]+)([+-]\d+)?", tok).groups() if re.fullmatch(r"@([^+-]+)([+-]\d+)?", tok) \
+                else die(f"bad motif call '{tok}' — use @name, @name+2 or @name-3")
+            if name not in motifs:
+                die(f"no motif '{name}' (motifs: {', '.join(motifs) or 'none'})")
+            inner = notes_of(motifs[name], {})
+            out += [[beat + b, ln, sy.note_number(m) + int(shift or 0), v] for b, ln, m, v in inner]
+            beat += max((b + ln for b, ln, _, _ in inner), default=0)
+            continue
+        bits = tok.split(":")
+        try:
+            length = float(bits[1])
+            vel = float(bits[2]) if len(bits) > 2 else 0.7
+            if bits[0] != "r":
+                out += [[beat, length, sy.note_number(n), vel] for n in bits[0].split("+")]
+        except (IndexError, ValueError) as e:
+            die(f"bad note '{tok}' ({e}) — use note:beats or note:beats:velocity, e.g. E5:1 or r:.5")
+        beat += length
+    return out
+
+
+def complete(score: dict) -> None:
+    """What a written score leaves unsaid. Part names are free: `role` says how one is mixed and which patterns it has."""
+    for k in ("bpm", "key", "sections", "parts"):
+        if k not in score:
+            die(f"the score needs '{k}'")
+    for s in score["sections"]:
+        if "bars" not in s or "chords" not in s:
+            die(f"section {s.get('name', '?')}: needs 'bars' and 'chords'")
+        s.setdefault("name", f"s{score['sections'].index(s) + 1}")
+        s.setdefault("energy", 0.6)
+    for k, v in (("mode", "major"), ("swing", 0.0), ("groove", {}), ("kit", "pop"), ("ending", "ring"), ("hits", []),
+                 ("energy", "written"), ("motifs", {}), ("progression", score["sections"][0]["chords"]),
+                 ("duration", sum(s["bars"] for s in score["sections"]) * 240 / score["bpm"]),
+                 ("seed", zlib.crc32(json.dumps(score["sections"], sort_keys=True).encode()))):
+        score.setdefault(k, v)
+    score["master"] = {"reverb": .22, "width": 1.0, "bright": 1.0, "warmth": 0.0, "lofi": 0.0, "sidechain": 0.0,
+                       **score.get("master", {})}
+    parts = score["parts"]
+    for name in ("drums", "fx"):
+        parts.setdefault(name, {})
+    for name, part in parts.items():
+        role = part.setdefault("role", name if name in PART_MIX else "lead")
+        if role not in PART_MIX:
+            die(f"part {name}: no role '{role}' (roles: {', '.join(PARTS)})")
+        g, pan, rv, ec, hp = PART_MIX[role]
+        for k, v in (("gain", g), ("pan", pan), ("reverb", rv), ("echo", ec), ("highpass", hp), ("mute", False)):
+            part.setdefault(k, v)
+        if role not in ("drums", "fx") and part.get("instrument") not in sy.INSTRUMENTS:
+            die(f"part {name}: needs an instrument (see --list), has {part.get('instrument')!r}")
+    for s in score["sections"]:
+        for name in s.get("notes", {}):
+            if name not in parts:
+                die(f"section {s['name']}: no part '{name}' in the score's parts")
+
+
+POSITIVE = ("bright", "confident", "forward", "happy", "uplift", "positive", "energ", "hopeful", "excit", "warm", "fun",
+            "luminos", "alegr", "positiv", "enérg", "entusias", "optimis", "empuje")
+
+
+def check(score: dict, speech: list[tuple[float, float]], project: Path) -> list[str]:
+    """What a musician would point out. Warnings, never rules: the composer decides."""
+    out = []
+    key_pc, mode, beat = sy.pitch_class(score["key"]), score["mode"], 60 / score["bpm"]
+    motifs = score.get("motifs", {})
+    harmony, shapes, spoken, sung = [], {}, 0, 0
+    bar0 = 0
+    for s in score["sections"]:
+        names = expand_chords(s["chords"], s["bars"])
+        chords = [parse_chord(c, key_pc, mode) for c in names]
+        harmony += chords
+        if s is not score["sections"][-1] and (chords[-1]["root"] - key_pc) % 12 not in (0, 5, 7, 8, 9):
+            out.append(f"{s['name']}: the phrase ends on {names[-1]}, with no close (tonic, IV, V or a deceptive vi)")
+        for part, written in s.get("notes", {}).items():
+            role = score["parts"][part]["role"]
+            if role in ("drums", "fx", "bass"):
+                continue
+            ev = sorted(([float(b), float(ln), int(round(sy.note_number(m)))] for b, ln, m, _ in notes_of(written, motifs)),
+                        key=lambda e: (e[0], -e[2]))
+            line = [e for i, e in enumerate(ev) if not i or e[0] != ev[i - 1][0]]    # the top note of each stack
+            for i, (b, ln, m) in enumerate(line):
+                bar = int(b // 4)
+                if bar >= len(chords):
+                    out.append(f"{s['name']}/{part}: a note at beat {b:g} is past the section's {s['bars']} bars")
+                    break
+                where = f"{s['name']}/{part} bar {bar + 1} beat {b % 4 + 1:g}"
+                tones = cp.chord_tones(chords[bar])
+                nxt = line[i + 1] if i + 1 < len(line) else None
+                if m % 12 not in tones:
+                    goes = nxt and int(nxt[0] // 4) < len(chords) and abs(nxt[2] - m) <= 2 \
+                        and nxt[2] % 12 in cp.chord_tones(chords[int(nxt[0] // 4)])
+                    if m % 12 not in cp.chord_scale(chords[bar], key_pc, mode):
+                        out.append(f"{where}: {NOTES[m % 12]} clashes with {names[bar]}")
+                    elif not goes:
+                        out.append(f"{where}: {NOTES[m % 12]} is a dissonance on {names[bar]} that doesn't resolve by step")
+                    elif ln >= 1.5 and b % 2 == 0:
+                        out.append(f"{where}: {NOTES[m % 12]} held on a strong beat against {names[bar]}")
+                if role == "lead" and nxt and (abs(nxt[2] - m) > 9 or abs(nxt[2] - m) == 6):
+                    out.append(f"{where}: a leap of {abs(nxt[2] - m)} semitones is hard to sing")
+            if role == "lead" and line:
+                if line[-1][2] % 12 not in cp.chord_tones(chords[min(int(line[-1][0] // 4), len(chords) - 1)]):
+                    out.append(f"{s['name']}/{part}: the phrase's last note isn't a chord tone")
+                for i in range(len(line) - 3):
+                    shape = tuple((line[i + k + 1][2] - line[i + k][2], line[i + k][1]) for k in range(3))
+                    shapes.setdefault((part, shape), []).append((s["name"], line[i][0]))
+                for b, _, _ in line:
+                    at = (bar0 * 4 + b) * beat
+                    sung += 1
+                    spoken += any(x <= at < y for x, y in speech)
+        bar0 += s["bars"]
+    if harmony and (harmony[-1]["root"] - key_pc) % 12:
+        out.append("the piece doesn't end on its tonic")
+    leads = sum(len(notes_of(w, motifs)) for s in score["sections"] for k, w in s.get("notes", {}).items()
+                if score["parts"][k]["role"] == "lead")
+    if leads >= 8 and not any(len(v) > 1 for v in shapes.values()):
+        out.append("no motif returns: the melody never repeats a shape, so nothing sticks")
+    if speech and sung and spoken / sung > 0.4:
+        out.append(f"the melody plays over the voice ({100 * spoken / sung:.0f}% of its notes): thin it or move it to the gaps")
+    text = project.read_text(encoding="utf-8") if project.exists() else ""
+    if "## Music brief" not in text:
+        return out + ["no '## Music brief' in project.md: write the tone of the whole video first"]
+    brief = text.split("## Music brief", 1)[1].split("\n## ", 1)[0]
+    tone = next((ln.lower() for ln in brief.splitlines() if "tone of the whole piece" in ln.lower()), "")
+    if any(w in tone for w in POSITIVE):
+        run = best = 0
+        for c in harmony:
+            run = run + 1 if c["intervals"][1] == 3 else 0
+            best = max(best, run)
+        if mode in cp.MINOR_MODES:
+            out.append(f"the brief is positive and the piece is in {mode}")
+        if best >= 3:
+            out.append(f"the brief is positive and {best} bars in a row are minor chords")
+        if score["bpm"] < 84:
+            out.append(f"the brief is positive and {score['bpm']:g} bpm may feel slow")
+    return out
+
+
 # ---------------------------------------------------------------- performance
 
 def part_notes(part: str, pattern: str, chord: dict, tones: list[int], root: int, target: int, rng) -> list[tuple]:
@@ -430,8 +593,11 @@ def part_notes(part: str, pattern: str, chord: dict, tones: list[int], root: int
     return []
 
 
-def drum_hits(groove: dict, energy: float) -> list[tuple[int, str, float]]:
-    """The groove at this energy: little at first, everything near the top."""
+def drum_hits(groove: dict, energy: float, literal: bool = False) -> list[tuple[int, str, float]]:
+    """The groove at this energy: little at first, everything near the top. A written score plays it literally."""
+    if literal:
+        return [(i, name, {"X": 1.0, "x": 0.8, "o": 0.5}[c]) for name, line in groove.items()
+                for i, c in enumerate(line) if c != "."]
     out = []
     for name, line in groove.items():
         if energy < 0.65 and name in ("snare", "clap", "tom", "rim", "shaker"):
@@ -458,7 +624,8 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
     seed = score["seed"]
     rng = np.random.default_rng(seed)
     swing = float(score.get("swing", 0.0))
-    buses = {p: np.zeros(size) for p in PARTS}
+    written_score = is_written(score)
+    buses = {p: np.zeros(size) for p in score["parts"]}
     cache: dict = {}
     kit = score["kit"]
     kit_cache: dict = {}
@@ -489,7 +656,7 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
         k = (inst, round(m, 2), round(secs, 2), v)
         if k not in cache:
             cache[k] = sy.note(inst, m, secs, v, seed)
-        loose = rng.normal(0, 0.004) if part in ("keys", "lead", "arp") else 0.0
+        loose = rng.normal(0, 0.004) if score["parts"][part].get("role", part) in ("keys", "lead", "arp") else 0.0
         at = int((start + when(b) * beat + loose) * SR)
         lay(part, cache[k], at, vel * INSTRUMENT_TRIM.get(inst, 1.0))
 
@@ -510,7 +677,7 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
     n_bars = min(len(flat), int(np.ceil(duration / (4 * beat) - 1e-6)))
     led: dict[str, list[int]] = {}                                    # each part's last voicing, so the next moves least
     home = parse_chord("i" if mode in cp.MINOR_MODES else "I", key_pc, mode)
-    ring = score.get("ending") == "ring"
+    ring = score.get("ending") == "ring" and not written_score   # a written ending is the composer's
     harmony = [parse_chord(c, key_pc, mode) for s in sections for c in expand_chords(s["chords"], s["bars"])][:n_bars]
     if ring and harmony:
         harmony[-1] = home                                            # a ringing ending always lands at home
@@ -528,7 +695,7 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
         section_first = bar_index
         info.append({"name": s["name"], "start": round(start_section, 3),
                      "end": round(min(duration, (bar_index + s["bars"]) * 4 * beat), 3), "energy": energy})
-        active = set(s.get("parts") or [])
+        active = set(s.get("parts") or (score["parts"] if written_score else []))
         if not active:
             active = {"pad", "bass"}
             if energy >= 0.35:
@@ -552,15 +719,17 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
                 chord = home
             root = line[bar_index]
             target = line[bar_index + 1] if bar_index + 1 < len(line) else root
-            for part in ("pad", "keys", "bass", "arp"):
-                p = score["parts"][part]
-                if part not in active or p.get("mute") or part in notes or (last and part == "arp"):
+            for part, p in score["parts"].items():
+                role = p.get("role", part)
+                if role not in PATTERNS or part not in active or p.get("mute") or part in notes or (last and role == "arp"):
                     continue
-                pattern = "hold" if last and part != "bass" else ("whole" if last else pats.get(part) or p["pattern"])
+                pattern = "hold" if last and role != "bass" else ("whole" if last else pats.get(part) or p.get("pattern"))
+                if not pattern:                                        # a written part with no pattern plays only its notes
+                    continue
                 tones = None
-                if part in cp.RANGES:
-                    tones = led[part] = cp.voice_lead(led.get(part), chord, *cp.RANGES[part])
-                events = part_notes(part, pattern, chord, tones, root, target, rng)
+                if role in cp.RANGES:
+                    tones = led[part] = cp.voice_lead(led.get(part), chord, *cp.RANGES[role])
+                events = part_notes(role, pattern, chord, tones, root, target, rng)
                 vol = 1 / np.sqrt(max(1, len({e[0] for e in events if e[0] == 0}) and
                                       sum(1 for e in events if e[0] == events[0][0])))
                 lift = 0.72 + 0.34 * energy
@@ -571,30 +740,29 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
                     hit("kick", t0, 0.9)
                     hit("crash", t0, 0.7)
                 else:
-                    for step, name, vel in drum_hits(groove, energy):
+                    for step, name, vel in drum_hits(groove, energy, written_score):
                         at = t0 + when(step / 4) * beat
                         hit(name, at + rng.normal(0, 0.0015), vel * float(rng.uniform(0.93, 1.0)))
-                    rises = following and float(following.get("energy", 0)) > energy + 0.08
+                    rises = not written_score and following and float(following.get("energy", 0)) > energy + 0.08
                     if rises and b == s["bars"] - 1 and groove:               # a fill into every rise
                         for k in range(4):
                             hit("snare" if "snare" in groove else "tom", t0 + (3 + k / 4) * beat, 0.42 + 0.14 * k)
                     prev = sections[si - 1] if si else None
-                    if b == 0 and energy >= 0.8 and (prev is None or float(prev.get("energy", 0)) < energy):
+                    if not written_score and b == 0 and energy >= 0.8 and (prev is None or float(prev.get("energy", 0)) < energy):
                         hit("crash", t0, 0.75)
-            if "fx" in active and not score["parts"]["fx"].get("mute") and b == s["bars"] - 1 and following \
+            if not written_score and "fx" in active and not score["parts"]["fx"].get("mute") and b == s["bars"] - 1 and following \
                     and float(following.get("energy", 0)) >= 0.75 > energy:
                 n = int(4 * beat * SR)                                # air rising into the section
                 air = sy.sweep(np.random.default_rng([seed, si]).standard_normal(n), 500, 7500, "bp", 0.9)
                 lay("fx", sy.norm(air) * np.linspace(0, 1, n) ** 2.4, int(t0 * SR), 0.7)
             bar_index += 1
-        lead = score["parts"]["lead"]
         for part, written in notes.items():                           # notes written in the score, per part
             if part not in score["parts"] or part == "drums" or score["parts"][part].get("mute"):
                 continue
             if s.get("parts") and part not in s["parts"]:
                 continue
-            inst = score["parts"][part].get("instrument") or lead["instrument"]
-            for item in written:
+            inst = score["parts"][part].get("instrument") or score["parts"].get("lead", {}).get("instrument")
+            for item in notes_of(written, score.get("motifs", {})):
                 try:
                     bt, ln, m, v = item
                     midi = sy.note_number(m)
@@ -625,23 +793,24 @@ def render(score: dict) -> tuple[np.ndarray, list[float], list[float], list[dict
             if k < size:
                 end = min(size, k + len(shape))
                 pump[k:end] = np.minimum(pump[k:end], shape[:end - k])
-    for part in PARTS:
+    for part in score["parts"]:
         x = buses[part]
         if not np.any(x):
             continue
         p = score["parts"][part]
+        role = p.get("role", part)
         if p.get("highpass"):
             x = sy.highpass(x, p["highpass"])
-        if part == "bass":
+        if role == "bass":
             x = sy.lowpass(x, 1600)
-        if part in ("keys", "lead"):
+        if role in ("keys", "lead"):
             x = sy.peak_eq(x, 3000, -2.0, 0.7)                        # room for the voice
-        if part == "pad":
+        if role == "pad":
             x = sy.peak_eq(x, 3000, -4.0, 0.6)
         x = x * 10 ** (p.get("gain", 0) / 20)
-        if part not in ("drums", "fx"):
+        if role not in ("drums", "fx"):
             x = x * pump
-        y = sy.chorus(x) if part == "pad" else sy.pan(x, p.get("pan", 0))
+        y = sy.chorus(x) if role == "pad" else sy.pan(x, p.get("pan", 0))
         stems[part] = y
         dry += y
         send += x * p.get("reverb", 0)
@@ -698,7 +867,7 @@ def output(score: dict, out: Path, want_stems: bool) -> None:
     audio, beats, bars, info, stems = render(score)
     out.parent.mkdir(parents=True, exist_ok=True)
     write_wav(out, audio)
-    meta = {"bpm": score["bpm"], "beats": beats, "bars": bars, "feel": score["feel"], "key": score["key"],
+    meta = {"bpm": score["bpm"], "beats": beats, "bars": bars, "feel": score.get("feel"), "key": score["key"],
             "mode": score["mode"], "seed": score["seed"], "progression": score["progression"],
             "energy": score["energy"], "sections": info, "hits": score.get("hits", [])}
     out.with_suffix(".beats.json").write_text(json.dumps(meta), encoding="utf-8")
@@ -720,14 +889,12 @@ def output(score: dict, out: Path, want_stems: bool) -> None:
 
 
 def catalog() -> None:
-    print("feel (0–1):")
-    for k, v in FEEL.items():
-        print(f"  {k:9}{v}")
     print("instruments: " + ", ".join(sy.INSTRUMENTS))
-    print("parts:       " + ", ".join(PARTS))
+    print("roles:       " + ", ".join(PARTS) + " (part names are free; a role sets its mix and patterns)")
     for k, v in PATTERNS.items():
         print(f"pattern {k + ':':6}{', '.join(v)}")
-    print('groove:      written for the feel, or your own: "kick=X...X...X...X...,snare=....X.......X..."')
+    print('groove:      16 steps per drum: {"kick": "X...X...X...X...", "snare": "....X.......X..."} (X x o .)')
+    print('notes:       "E5:1 G5:.5 r:.5 C5+E5:2:.8 @hook @hook+2 |" (note:beats[:velocity], r rest, + stack, @ motif)')
     print("kits:        " + ", ".join(sy.KITS))
     print("modes:       " + ", ".join(SCALES))
     print("chords:      roman (I vi bVII V7 Imaj7 ii7 Vsus4) or names (Am F#m7 C/E); :N holds N bars")
@@ -737,6 +904,9 @@ def catalog() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--list", action="store_true", help="what's available")
+    ap.add_argument("--check", action="store_true", help="read a written --score like a musician: warnings, no audio")
+    ap.add_argument("--speech", help='seconds with voice, for --check: "0.5-12,14-30"')
+    ap.add_argument("--project", default="project.md", help="where --check reads the Music brief")
     ap.add_argument("--feel", help='read from the video: "light=.7,drive=.4,tension=.2,organic=.8,size=.3,color=.5,sway=.2"')
     ap.add_argument("--duration", type=float, help="seconds (match the edit)")
     ap.add_argument("--score", help="reopen a piece (<out>.score.json) and apply the flags to it")
@@ -786,7 +956,19 @@ def main() -> None:
         base = json.loads(src.read_text(encoding="utf-8"))
         if base.get("version", 1) < 2:
             die(f"{src} was written by the old style-based composer: compose it again with --feel")
-        out = Path(a.out or src.with_name(src.name.replace(".score.json", ".wav")))
+        if is_written(base):
+            complete(base)
+        if a.check:
+            if not is_written(base):
+                die('--check reads a written score ("version": 3)')
+            try:
+                speech = [tuple(float(x) for x in w.split("-")) for w in (a.speech or "").split(",") if w.strip()]
+            except ValueError:
+                die(f"--speech: '{a.speech}' — use start-end seconds, e.g. 0.5-12,14-30")
+            notes = check(base, speech, Path(a.project))
+            print("\n".join(f"warning: {n}" for n in notes) or "reads well: no warnings")
+            return
+        out = Path(a.out or src.with_name(src.name.removesuffix(".score.json").removesuffix(".json") + ".wav"))
         if a.seed is not None and not a.regen:
             base["seed"] = a.seed
         if a.variations > 1:

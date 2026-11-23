@@ -139,6 +139,40 @@ def main() -> None:
     p = gen(tmp, "--score", "bad.score.json", "--out", "bad.wav")
     checks["a broken note is reported, not a crash"] = p.returncode != 0 and "bad note" in p.stderr
 
+    # A score written by hand: free parts, motifs, drums as written, and a musician's check.
+    piece = {"version": 3, "bpm": 120, "key": "C", "ending": "fade",
+             "motifs": {"hook": "E5:1 G5:.5 A5:.5 G5:2"},
+             "parts": {"guitarra": {"instrument": "nylon", "role": "keys"}, "silbido": {"instrument": "flute"},
+                       "bajo": {"instrument": "bass_electric", "role": "bass", "pattern": "root"}},
+             "sections": [{"name": "a", "bars": 2, "energy": 0.2, "chords": ["C", "G"],
+                           "groove": {"shaker": "x.x.x.x.x.x.x.x."},
+                           "notes": {"silbido": "@hook D5:2 G5:2", "guitarra": "C4+E4+G4:4 B3+D4+G4:4"}},
+                          {"name": "b", "bars": 2, "energy": 0.3, "chords": ["F", "C"],
+                           "notes": {"silbido": "@hook+5 G5:2 E5:2"}}]}
+    (tmp / "w.json").write_text(json.dumps(piece))
+    p = gen(tmp, "--score", "w.json", "--stems", "--out", "w.wav")
+    stems = {f.stem for f in (tmp / "w.stems").glob("*.wav")} if p.returncode == 0 else set()
+    checks[f"written score: free part names play{'' if p.returncode == 0 else ': ' + p.stderr[-200:]}"] = \
+        {"guitarra", "silbido", "bajo"} <= stems
+    checks["written score: the shaker plays at low energy"] = "drums" in stems
+    checks["written score: length from its bars"] = abs(len(read(tmp / "w.wav")) / 48000 - 8) < 0.01
+    checks["written score: compact line and motif"] = mg.notes_of("@h+2 r:1 C5+E5:1", {"h": "C5:1"}) == [
+        [0.0, 1.0, 74.0, 0.7], [2.0, 1.0, 72, 0.7], [2.0, 1.0, 76, 0.7]]
+    (tmp / "project.md").write_text("## Music brief\n- Tone of the whole piece: bright, confident\n", encoding="utf-8")
+    good = gen(tmp, "--score", "w.json", "--check")
+    checks[f"check: a sound score reads well{'' if 'no warnings' in good.stdout else ': ' + good.stdout[:200]}"] = \
+        "no warnings" in good.stdout
+    bad = {**piece, "mode": "minor", "bpm": 70, "key": "A", "motifs": {}, "sections": [
+        {"name": "a", "bars": 4, "chords": ["Am", "Dm", "Am", "Em"],
+         "notes": {"silbido": "A#4:2 E6:1 A#4:1 C5:1 D5:.5 F5:.5 B4:1 E5:1 G5:3 A4:1 C5:2 F#5:2 B5:1 D5:2 G#4:1"}}]}
+    (tmp / "b.json").write_text(json.dumps(bad))
+    said = gen(tmp, "--score", "b.json", "--check", "--speech", "0-8").stdout
+    for word, name in (("clashes", "a note against the chord"), ("resolve", "unresolved dissonance"),
+                       ("hard to sing", "an unsingable leap"), ("no motif", "no returning motif"),
+                       ("over the voice", "melody over the voice"), ("is positive", "a score against the brief"),
+                       ("tonic", "an ending off the tonic")):
+        checks[f"check warns: {name}"] = word in said
+
     # Variations, hits on the edit.
     gen(tmp, "--feel", "light=.7,drive=.3", "--duration", "8", "--seed", "1", "--variations", "3", "--out", "v.wav")
     takes = [read(tmp / f"v_v{i}.wav") for i in (1, 2, 3)]
