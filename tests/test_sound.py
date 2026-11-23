@@ -2,7 +2,7 @@
 # requires-python = ">=3.10,<3.14"
 # dependencies = ["numpy>=1.26"]
 # ///
-"""The sound generators: every mood, instrument and effect works; a piece can be changed part by part.
+"""The sound generators: every feel, instrument and effect works; a piece can be changed part by part.
 
     uv run tests/test_sound.py
 """
@@ -24,6 +24,11 @@ sys.path.insert(0, str(SCRIPTS))
 import _synth as sy  # noqa: E402
 import musicgen as mg  # noqa: E402
 import sfx  # noqa: E402
+
+
+FEELS = [f"light={l},drive={d},tension={t},organic={o},size={s},color={c},sway={w}" for l, d, t, o, s, c, w in (
+    (.9, .8, .1, .8, .4, .2, .1), (.1, .2, .9, .4, .9, .5, 0), (.5, .4, .3, .6, .2, .9, .8), (.3, .95, .6, 0, .6, .2, 0),
+    (.7, .05, .1, 1, .1, .6, .3), (.6, .6, .4, .2, 1, .4, .5), (.2, .5, .7, .9, .7, .8, .2), (1, 1, 0, .5, .5, 0, 0))]
 
 
 def gen(cwd: Path, *a: str, script: str = "musicgen.py") -> subprocess.CompletedProcess:
@@ -75,20 +80,20 @@ def main() -> None:
            if not np.isfinite(y := sy.drum(d, k, np.random.default_rng(1))).all() or np.abs(y).max() < 0.5]
     checks[f"all {len(sy.KITS)} kits × {len(sy.DRUMS)} drums sound"] = not bad
 
-    # Every mood renders: exact length, no clipping, safe in mono, nothing silent.
+    # Any feel renders: exact length, no clipping, safe in mono, nothing silent.
     problems = []
-    for mood in mg.MOODS:
-        a = argparse_defaults(mood=mood, duration=6.0)
+    for feel in FEELS:
+        a = argparse_defaults(feel=feel, duration=6.0)
         score = mg.build_score(a, 5)
         mg.apply_changes(score, a)
         y, beats, bars, info, _ = mg.render(score)
         drop = 20 * np.log10(rms(y) / (rms(y.mean(1)) + 1e-9))
         if len(y) != 288000 or np.abs(y).max() > 0.9 or drop > 3 or rms(y) < 0.02 or not beats or not bars:
-            problems.append(f"{mood} (len {len(y)}, peak {np.abs(y).max():.2f}, mono −{drop:.1f} dB)")
-    checks[f"all {len(mg.MOODS)} moods render clean{(': ' + ', '.join(problems)) if problems else ''}"] = not problems
+            problems.append(f"{feel} (len {len(y)}, peak {np.abs(y).max():.2f}, mono −{drop:.1f} dB)")
+    checks[f"all {len(FEELS)} feels render clean{(': ' + ', '.join(problems)) if problems else ''}"] = not problems
 
     # Direction: form, instruments, patterns, chords and hits.
-    p = gen(tmp, "--mood", "upbeat", "--duration", "24", "--bpm", "120", "--seed", "2", "--form",
+    p = gen(tmp, "--feel", "light=.8,drive=.7,organic=.6", "--duration", "24", "--bpm", "120", "--seed", "2", "--form",
             "intro:2,verse:4,chorus:4,outro:2", "--instrument", "lead=flute,bass=bass_808", "--pattern", "bass=octave",
             "--progression", "Am F C G", "--out", "a.wav", "--stems")
     meta = json.loads((tmp / "a.beats.json").read_text()) if p.returncode == 0 else {}
@@ -135,20 +140,20 @@ def main() -> None:
     checks["a broken note is reported, not a crash"] = p.returncode != 0 and "bad note" in p.stderr
 
     # Variations, hits on the edit.
-    gen(tmp, "--mood", "calm", "--duration", "8", "--seed", "1", "--variations", "3", "--out", "v.wav")
+    gen(tmp, "--feel", "light=.7,drive=.3", "--duration", "8", "--seed", "1", "--variations", "3", "--out", "v.wav")
     takes = [read(tmp / f"v_v{i}.wav") for i in (1, 2, 3)]
     checks["variations: three different takes"] = len(takes) == 3 and not np.array_equal(takes[0], takes[1]) \
         and not np.array_equal(takes[1], takes[2])
-    p = gen(tmp, "--mood", "upbeat", "--duration", "20", "--seed", "9", "--hit", "8.1", "--out", "h.wav")
+    p = gen(tmp, "--feel", "light=.8,drive=.7,organic=.6", "--duration", "20", "--seed", "9", "--hit", "8.1", "--out", "h.wav")
     bpm = json.loads((tmp / "h.beats.json").read_text())["bpm"]
     bar = 240 / bpm
     miss = min(8.1 % bar, bar - 8.1 % bar)
     checks[f"hit: the tempo adjusts so it lands on a bar ({miss * 1000:.0f} ms)"] = miss < 0.06
 
     # Clear errors.
-    for args, name in ((["--mood", "calm", "--duration", "5", "--instrument", "lead=kazoo"], "unknown instrument"),
-                       (["--mood", "calm", "--duration", "5", "--progression", "H Z"], "unreadable chord"),
-                       (["--mood", "calm", "--duration", "5", "--energy", "0:loud"], "bad energy")):
+    for args, name in ((["--feel", "light=.7,drive=.3", "--duration", "5", "--instrument", "lead=kazoo"], "unknown instrument"),
+                       (["--feel", "light=.7,drive=.3", "--duration", "5", "--progression", "H Z"], "unreadable chord"),
+                       (["--feel", "light=.7,drive=.3", "--duration", "5", "--energy", "0:loud"], "bad energy")):
         p = gen(tmp, *args, "--out", "err.wav")
         checks[f"{name} → a clear error"] = p.returncode != 0 and "ERROR" in p.stderr and "Traceback" not in p.stderr
 

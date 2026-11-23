@@ -185,7 +185,7 @@ follows it, not the type's defaults:
 - **Color**: `look.reads_as` (bright/dark, contrast, saturation, warm/cold) picks the
   closest look and intensity in section 4, compared with the footage's own numbers.
 - **Captions and graphics**: style, size, case, how much text — `design.md`.
-- **Music**: mood and tempo near its `sound.bpm`, the same energy; its loudness (`lufs`)
+- **Music**: a `--feel` read from it, tempo near its `sound.bpm`, the same energy; its loudness (`lufs`)
   says whether the music leads or sits under the voice.
 - **Moments and effects**: as many and as bold as it has (whips, flashes, fx, sound hits).
 Take its criteria, never its content: nothing from the reference appears in the video,
@@ -376,8 +376,8 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
 - **Start the music where it has energy** (`--in` <seconds into the track>), not on a
   slow intro, and fade it out at the end. `--start` is where it enters the edit.
 - **Music source**: a piece synthesized to the length (`musicgen.py`) — scored for
-  this video (mood from its topic and tone, tempo from the cut's pace, energy rising
-  and falling with what happens on screen), never the same bed by habit — or a file
+  this video (no preset styles: a `--feel` read from its topic, tone, image and cut,
+  energy rising and falling with what happens on screen), never the same bed by habit — or a file
   the user brings, which takes priority. **Never search or download music, effects or
   stock from a library, and nothing that needs a credit.** What the user brings: source
   in `project.md`. The generators are full instruments, so direct them: form, chords,
