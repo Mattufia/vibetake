@@ -377,7 +377,9 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --audio-only            # same pict
 - **Music is not part of the default edit.** Cuts, sound, color, subtitles, graphics and
   effects are all done and delivered **without music**; the delivery ends with one line,
   "¿Le agrego música?", and no answer means it stays without. When it's wanted, follow
-  **`${CLAUDE_SKILL_DIR}/references/music.md`** (two questions, compose, `--audio-only`).
+  **`${CLAUDE_SKILL_DIR}/references/music.md`** (tone brief of the whole video in
+  `project.md`, two questions, compose, `--audio-only`). Moments change the music's
+  intensity, never its emotion: it's sad or tense only if the whole video is.
   It goes in without the offer in three cases: a **track in `music/`** (use it, don't
   ask); **"con música" in the request** (edit, then ask the questions at the end); a
   **music montage with no voice** (the music is its backbone: ask at the start).
