@@ -251,6 +251,24 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py place --file <sound> --event 0.2 --lin
 uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py check
 ```
 
+**Any sound the moment needs.** `sfx.py list` shows 44: movement (`swoosh`, `whip`,
+`swipe`), interface (`tick`, `blip`, `notify`, `success`, `error`, `coin`), impacts
+(`thud`, `impact`, `boom`, `sub_drop`, `gong`), tension (`reverse_cymbal`, `drumroll`,
+`heartbeat`, `downer`), digital (`glitch`, `stutter`, `static`, `laser`, `tape_stop`,
+`scratch`), magic (`sparkle`, `magic`, `bell`, `bubble`, `droplet`), foley (`shutter`,
+`typing`) and ambiences of any length (`wind`, `rain`, `ocean`, `fire`, `applause`, `room`).
+
+```
+sfx.py place --kind impact --pitch -4 --reverb .4 --line L5          # shaped where it's placed
+sfx.py design --kind whoosh --name slow --dur 1.4 --bright .7 --variants 3   # slow_1, slow_2, slow_3
+sfx.py design --name logo --layers "riser,impact@0:+2,sparkle@0.05:-6"       # stacked on the event
+sfx.py place --kind logo --cut 4
+```
+
+Shape with `--pitch`, `--dur`, `--bright`, `--drive`, `--reverb`, `--echo`, `--reverse`,
+`--pan`; `--seed` gives another take. Repeated sounds in one video: vary them (a
+`--seed` or a semitone), the same whoosh ten times is what makes an edit sound cheap.
+
 - **Anchor the sound to the same word as the graphic**: picture and sound land on
   the same frame, and survive re-cuts.
 - **The voice rules**: sounds sit ~10 dB under it by default (`--gain` to adjust). A
@@ -259,6 +277,6 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/sfx.py check
   ones around it with `--weight minor` (8 dB lower). Everything loud is nothing loud.
 - **Don't stack**: two sounds closer than ~120 ms blur into one (`check` warns).
   Five elements in two seconds don't need five pops — pick the one that matters.
-- The synthesized set is clean, license-free and generic. Brand or scripted work
-  deserves real effects: the user's, or a library without attribution (same rules
-  as music, `music.md`); write each source and license in `project.md`.
+- The synthesized set is clean, license-free and generic, and it's the default. The
+  user's own sounds take priority when they bring them (source in `project.md`). No
+  effect libraries (same rules as music, `music.md`).

@@ -8,17 +8,14 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/broll.py check
 uv run ${CLAUDE_SKILL_DIR}/scripts/broll.py clear
 ```
 
-## Sources, in order
+## Source
 
-1. **The user's own material.** Ingest flags clips with little speech and no face
-   talking to camera as candidates (`→ B-ROLL CANDIDATE` in `material.md`). `list`
-   gathers them into `02-work/broll.json` with their contact sheets. **Look at the
-   sheets and write in the catalog what each clip shows** (`description`) and which
-   ranges are usable (`usable`: skip shaky starts, focus hunting, the hand reaching
-   for the stop button).
-2. Stock the user downloads by hand (Pexels, Pixabay: commercial use without
-   attribution, no resale; in ads avoid recognizable brands or people). Keep the source
-   URL of every clip in `project.md`.
+**The user's own material**, never stock banks or manual downloads. Ingest flags clips
+with little speech and no face talking to camera as candidates (`→ B-ROLL CANDIDATE` in
+`material.md`). `list` gathers them into `02-work/broll.json` with their contact sheets.
+**Look at the sheets and write in the catalog what each clip shows** (`description`) and
+which ranges are usable (`usable`: skip shaky starts, focus hunting, the hand reaching
+for the stop button). No b-roll for a moment: use a punch-in or a graphic instead.
 
 ## Placement
 

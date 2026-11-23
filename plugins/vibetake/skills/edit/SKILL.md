@@ -375,13 +375,16 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   leaves room for speech); sound effects (`sfx.py`, section 7) sit ~10 dB below it.
 - **Start the music where it has energy** (`--in` <seconds into the track>), not on a
   slow intro, and fade it out at the end. `--start` is where it enters the edit.
-- **Music source**: a bed synthesized to the length (`musicgen.py`) for quick,
-  informal videos — scored for this video (mood from its topic and tone, tempo from
-  the cut's pace, energy rising and falling with what happens on screen), never the
-  same bed by habit; a real track for scripted, brand or music-driven ones. **Never
-  anything the user can't publish**; third-party material (music, effects, stock,
-  fonts) free-licensed, source and license in `project.md`. Where from, licenses:
-  **`${CLAUDE_SKILL_DIR}/references/music.md`** (also cutting on the beat: `audio.py beats`).
+- **Music source**: a piece synthesized to the length (`musicgen.py`) — scored for
+  this video (mood from its topic and tone, tempo from the cut's pace, energy rising
+  and falling with what happens on screen), never the same bed by habit — or a file
+  the user brings, which takes priority. **Never search or download music, effects or
+  stock from a library, and nothing that needs a credit.** What the user brings: source
+  in `project.md`. The generators are full instruments, so direct them: form, chords,
+  instruments, hits on the edit, variations, and any later change to one part without
+  losing the rest (`<out>.score.json`); effects shaped, layered and varied (`sfx.py
+  design`). Details: **`${CLAUDE_SKILL_DIR}/references/music.md`** (also cutting on the
+  beat: `audio.py beats`) and the sound design part of `references/graphics.md`.
   Voice effects and bleeped words: `references/effects.md`.
 
 ## 6. Subtitles
