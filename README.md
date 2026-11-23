@@ -74,8 +74,8 @@ Cut a 30-second ad from this, vertical, with a strong hook and a call to action.
 
 What helps: **where it's going** (TikTok, Reels, Shorts, YouTube…), **the language**,
 names and brands that appear, and the brand assets if there are any. What you don't
-need to say: subtitles, pacing, margins, music — it decides them from the platform
-and the kind of video, and tells you what it chose.
+need to say: subtitles, pacing, margins — it decides them from the platform
+and the kind of video, and tells you what it chose. Music only goes in if you ask: it offers it at delivery, with a couple of questions about style and energy.
 
 ### 3. What happens
 
@@ -156,7 +156,7 @@ uv run tests/test_take_quality.py  # two takes of a line compared: softer, shaki
 uv run tests/test_reframe.py       # framing: full/fixed/operator per segment; eases, cuts; punch-ins, impact zoom only on emphasis, and it glides
 uv run tests/test_speaker.py       # several people: who says each sentence (mics, mouths), framing follows them
 uv run tests/test_broll.py         # b-roll anchored to words, sound underneath, follows re-cuts
-uv run tests/test_audio.py         # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, musicgen (its own piece per project, energy follows the edit)
+uv run tests/test_audio.py         # cleanup on the raw (noise, level, no delay), loudness per destination, ducking, sound-only remix, musicgen (its own piece per project, energy follows the edit)
 uv run tests/test_sound.py         # music and effects generators: any feel, every instrument and effect; changing one part keeps the rest
 uv run tests/test_composition.py   # the composer follows music theory: cadences, chord tones, resolved dissonance, voice leading, no preset styles
 uv run tests/test_audio_inputs.py  # the sound's source: channels, best track, separate recordings, ambience

@@ -120,6 +120,32 @@ def main() -> None:
     pause = tone_level(x, 48000, 60, 5.4, 6.0)         # the 1.5 s pause after it (release done)
     checks[f"music ducked while talking ({talking - pause:+.1f} dB vs the pause)"] = pause - talking >= 8
 
+    # Trying music: the sound is rebuilt, the delivered picture stays bit for bit.
+    def video_md5(f: Path) -> str:
+        return subprocess.run([FF, "-v", "error", "-i", str(f), "-map", "0:v", "-c", "copy", "-f", "md5", "-"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    bed = json.loads((tmp / "02-work" / "edl.json").read_text())["music"]
+    run(tmp, "uv", "run", str(SCRIPTS / "audio.py"), "music", "--clear")
+    run(tmp, "uv", "run", str(SCRIPTS / "render.py"), "--no-grade")
+    run(tmp, "uv", "run", str(SCRIPTS / "audio.py"), "music", "--file", "music.wav", "--fade-in", "0.1")
+    run(tmp, "uv", "run", str(SCRIPTS / "render.py"), "--no-grade", "--audio-only")
+    v1, v2 = sorted((tmp / "03-delivery").glob("*_v[12].mp4"))
+    checks["audio-only: same picture, bit for bit"] = video_md5(v1) == video_md5(v2)
+    y = pcm(v2, 48000)
+    checks["audio-only: the music is in the new version"] = (
+        tone_level(y, 48000, 60, 5.4, 6.0) - tone_level(pcm(v1, 48000), 48000, 60, 5.4, 6.0) >= 10)
+    i, _ = loudness(v2)
+    checks[f"audio-only: mastered ({i} LUFS)"] = abs(i + 14) <= 0.5
+    cut = json.loads((tmp / "02-work" / "edl.json").read_text())
+    cut["segments"][0]["out"] = 25.0
+    (tmp / "02-work" / "edl.json").write_text(json.dumps(cut))
+    r = subprocess.run(["uv", "run", str(SCRIPTS / "render.py"), "--no-grade", "--audio-only"], cwd=tmp,
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    checks["audio-only: refuses if the cut changed"] = r.returncode != 0 and "picture changed" in r.stdout + r.stderr
+    cut["segments"][0]["out"] = 30.0
+    cut["music"] = bed
+    (tmp / "02-work" / "edl.json").write_text(json.dumps(cut))
+
     # Synthesized bed: exact length, no clipping, beats on the tempo grid.
     run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--feel", "light=.8,drive=.7,organic=.6", "--duration", "12.34",
         "--bpm", "120", "--out", "gen.wav")

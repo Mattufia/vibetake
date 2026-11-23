@@ -5,7 +5,27 @@ brings. Never search or download music from a library or bank, and never use any
 that needs a credit: there is nothing to mention when publishing. Keep where every
 track came from in `project.md`.
 
-## 1. Synthesized (the default, for every kind of video)
+## When there's music
+
+Only when the user wants it (SKILL.md section 5). The edit is delivered without it first.
+
+1. **Understand the video** before proposing anything: what it's about, how the person
+   says it, what the viewer should feel.
+2. **Ask with `AskUserQuestion`, these two questions and no others:**
+   - **Style**: 3 options proposed for *this* video, the first marked recommended with
+     the reason ("Pop enérgico (recomendado: …)", "Tech / electrónico", "Funk con
+     groove"); the free-text option covers anything else. Styles are a direction to
+     compose toward, never a stored template. If the user already said one ("algo
+     tech"), skip this question.
+   - **Energy**: tranquila · media · a tope.
+   Volume isn't asked: it stays in the background unless the user says otherwise.
+3. **Compose, add it, and remix only the sound**: `audio.py music --file <track>`, then
+   `render.py --audio-only`. The picture is copied, so a try takes seconds. If the picture
+   changed since the last version it refuses: render normally.
+4. **Show it and adjust from plain phrases** ("más rápido", "sin batería"), remixing
+   again each time. `audio.py music --clear` + `--audio-only` takes it back out.
+
+## 1. Synthesized (when the user wants music and brings no track)
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --feel "light=.7,drive=.4,tension=.2,organic=.8,size=.3,color=.5,sway=.2" --duration <edit length> --energy "<s>:low|mid|high,..." [--bpm] [--key] [--seed]

@@ -112,8 +112,8 @@ regular grid, `silencedetect` and `ebur128`, word-level transcription.
 
 Two independent axes define the edit. Don't mix them:
 
-- **Type: what the video is.** Sets structure, cleanup, music, graphics and extra
-  deliverables.
+- **Type: what the video is.** Sets structure, cleanup, graphics and extra
+  deliverables (music only when it's wanted: section 5).
 - **Destination: how it's consumed.** Sets pacing, margins and duration.
 
 The same podcast can go whole to YouTube or in clips to TikTok: same type,
@@ -185,7 +185,7 @@ follows it, not the type's defaults:
 - **Color**: `look.reads_as` (bright/dark, contrast, saturation, warm/cold) picks the
   closest look and intensity in section 4, compared with the footage's own numbers.
 - **Captions and graphics**: style, size, case, how much text — `design.md`.
-- **Music**: a `--feel` read from it, tempo near its `sound.bpm`, the same energy; its loudness (`lufs`)
+- **Music** (only if the video gets any, section 5): a `--feel` read from it, tempo near its `sound.bpm`, the same energy; its loudness (`lufs`)
   says whether the music leads or sits under the voice.
 - **Moments and effects**: as many and as bold as it has (whips, flashes, fx, sound hits).
 Take its criteria, never its content: nothing from the reference appears in the video,
@@ -274,7 +274,7 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py                                 # m
 - **"Más disruptivo" / "more disruptive" / "más arriesgado"** is a level, not a mood:
   double the moments (every line that can be shown, gets shown), bolder treatments
   (`fx` at full amount, voice effects, speed ramps, whips, a freeze with a sound
-  hit), cuts tighter on the beat, the music one energy level up. Still tied to the
+  hit), cuts tighter on the beat, the music (if it has any) one energy level up. Still tied to the
   words: more literal, never random noise. Every delivery of a video with speech
   ends with one line offering it ("¿Lo querés más disruptivo? Le sumo …" with two
   concrete moments you'd add), unless it's already at that level or the type doesn't
@@ -353,8 +353,9 @@ sound.
 
 ```
 uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py clean                    # after ingest, once per file
-uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file <track>     # optional bed (--in, --start, --gain, --clear)
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file <track>     # only when there's music (--in, --start, --gain, --clear)
 uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and masters
+uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --audio-only            # same picture, new sound: each music try takes seconds
 ```
 
 - **Cleanup on the whole raw file** (it depends on how it was recorded): the best
@@ -373,9 +374,17 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --loudness social       # mixes and
   (targets: `${CLAUDE_SKILL_DIR}/references/platforms.md`).
 - **The voice rules.** Music never competes with it (a gentle dip around 3 kHz
   leaves room for speech); sound effects (`sfx.py`, section 7) sit ~10 dB below it.
+- **Music is not part of the default edit.** Cuts, sound, color, subtitles, graphics and
+  effects are all done and delivered **without music**; the delivery ends with one line,
+  "¿Le agrego música?", and no answer means it stays without. When it's wanted, follow
+  **`${CLAUDE_SKILL_DIR}/references/music.md`** (two questions, compose, `--audio-only`).
+  It goes in without the offer in three cases: a **track in `music/`** (use it, don't
+  ask); **"con música" in the request** (edit, then ask the questions at the end); a
+  **music montage with no voice** (the music is its backbone: ask at the start).
+  By default it accompanies: low, under the video, never the protagonist unless asked.
 - **Start the music where it has energy** (`--in` <seconds into the track>), not on a
   slow intro, and fade it out at the end. `--start` is where it enters the edit.
-- **Music source**: a piece synthesized to the length (`musicgen.py`) — scored for
+- **Music source** (once it's wanted): a piece synthesized to the length (`musicgen.py`) — scored for
   this video (no preset styles: a `--feel` read from its topic, tone, image and cut,
   energy rising and falling with what happens on screen), never the same bed by habit — or a file
   the user brings, which takes priority. **Never search or download music, effects or
@@ -546,6 +555,7 @@ preferís?") and change only what they choose. A slow, quiet stretch can be inte
 - In the delivery, say in one line what was left out, what was resolved on your
   own judgment, what the master was encoded with, and any WARN that stays; list the
   moments and their treatments, and offer the "más disruptivo" level (section 3).
+  If the video has no music, close with one line: "¿Le agrego música?" (section 5).
 - **Then `qa.py --cleanup`** deletes the heavy disposable intermediates (preview,
   render chunks, normalized copies) — only if nothing failed. Cleaned audio and
   grades stay: re-renders need them. No need to mention it.

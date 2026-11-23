@@ -13,7 +13,7 @@ anything where people play a moment instead of talking to the viewer.
   not only on the words.
 - **Silent stretches (S…)**: action by default — keep them. Shorten one only when the
   user asks or it's clearly empty (camera rolling before "action", after "cut").
-- **Music**: under the scene, never over the dialogue's timing; often none until the
+- **Music**: if asked for: under the scene, never over the dialogue's timing; often none until the
   payoff.
 - **Subtitles**: burned-in for feeds (starts muted), sentence style or highlight; off
   while a graphic says the same.

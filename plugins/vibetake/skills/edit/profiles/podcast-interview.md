@@ -9,7 +9,7 @@ Conversations with two or more voices: podcasts, interviews, panels.
 - **Cleanup**: light in the full episode (stumbles, long fillers), full in clips.
 - **Picture**: with a camera per person, choose the angle per segment by hand (the one
   speaking, or a reaction) — `speakers.md` says who says each line.
-- **Music**: intro/outro only; none under the conversation.
+- **Music**: if asked for: intro/outro only; none under the conversation.
 - **Subtitles**: `.srt` for the full episode; burned-in for clips.
 - **Graphics**: usually measured; each person identified (name and role) the first time they speak; clips for a feed follow `talking-head`.
 - **Traps**: crosstalk — don't cut one voice in the middle of another's sentence;

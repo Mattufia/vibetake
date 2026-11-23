@@ -6,7 +6,7 @@ Opinion, educational or explainer content spoken to camera by one person.
   development, then a closing line or CTA.
 - **Pacing**: tight; the speech carries the video.
 - **Cleanup**: full — fillers, retakes (keep the last good take), false starts.
-- **Music**: optional, low bed; never competing with the voice.
+- **Music**: if asked for: a low bed; never competing with the voice.
 - **Subtitles**: burned-in for feed; `.srt` only for chosen viewing with clean audio.
 - **Graphics**: usually dynamic in a feed, measured for chosen viewing (`references/graphics.md`): a first frame that holds, support for
   the key ideas, the person introduced if needed. Overlay is the obvious grammar; type-led or a composition can set it apart (`design.md` section 2).

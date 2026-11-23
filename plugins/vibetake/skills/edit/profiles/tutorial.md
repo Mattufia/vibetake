@@ -7,7 +7,7 @@ Screencasts and step-by-step instructional videos.
 - **Pacing**: calmer than a feed default; cut waiting (loading, typing, renders)
   but **never cut a step** the viewer needs to reproduce.
 - **Cleanup**: medium — fillers and dead time, not explanations.
-- **Music**: none or a very low bed.
+- **Music**: none unless asked for; then a very low bed.
 - **Subtitles**: `.srt` by default; burned-in only for feed.
 - **Graphics**: usually measured (dynamic for short social tutorials); screen recordings often read best inside a
   composition (`design.md` section 2) rather than full frame; callouts drawn in the

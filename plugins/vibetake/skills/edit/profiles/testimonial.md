@@ -7,7 +7,7 @@ A customer or real person talking about their experience.
 - **Pacing**: slower; the emotion needs time.
 - **Cleanup**: light — keep pauses, sighs and smiles that carry emotion; remove
   only stumbles and repetitions.
-- **Music**: soft, emotional bed under the voice.
+- **Music**: if asked for: a soft, emotional bed under the voice.
 - **Subtitles**: recommended (credibility depends on understanding every word).
 - **Graphics**: usually minimal: the person identified (name and role/company); no sound effects over someone telling their story.
 - **Traps**: never change the meaning of what the person said by cutting;

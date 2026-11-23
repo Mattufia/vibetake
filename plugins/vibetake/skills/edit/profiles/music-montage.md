@@ -8,7 +8,7 @@ Events, aftermovies, real estate, places and products with little or no speech.
 - **Pacing**: cuts on the beats; shot length follows the track's energy (every 2 beats when
   it's loud, a bar or two when it's quiet).
 - **Cleanup**: shot selection instead — drop blown, shaky or repeated takes.
-- **Music**: the backbone, so it comes first: the user's track if they bring one, otherwise `musicgen.py` at the target length. Ambient sound only as accents.
+- **Music**: the backbone, so it comes first and is the one type that asks at the start: the user's track if they bring one, otherwise style and energy (`references/music.md`) and `musicgen.py` at the target length. Ambient sound only as accents.
 - **Subtitles**: usually none; text only as titles or info cards.
 - **Graphics**: usually minimal — the music is the sound design, no effects over it; the facts the viewer needs (event name/date,
   location, prices or features in real estate), in the video's style.

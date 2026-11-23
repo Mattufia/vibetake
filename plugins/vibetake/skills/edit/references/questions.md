@@ -40,7 +40,7 @@ skin leaning red · before/after: 02-work/color/basic/ and 02-work/color/full/
 → Color?  Full (recommended) · Basic · Only match shots · (write: a look, your LUT, a reference)
 → Have you added everything you'd like me to use? Brand assets in brand/, style
   references in references/, your own music in music/. Anything missing, I'll source
-  myself — typefaces, music and icons; your logo only if you provide it.
+  myself — typefaces and icons; music only if you ask for it; your logo only if you provide it.
 → I left IMG_2045.jpg and IMG_2046.jpg where they were: are they for the video or
   style references?
 ```

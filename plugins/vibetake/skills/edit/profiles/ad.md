@@ -6,7 +6,7 @@ Brand ads, UGC ads, product promos.
   2–3 s with logo and CTA.
 - **Pacing**: a cut every 1–2 s; no dead air.
 - **Cleanup**: full — fillers, retakes, long breaths.
-- **Music**: energetic; cut on the hits.
+- **Music**: if asked for: energetic; cut on the hits.
 - **Subtitles**: burned-in by default (in a feed it starts muted) + `.srt`.
 - **Graphics**: usually dynamic (`references/graphics.md`). What it needs: a first frame that stops the scroll, the offer and price impossible to miss, the brand, a clear CTA. How it looks (cards, a composition, type-led) is the design's call (`design.md` section 2); sound effects as the style asks.
 - **Alternative hooks: offered, not made by default.** For paid campaigns, add it to

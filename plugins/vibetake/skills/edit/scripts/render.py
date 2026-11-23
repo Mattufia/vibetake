@@ -11,6 +11,9 @@ each round of changes stays (<name>: edl.json's "name" or the project folder).
 --overwrite replaces the latest version instead (a fix before it was delivered).
 --variant hookB renders another edit (its own edl) as <name>_v<N>_hookB.mp4, next to
 the main video of the same version (an alternative hook, a 4:5 cut…).
+--audio-only keeps the latest version's picture untouched and rebuilds only the sound
+(voice, effects, music, loudness): seconds instead of a full export, for trying music.
+It refuses if anything in the picture changed since that version.
 
 Per segment: seek into the original, color (HDR pre-filter + the file's LUT from
 02-work/color/grade.json), frame to the output size, constant frame rate, and a
@@ -96,6 +99,8 @@ PREVIEW = [
 HWDEC = ["-hwaccel", "auto"]   # decode on the GPU when there is one; falls back to the CPU
 HWDEC_MAX = 16   # ponytail: each 4K HEVC decoder holds ~165 MB of VRAM; past this, a chunk decodes on the CPU
 INTERMEDIATE = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "8", "-pix_fmt", "yuv420p"]
+SOUND_ONLY = ("music", "sfx", "bleep")   # edl.json keys that never touch the picture
+RENDERS = Path("02-work/renders.json")   # what each delivered picture was rendered from
 TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"]
 
 
@@ -517,6 +522,11 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
     chain.append("format=yuv420p")
     v_graph = head + f"{','.join(chain)}[v{k}]"
 
+    return v_graph + ";" + segment_audio(k, seg, dur, v, audio_in), dur
+
+
+def segment_audio(k: int, seg: dict, dur: float, v: float, audio_in: str | None) -> str:
+    """The sound of one segment, from its own window (J/L cuts and crossfades move it)."""
     a_len = seg.get("_alead", 0.0) + dur + seg.get("_atail", 0.0)
     # ponytail: a fade's sound fades over the sound's own first/last seconds, not the picture's.
     # Never under the 12 ms declick: afade's d=0 means its 1 s default, and a bare cut clicks.
@@ -537,7 +547,7 @@ def segment_graph(k: int, seg: dict, out: dict, grade: dict, audio_in: str | Non
              f"{tempo}{delay}apad,atrim=duration={a_len:.6f},asetpts=PTS-STARTPTS,{fades}[a{k}]")
     else:
         a = f"anullsrc=r=48000:cl=stereo,atrim=duration={a_len:.6f}[a{k}]"
-    return v_graph + ";" + a, dur
+    return a
 
 
 def inset(k: int, inp: int, seg: dict, out: dict, grade: dict, length: float) -> str:
@@ -631,6 +641,13 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
         graphs.append(f"[{v_last}]subtitles=filename='{filter_path(fin['subs'])}'{fonts}[vs]")
         v_last = "vs"
     graphs.append(f"[{v_last}]null[v]")
+    a_inputs, a_graphs = finish_audio(nxt_input, a, fin)
+    return b_inputs + g_inputs + a_inputs, graphs + a_graphs
+
+
+def finish_audio(nxt_input: int, a: str, fin: dict) -> tuple[list, list]:
+    """The sound over the whole edit: bleeps, voice bus, music ducked under it, effects."""
+    graphs = []
     bl = fin.get("bleep")
     if bl:
         # Censored words: the voice silenced over them, a 1 kHz tone in its place (or nothing).
@@ -650,7 +667,7 @@ def finish_graph(first_input: int, v: str, a: str, fin: dict, out: dict, grade: 
         graphs += s_graphs + [f"[{a_last}][{bus}]amix=inputs=2:normalize=0:duration=first[withsfx]"]
         a_last = "withsfx"
     graphs.append(f"[{a_last}]anull[a]")
-    return b_inputs + g_inputs + m_inputs + s_inputs, graphs
+    return m_inputs + s_inputs, graphs
 
 
 def bleep_spans(edl: dict, segs: list[dict]) -> dict | None:
@@ -699,7 +716,8 @@ def edges(segs: list[dict], fps: float) -> list[str]:
     return warn
 
 
-def join(segs: list[dict], fps: float, v_out: str, a_out: str, width: int = 1920) -> list[str]:
+def join(segs: list[dict], fps: float, v_out: str, a_out: str, width: int = 1920,
+         kinds: str = "va") -> list[str]:
     """Picture and sound joined, each on its own: straight cuts concatenate, a transition
     crossfades (xfade / acrossfade) over the handles both segments carry; a whip adds blur
     along the move (light over the transition, strong in its middle)."""
@@ -707,7 +725,7 @@ def join(segs: list[dict], fps: float, v_out: str, a_out: str, width: int = 1920
     for k in range(1, len(segs)):
         (groups.append([k]) if segs[k].get("_tr") else groups[-1].append(k))
     graphs = []
-    for kind, out_label in (("v", v_out), ("a", a_out)):
+    for kind, out_label in [x for x in (("v", v_out), ("a", a_out)) if x[0] in kinds]:
         cur, length = None, 0.0
         for gi, g in enumerate(groups):
             lbl = f"{kind}{g[0]}"
@@ -777,9 +795,11 @@ def mattes(segs: list[dict], out: dict, grade: dict, clean: dict, log: Log, prev
 
 
 def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: Path, log: Log,
-                 preview: bool, label: str, clean: dict, fin: dict | None = None) -> float:
+                 preview: bool, label: str, clean: dict, fin: dict | None = None,
+                 picture: Path | None = None) -> float:
     """Segments joined in one pass. With `fin`, the finishing (b-roll, subtitles, voice bus,
-    music) happens in the same pass; without it (chunks of a long edit) it comes later."""
+    music) happens in the same pass; without it (chunks of a long edit) it comes later.
+    With `picture`, only the sound is built and that file's video is copied as it is."""
     inputs, graphs, total = [], [], 0.0
     with tempfile.TemporaryDirectory(prefix="vibetake-render-") as tmp:
         workdir = Path(tmp)
@@ -795,13 +815,15 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
             lead = min(s["_pre"] * v, s["in"]) if simple and not s.get("_up") else 0.0
             lack = s["_pre"] - lead / v if simple else 0.0
             length = lead + span + (s["_post"] * v if simple else 0) + 0.25
-            if s.get("_up"):
+            if picture:
+                pass
+            elif s.get("_up"):
                 inputs += ["-t", f"{length:.4f}", "-i", s["_up"]]          # upscale.py's picture
             else:
                 inputs += [*(HWDEC if k < HWDEC_MAX else []), "-ss", f"{s['in'] - lead:.4f}", "-t", f"{length:.4f}",
                            "-i", s["source"]]
-            vid, idx = idx, idx + 1
-            if not s.get("_up"):
+            vid, idx = (None, idx) if picture else (idx, idx + 1)
+            if not picture and not s.get("_up"):
                 stab_detect(k, s, s["in"] - lead, length, workdir, log)
             # The sound: its own window (J/L cuts and crossfades move it off the picture's).
             c = clean.get(s.get("name", Path(s["source"]).name))
@@ -828,6 +850,10 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
                 info = next((a for a in (MATERIAL.get(s.get("name", "")) or {}).get("audio", [])
                              if a["index"] == s.get("track", 0)), {})
                 s["_pan"] = channel_pan(info.get("channels"))
+            if picture:
+                graphs.append(segment_audio(k, s, dur, v, audio_in))
+                total += dur
+                continue
             gph, d = segment_graph(k, s, out, grade, audio_in, preview, workdir, lead, lack)
             gph = gph.replace(f"[{k}:v:0]", f"[{vid}:v:0]", 1)
             other = s.get("pip") or s.get("split")
@@ -841,20 +867,34 @@ def render_chunk(segs: list[dict], out: dict, grade: dict, enc: list[str], dst: 
             graphs.append(gph)
             total += d
         v_out, a_out = ("vc", "ac") if fin else ("v", "a")
-        graphs += join(segs, fps, v_out, a_out, out["width"])
-        if fin:
+        graphs += join(segs, fps, v_out, a_out, out["width"], "a" if picture else "va")
+        if picture:
+            f_inputs, f_graphs = finish_audio(idx, "ac", fin)
+            inputs += f_inputs
+            graphs += f_graphs
+            video = ["-map", f"{idx + sum(x == '-i' for x in f_inputs)}:v:0", *enc]
+            inputs += ["-i", str(picture)]
+        elif fin:
             f_inputs, f_graphs = finish_graph(idx, "vc", "ac", fin, out, grade)
             inputs += f_inputs
             graphs += f_graphs
+        if not picture:
+            video = ["-map", "[v]", *enc, "-pix_fmt", "yuv420p", *TAGS]
         script = workdir / "graph.txt"
         # Long graphs overflow the command line, so the graph goes in a file.
         script.write_text(";".join(graphs), encoding="utf-8")
         audio = ["-c:a", "pcm_s16le"] if dst.suffix == ".mkv" else ["-c:a", "aac", "-b:a", "320k"]
-        ffmpeg_progress([*inputs, "-/filter_complex", str(script), "-map", "[v]", "-map", "[a]",
-                         *enc, "-pix_fmt", "yuv420p", *TAGS, *audio, "-ar", "48000",
+        ffmpeg_progress([*inputs, "-/filter_complex", str(script), *video, "-map", "[a]", *audio, "-ar", "48000",
                          *(["-movflags", "+faststart"] if dst.suffix == ".mp4" else []), str(dst)],
                         total, label, log)
     return total
+
+
+def picture_sig(edit: str, out: dict, grade: dict, subs: Path | None, graphics: Path | None) -> str:
+    """A fingerprint of what the picture is made of, so --audio-only never pairs new sound with an old picture."""
+    import hashlib
+    files = [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in (subs, graphics) if p and p.exists()]
+    return hashlib.sha1(json.dumps([edit, out, grade, files], sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
 def main() -> None:
@@ -877,11 +917,15 @@ def main() -> None:
                                        "(default: 02-work/graphics.mov or .webm if present)")
     ap.add_argument("--no-graphics", action="store_true")
     ap.add_argument("--no-sfx", action="store_true")
+    ap.add_argument("--audio-only", action="store_true",
+                    help="keep the latest version's picture, rebuild only the sound (to try music in seconds)")
     ap.add_argument("--allow-stale", action="store_true",
                     help="render the master even with subtitles/graphics made for another cut")
     ap.add_argument("--upload-height", type=int, help="scale the master up to this height for upload "
                                                       "(e.g. 1440 for YouTube: it gets better codecs)")
     args = ap.parse_args()
+    if args.audio_only and (args.preview or args.upload_height):
+        die("--audio-only copies the delivered picture: it can't change its size")
 
     paths = work_paths(args.variant)
     if not args.edl:
@@ -892,6 +936,8 @@ def main() -> None:
     args.subs = args.subs or str(paths["subs"])
     edl = json.loads(Path(args.edl).read_text(encoding="utf-8"))
     MATERIAL.update(material_index())
+    # Everything in the edit but its sound: what a picture was rendered from.
+    picture_edit = json.dumps({k: v for k, v in edl.items() if k not in SOUND_ONLY}, sort_keys=True, default=str)
     sig = timeline_sig(edl)                    # before anything below touches the segments
     segs = edl["segments"]
     if not segs:
@@ -950,9 +996,16 @@ def main() -> None:
         else:
             n = (have[-1][0] if args.overwrite else have[-1][0] + 1) if have else 1
             dst = DELIVERY / f"{name}_v{n}.mp4"
+    picture = None
+    if args.audio_only:
+        name = deliverable_name(edl)
+        have = versions(name)
+        picture = (DELIVERY / f"{name}_v{have[-1][0]}_{args.variant}.mp4" if args.variant else have[-1][1]) if have else None
+        if not picture or not picture.exists():
+            die("--audio-only needs a finished version of this video: render it first")
     dst.parent.mkdir(parents=True, exist_ok=True)
     log = Log(Path("02-work") / "render.log")
-    enc_name, enc = pick(PREVIEW if args.preview else MASTER)
+    enc_name, enc = ("picture copied", ["-c:v", "copy"]) if picture else pick(PREVIEW if args.preview else MASTER)
     graded = sum(1 for s in segs if grade.get(s.get("name", Path(s["source"]).name), {}).get("lut"))
     log(f"rendering {len(segs)} segments → {dst} ({out['width']}×{out['height']} @ {out['fps']} fps, "
         f"{enc_name}, color on {graded}/{len(segs)} segments)")
@@ -989,7 +1042,7 @@ def main() -> None:
            "subs": subs if subs and subs.exists() else None, "fontsdir": args.fontsdir,
            "graphics": graphics, "sfx": sfx, "bleep": bleep_spans(edl, segs)}
     if graphics and any(s.get("behind") for s in segs):
-        fin["behind"] = mattes(segs, out, grade, clean, log, args.preview)
+        fin["behind"] = [] if picture else mattes(segs, out, grade, clean, log, args.preview)
     elif any(s.get("behind") for s in segs):
         log("WARNING: segments marked \"behind\" but no graphics layer: nothing to put behind the person")
     # Layers made for another version of the cut land at the wrong times: catch it here.
@@ -1030,6 +1083,10 @@ def main() -> None:
         f"graphics: {graphics.name if graphics else 'none'} · "
         f"subtitles: {'burned-in' if fin['subs'] else 'in the graphics layer' if in_layer and graphics else 'none'} · loudness: {args.loudness}")
 
+    pic_sig = picture_sig(picture_edit, out, grade, fin["subs"], graphics)
+    if picture and (not RENDERS.exists() or json.loads(RENDERS.read_text(encoding="utf-8")).get(picture.name) != pic_sig):
+        die(f"the picture changed since {picture.name} (cut, color, subtitles or graphics): render it normally")
+
     pre = dst.with_name(dst.stem + ".premaster" + dst.suffix)
     cpu_name, cpu = (PREVIEW if args.preview else MASTER)[-1]
 
@@ -1040,12 +1097,13 @@ def main() -> None:
         log(f"WARNING: {enc_name} failed mid-render ({str(e).splitlines()[0][:120]}) — finishing with {cpu_name}")
         return cpu
     used_encoder = [enc_name]
-    groups = chunks(segs)
+    groups = chunks(segs)      # may straighten a cut in a very long run: the sound must match that picture
+    groups = [segs] if picture else groups
     if len(groups) == 1:
         try:
-            total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
+            total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin, picture)
         except RuntimeError as e:
-            if enc_name == cpu_name:
+            if picture or enc_name == cpu_name:
                 raise
             enc = fallback(e)
             total = render_chunk(segs, out, grade, enc, pre, log, args.preview, "render", clean, fin)
@@ -1085,6 +1143,9 @@ def main() -> None:
             pass
     master(pre, dst, args.loudness, log)
     pre.unlink(missing_ok=True)
+    if not args.preview:
+        marks = json.loads(RENDERS.read_text(encoding="utf-8")) if RENDERS.exists() else {}
+        RENDERS.write_text(json.dumps({**marks, dst.name: pic_sig}, indent=1), encoding="utf-8")
     chs = chapters({**edl, "segments": segs})
     if chs and dst.suffix == ".mp4":
         # Chapters in the file (players show them) and as text for the YouTube description.

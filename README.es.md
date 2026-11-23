@@ -76,8 +76,8 @@ Haz un anuncio de 30 segundos de esto, vertical, con un gancho fuerte y un llama
 
 Lo que ayuda: **adónde va** (TikTok, Reels, Shorts, YouTube…), **el idioma**, los
 nombres y marcas que aparecen, y los archivos de marca si hay. Lo que no hace falta
-decir: subtítulos, ritmo, márgenes, música — lo decide según la plataforma y el tipo
-de video, y te cuenta qué eligió.
+decir: subtítulos, ritmo, márgenes — lo decide según la plataforma y el tipo
+de video, y te cuenta qué eligió. La música solo entra si la pedís: te la ofrece al entregar, con un par de preguntas de estilo y energía.
 
 ### 3. Qué pasa
 
@@ -162,7 +162,7 @@ uv run tests/test_take_quality.py  # dos tomas de una frase comparadas: más bla
 uv run tests/test_reframe.py       # encuadre: completo/fijo/operador por segmento; suavizados, cortes; acercamientos, zoom de impacto solo en énfasis, y se desliza
 uv run tests/test_speaker.py       # varias personas: quién dice cada frase (micrófonos, bocas), el encuadre las sigue
 uv run tests/test_broll.py         # b-roll anclado a palabras, el sonido debajo, sigue los re-cortes
-uv run tests/test_audio.py         # limpieza sobre el crudo (ruido, nivel, sin retraso), volumen por destino, ducking, musicgen (una pieza propia por proyecto, la energía sigue la edición)
+uv run tests/test_audio.py         # limpieza sobre el crudo (ruido, nivel, sin retraso), volumen por destino, ducking, remezcla solo de sonido, musicgen (una pieza propia por proyecto, la energía sigue la edición)
 uv run tests/test_sound.py         # generadores de música y efectos: cualquier perfil, cada instrumento y efecto; cambiar una parte conserva el resto
 uv run tests/test_composition.py   # el compositor sigue la teoría musical: cadencias, notas del acorde, disonancias resueltas, conducción de voces, sin estilos predefinidos
 uv run tests/test_audio_inputs.py  # el origen del sonido: canales, mejor pista, grabaciones aparte, ambiente

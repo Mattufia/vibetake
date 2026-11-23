@@ -31,7 +31,7 @@ come back (`M3` twice) when it means something. Ranges work: `M7-M9`, `M9-M7`.
 
 ## 3. The music sets the time
 
-Settle the track first (`references/music.md`: the user's, or generated at the target length). `build` reads its
+Settle the track first (`references/music.md`: the user's, or ask style and energy now and generate it at the target length). `build` reads its
 beats and bars (`audio.py beats`, made on the fly) and, where each shot falls, its loudness:
 
 | Track there | Shot length (`--pace auto`) |
