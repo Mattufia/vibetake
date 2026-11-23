@@ -1,8 +1,8 @@
 # Music: where it comes from
 
-Rule zero: the music is the plugin's generator (`musicgen.py`) or a file the user
-brings. Never search or download music from a library or bank, and never use anything
-that needs a credit: there is nothing to mention when publishing. Keep where every
+Rule zero: the music is a file the user brings, a CC0 track found with `musicfind.py`,
+or the plugin's generator (`musicgen.py`). Never use anything that needs a credit or
+limits commercial use: there is nothing to mention when publishing. Keep where every
 track came from in `project.md`.
 
 ## The tone brief: the whole video first
@@ -52,13 +52,39 @@ Only when the user wants it (SKILL.md section 5). The edit is delivered without 
      tech"), skip this question.
    - **Energy**: tranquila · media · a tope.
    Volume isn't asked: it stays in the background unless the user says otherwise.
-3. **Compose, add it, and remix only the sound**: `audio.py music --file <track>`, then
+3. **Find it (section 1) or, if the user prefers, compose it (section 2), add it, and
+   remix only the sound**: `audio.py music --file <track>`, then
    `render.py --audio-only`. The picture is copied, so a try takes seconds. If the picture
    changed since the last version it refuses: render normally.
 4. **Show it and adjust from plain phrases** ("más rápido", "sin batería"), remixing
    again each time. `audio.py music --clear` + `--audio-only` takes it back out.
 
-## 1. Synthesized (when the user wants music and brings no track)
+## 1. Real music, CC0 (the default when the user brings no track)
+
+```
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicfind.py find --query "upbeat,happy background" --duration 42.6 --tone bright --bpm 90-135
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicfind.py use --file 02-work/music/candidates/<track>.mp3
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file 02-work/music/candidates/<track>.mp3 --in <start>
+```
+
+- **`--query`**: a few comma-separated words about the music, from the brief and the chosen
+  style. Only that leaves the machine: never the project's name, transcript or brief.
+- **`--tone`** bright or dark from the brief (`any` if neither), **`--bpm`** from the energy.
+- It confirms CC0 on each track's own page, measures key, tempo, activity and room for the
+  voice, and keeps up to 3. It takes a few minutes: say so. Measuring rules tracks out; it
+  can't say a track is good, so **the user chooses by ear**.
+- **Show them mixed into the video** (`--audio-only`, one version per track), and say which
+  are shorter than the video: they repeat. Run `use` only on the one chosen.
+- **None convinces:** ask what was wrong, change the words or range and run `find` again. A
+  track already shown never comes back.
+- **Still nothing, or no results:** ask for *one* track from the Pixabay search `find` prints
+  (Pixabay's license allows it inside a video, not as a loose file). It goes in `music/`.
+  Measure it before mixing, then record it:
+  `musicfind.py check --file music/<track> --duration <s> --tone bright --bpm 90-135`,
+  `musicfind.py use --file music/<track> --url <its page> --license "Pixabay Content License"`.
+- Never bundle a track with the plugin or hand it over outside the video.
+
+## 2. Synthesized (when the user asks for it, or there's no internet)
 
 **You are the composer.** Write the whole piece as a score for this video: no presets,
 no numbers that pick for you. What's written is exactly what plays.
@@ -122,10 +148,10 @@ starting from `music.in` of the track, a beat lands on the timeline at
 tempo: a track that speeds up or drifts (live, rubato) gets beats that slide, so
 check by ear and cut on what you hear.
 
-## 2. The user's own file
+## 3. The user's own file
 
 Only when the user brings it (bought, licensed, or theirs), in the project's `music/`
-folder: it takes priority over the generator. Never ask them to go and find one. If it
+folder: it takes priority over everything else. If it
 looks like a commercial song they may not have the rights to, say so before using it
 (Content ID mutes or blocks it).
 
@@ -137,9 +163,9 @@ How it's mixed under the voice: SKILL.md section 5. The bed sits at ~−28 LUFS;
 ## Everything else (effects, b-roll, images, fonts)
 
 - **Effects**: the synthesized set (`sfx.py`) or the user's. **B-roll and images**: the
-  user's. No libraries, stock banks or manual downloads.
+  user's. No libraries or stock banks: the music search is only for music.
 - Fonts and icons come from the open-license sets the scripts already fetch.
 - **Nothing that needs a credit.** If something the user brings does, say so before
   using it.
-- **Keep the source of every piece the user brings in `project.md`**: if a copyright
+- **Keep the source of every piece from outside in `project.md`**: if a copyright
   claim (Content ID) arrives, that's the proof.

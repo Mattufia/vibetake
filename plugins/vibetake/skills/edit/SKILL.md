@@ -386,11 +386,12 @@ uv run ${CLAUDE_SKILL_DIR}/scripts/render.py --audio-only            # same pict
   By default it accompanies: low, under the video, never the protagonist unless asked.
 - **Start the music where it has energy** (`--in` <seconds into the track>), not on a
   slow intro, and fade it out at the end. `--start` is where it enters the edit.
-- **Music source** (once it's wanted): a piece synthesized to the length (`musicgen.py`) — scored for
+- **Music source** (once it's wanted): a file the user brings, which takes priority; else real CC0
+  tracks found and measured against the brief (`musicfind.py`), shown mixed so the user picks by ear;
+  or, if they ask or there's no internet, a piece synthesized to the length (`musicgen.py`) — scored for
   this video (you write the score: parts, chords, motifs and notes from the brief, checked with
-  `--check`, intensity rising and falling with what happens on screen), never the same bed by habit — or a file
-  the user brings, which takes priority. **Never search or download music, effects or
-  stock from a library, and nothing that needs a credit.** What the user brings: source
+  `--check`, intensity rising and falling with what happens on screen), never the same bed by habit.
+  **Never download effects or stock, and nothing that needs a credit.** Every outside track: source
   in `project.md`. The generators are full instruments, so direct them: form, chords,
   instruments, hits on the edit, variations, and any later change to one part without
   losing the rest (`<out>.score.json`); effects shaped, layered and varied (`sfx.py

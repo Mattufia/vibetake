@@ -165,6 +165,7 @@ uv run tests/test_broll.py         # b-roll anclado a palabras, el sonido debajo
 uv run tests/test_audio.py         # limpieza sobre el crudo (ruido, nivel, sin retraso), volumen por destino, ducking, remezcla solo de sonido, musicgen (una pieza propia por proyecto, la energía sigue la edición)
 uv run tests/test_sound.py         # generadores de música y efectos: cualquier perfil, cada instrumento y efecto; cambiar una parte conserva el resto
 uv run tests/test_composition.py   # el compositor sigue la teoría musical: cadencias, notas del acorde, disonancias resueltas, conducción de voces, sin estilos predefinidos
+uv run tests/test_musicfind.py     # búsqueda de música CC0: licencia confirmada en su página, tono medido, nada se muestra dos veces, fuente registrada
 uv run tests/test_audio_inputs.py  # el origen del sonido: canales, mejor pista, grabaciones aparte, ambiente
 uv run tests/test_subs.py          # reglas de .srt, grupos de palabras, esquivar caras, subtítulos quemados
 uv run tests/test_qa.py            # QA de entrega: un archivo bueno pasa, las fallas plantadas se detectan, zooms que parecen fallas, propuestas de ritmo
