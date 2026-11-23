@@ -8,31 +8,40 @@ track came from in `project.md`.
 ## 1. Synthesized (the default, for every kind of video)
 
 ```
-uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --mood <mood> --duration <edit length> --energy "<s>:low|mid|high,..." [--bpm] [--key] [--seed]
-uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file 02-work/music/<mood>.wav
+uv run ${CLAUDE_SKILL_DIR}/scripts/musicgen.py --feel "light=.7,drive=.4,tension=.2,organic=.8,size=.3,color=.5,sway=.2" --duration <edit length> --energy "<s>:low|mid|high,..." [--bpm] [--key] [--seed]
+uv run ${CLAUDE_SKILL_DIR}/scripts/audio.py music --file 02-work/music/music.wav
 ```
 
-**Scored for this video, never a default.** The music comes from what the video is
-and what happens in it, decided after the cut:
+**Scored for this video, never a default.** There are no styles to pick from. After
+the cut, read the video and set seven numbers (0–1); mode, tempo, chords, melody,
+rhythm, instruments and room are composed from them:
 
-- **Mood** from the profile, the topic and the tone of the transcript: `calm`, `ambient`,
-  `piano` (explaining, relaxed), `warm`, `romantic`, `sad` (emotional, testimonial,
-  family), `lofi`, `jazz`, `acoustic` (casual, study, desk, cooking), `upbeat`, `happy`,
-  `playful`, `corporate`, `inspiring` (positive, product, lifestyle), `energetic`,
-  `house`, `funk`, `latin`, `rock`, `synthwave`, `hiphop`, `trap` (sport, action, a fast
-  ad), `cinematic`, `epic` (travel, a reveal), `tense`, `dark`, `mystery` (a problem, a
-  before). Two moods in one video (a problem then the solution): two beds, each with
-  `--duration` of its part.
-- **Tempo** from the pace of the cut: few cuts and calm speech, the low end of the
-  mood's range; fast cuts or a lot of action, the high end (`--bpm`).
+| Feel | Read it from | 0 → 1 |
+|---|---|---|
+| `light` | the topic, what's said, the image's color and light | dark, heavy → luminous, hopeful |
+| `drive` | cuts per minute, speech rate, action on screen | still → pushing forward |
+| `tension` | is there a problem, a doubt, a wait, a reveal? | settled → unresolved |
+| `organic` | people, hands, nature, craft vs screens, tech, city at night | electronic → played by people |
+| `size` | close and personal vs landscapes, events, big claims | intimate → huge |
+| `color` | how refined or adult the subject and the look are | plain triads → rich sevenths and ninths |
+| `sway` | relaxed, humor, dance, walking vs precise, formal | straight → loose, swung |
+
+- Decide each number from this video's evidence, not from its genre: two vlogs can
+  land far apart. Two climates in one video (a problem then the solution): two beds,
+  each with its `--feel` and the `--duration` of its part.
 - **Energy** (`--energy`) from the edit's own times: `low` under a quiet start or a
   serious line, `high` from the hook, the reveal, the action or the payoff, `mid`
   for the rest; back to `low`/`mid` toward the close. A rise gets a drum fill into it.
 - The seed comes from the project, so each video sounds different and the same edit
-  reproduces it. The user doesn't like it: another `--seed` (new key, tempo,
-  chords), or another mood if it's the feel that's wrong.
-- Write in `project.md` what was chosen and why (mood, bpm, key, seed, energy: the
+  reproduces it. The user doesn't like it: another `--seed` (new key and ideas on the
+  same feel), or move the number that's wrong ("más alegre" is more `light`).
+- Write in `project.md` the feel and why (with bpm, key, mode and seed: the
   `.beats.json` has them), and tell the user in one line.
+
+**The writing follows the rules of music** (`_compose.py`): chords move by function
+and phrases close on cadences; a question ends open and its answer lands on the tonic;
+voices move as little as possible; the melody is a motif that returns, with chord tones
+on strong beats and long notes, dissonance that resolves by step and singable leaps.
 
 Computed note by note: free to use anywhere, needs nothing but numpy, exactly the
 length of the edit (get it with `broll.py check`), with a `.beats.json` for cutting on
@@ -42,11 +51,11 @@ it's synthesized, so they can bring their own track if they want one.
 
 ### Directing the piece
 
-`musicgen.py --list` shows everything available (27 moods, 26 instruments, patterns,
-grooves, kits, modes). A mood is only the starting point; say what the video needs:
+`musicgen.py --list` shows everything available (the feel, 26 instruments, patterns,
+kits, modes). The feel is only the starting point; say what the video needs:
 
 ```
-musicgen.py --mood cinematic --duration 42 --form "intro:2,build:4,drop:6,outro:2" \
+musicgen.py --feel "light=.3,drive=.5,tension=.6,size=.9" --duration 42 --form "intro:2,build:4,drop:6,outro:2" \
   --progression "i VI III VII" --instrument "lead=choir,bass=bass_808" --pattern "bass=octave" \
   --hit "12.4,31.0" --ending ring --no-melody --out 02-work/music/main.wav
 ```
@@ -72,7 +81,7 @@ musicgen.py --mood cinematic --duration 42 --form "intro:2,build:4,drop:6,outro:
 
 - **Note by note**: anything flags don't reach, edit the score: each section has
   `bars`, `energy`, `chords` (`"Am:2"` holds two bars), optional `parts` (which play),
-  `patterns`, `groove`, and `notes` per part as `[beat, length, note, velocity]`, with
+  `patterns`, `groove` (drum lines of 16 steps), and `notes` per part as `[beat, length, note, velocity]`, with
   notes as MIDI numbers or names (`"E5"`). Notes written for a part replace its pattern
   in that section. Then render it with `--score`.
 - **Stems**: `--stems` writes one WAV per part in `<out>.stems/`.

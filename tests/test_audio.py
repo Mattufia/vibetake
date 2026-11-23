@@ -121,7 +121,7 @@ def main() -> None:
     checks[f"music ducked while talking ({talking - pause:+.1f} dB vs the pause)"] = pause - talking >= 8
 
     # Synthesized bed: exact length, no clipping, beats on the tempo grid.
-    run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--mood", "upbeat", "--duration", "12.34",
+    run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--feel", "light=.8,drive=.7,organic=.6", "--duration", "12.34",
         "--bpm", "120", "--out", "gen.wav")
     g = pcm(tmp / "gen.wav", 48000)
     beats = json.loads((tmp / "gen.beats.json").read_text())["beats"]
@@ -135,16 +135,16 @@ def main() -> None:
     for name in ("proyecto-a", "proyecto-b", "proyecto-a"):
         d = tmp / name
         d.mkdir(exist_ok=True)
-        run(d, "uv", "run", str(SCRIPTS / "musicgen.py"), "--mood", "calm", "--duration", "8",
+        run(d, "uv", "run", str(SCRIPTS / "musicgen.py"), "--feel", "light=.7,drive=.3", "--duration", "8",
             "--out", f"m{len(metas)}.wav")
         metas.append(json.loads((d / f"m{len(metas)}.beats.json").read_text()))
     style = [(m["seed"], m["key"], m["bpm"], m["progression"]) for m in metas]
     checks["musicgen: two projects, two pieces"] = style[0][0] != style[1][0]
     checks["musicgen: same project, same piece"] = style[0] == style[2]
-    checks["musicgen: tempo within the mood's range"] = all(70 <= m["bpm"] <= 86 for m in metas)
+    checks["musicgen: tempo follows the drive"] = all(70 <= m["bpm"] <= 96 for m in metas)
 
     # Energy follows the edit: a low opening is quieter than the high body.
-    run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--mood", "upbeat", "--duration", "16",
+    run(tmp, "uv", "run", str(SCRIPTS / "musicgen.py"), "--feel", "light=.8,drive=.7,organic=.6", "--duration", "16",
         "--bpm", "120", "--seed", "4", "--energy", "0:low,8:high", "--out", "arc.wav")
     a = pcm(tmp / "arc.wav", 48000)
     rms = lambda x: float(np.sqrt((x.astype(float) ** 2).mean()))  # noqa: E731
