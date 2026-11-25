@@ -39,7 +39,10 @@ is tight, flag it before starting.
 **Ask before installing anything** (what, what for, how big; declined → work without
 it). Tools install **globally** and once (isolated Python tools, the OS package
 manager for binaries), models live in the shared user cache; check before installing
-and note it in `project.md`. Only Remotion installs per project (pinned version).
+and note it in `project.md`. Only Remotion installs per project: its latest stable
+version (never a beta) when the project is made, and the kit's other packages at their
+newest stable versions that fit together within the majors the kit is tested on; then
+kept with its package-lock until the user asks to upgrade it (`graphics.py init --upgrade`).
 
 **If installing isn't possible** (no permissions, no network, locked-down work
 machine), make do with what's there and say so in one line: without Remotion, graphics

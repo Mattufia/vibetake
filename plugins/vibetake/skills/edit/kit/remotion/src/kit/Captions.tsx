@@ -8,9 +8,9 @@ import { zColor } from "@remotion/zod-types";
 import data from "../data/captions.json";
 import { ThreeCanvas } from "@remotion/three";
 import * as THREE from "three";
-import type opentype from "opentype.js";
+import type * as opentype from "opentype.js";
 import { design, font } from "./design";
-import { extrude, fontFile, loadFont, Studio, textSvg, useAsset } from "./Three";
+import { advance, extrude, fontFile, loadFont, Studio, textSvg, useAsset } from "./Three";
 
 export const captionStyleSchema = z.object({
   animation: z.enum(["pop", "karaoke", "bounce", "none"]),
@@ -89,10 +89,10 @@ const Group3D: React.FC<{ g: Group; s: CaptionStyle; f: opentype.Font }> = ({ g,
   const ink = s.textColor || "#FFFFFF";
   const words = cap.style !== "sentence";
   const { placed, lines } = useMemo(() => {
-    const gap = cap.join ? f.getAdvanceWidth(" ", px) : 0;
+    const gap = cap.join ? advance(f, " ", px) : 0;
     const items = g.words.map((w, i) => {
       const text = s.upper ? w.text.toLocaleUpperCase() : w.text;
-      return { i, w: f.getAdvanceWidth(text, px), geo: extrude(textSvg(f, text, px), 0.25, px), x: 0, line: 0 };
+      return { i, w: advance(f, text, px), geo: extrude(textSvg(f, text, px), 0.25, px), x: 0, line: 0 };
     });
     const rows: (typeof items)[] = [[]];
     let x = 0;
