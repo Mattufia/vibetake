@@ -23,7 +23,10 @@ en el momento con `/reload-plugins`. Para actualizar a mano: `/plugin` →
 
 Ejecuta `/vibetake:setup` una vez por máquina: revisa herramientas, GPU y modelos,
 instala lo que falta (winget / Homebrew / apt, después de tu OK) y descarga los modelos
-pesados de entrada, con una prueba real de transcripción en la GPU. El perfil de la
+pesados de entrada, con una prueba real de transcripción en la GPU. También instala o
+actualiza las skills propias de Remotion (`remotion-*`, de `remotion-dev/skills`) para tu
+usuario, en `~/.claude/skills`, en la versión del Remotion del kit; sin Node o sin
+internet, Vibetake funciona sin ellas. El perfil de la
 máquina va a `~/.vibetake/machine.json`, nunca adentro del plugin.
 
 ## Uso: editar un video, paso a paso

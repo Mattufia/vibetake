@@ -7,6 +7,7 @@ this video's design.
 
     uv run graphics.py cues        # words, cuts, face, safe zone → 02-work/cues.json
     uv run graphics.py init        # Remotion project with Vibetake's kit → 02-work/remotion/
+    uv run graphics.py init --upgrade   # that project → the current kit, latest Remotion
     uv run graphics.py still 2.4   # one frame of the layer over the video → 02-work/graphics-stills/
     uv run graphics.py render      # the whole layer, with alpha → 02-work/graphics.mov
 
@@ -14,7 +15,9 @@ A stage in the plan (a composed page with the edit's picture placed in it) also 
 clean edit once, to 02-work/footage.mp4, and again whenever the cut or the grade changes.
 A 3D element (Three.js) renders with the GPU's GL (--gl=angle; swangle on Linux).
 
-init copies the kit (motion pieces, no house style) and installs it once per project;
+init copies the kit (motion pieces, no house style) and installs it once per project, with
+the latest stable Remotion and the newest compatible kit packages of the day; from then on the project keeps its versions and its
+package-lock (init --upgrade moves it on when the user asks);
 every still/render first syncs the project with 02-work: design.json (this video's
 design), graphics.json (the scene plan), cues.json, the fonts from fonts.py and the
 icons from icons.py. Components written for the video go in
@@ -149,16 +152,94 @@ def gl_flags() -> list[str]:
     return [f"--gl={'swangle' if sys.platform.startswith('linux') else 'angle'}"] if has3d else []
 
 
+def is_remotion(name: str) -> bool:
+    return name == "remotion" or name.startswith("@remotion/")
+
+
+def kit_deps(pkg: dict) -> dict:
+    """A package.json's dependencies without Remotion's: what the kit was tested on besides it."""
+    return {sec: {k: v for k, v in (pkg.get(sec) or {}).items() if not is_remotion(k)}
+            for sec in ("dependencies", "devDependencies")}
+
+
+def latest_remotion(tested: str) -> str:
+    """The newest stable Remotion (npm's `latest` tag never points at a beta), within the major the
+    kit is written for. Offline, or a new major out: the kit's own tested version."""
+    try:
+        p = subprocess.run(node_cmd("npm", "view", "remotion@latest", "version"),
+                           capture_output=True, text=True, timeout=60)
+        v = p.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        v = ""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", v):
+        print(f"note: couldn't ask npm for the latest Remotion; installing the kit's {tested}")
+        return tested
+    if v.split(".")[0] != tested.split(".")[0]:
+        print(f"note: Remotion {v} is a new major; the kit is written for {tested.split('.')[0]}.x — "
+              f"installing {tested} (the kit needs updating to move to it)")
+        return tested
+    return v
+
+
+def project_package(kit_pkg: dict, exact: bool = False) -> dict:
+    """The kit's package.json for a new project: every remotion/@remotion/* package at the same,
+    latest stable version (Remotion breaks when its packages are mixed), the rest at the newest
+    stable within the major the kit was tested on (^: npm picks them, compatible with each other;
+    on 0.x, like three, ^ stays on that minor). `exact`: the kit's tested versions, as they are."""
+    pkg = json.loads(json.dumps(kit_pkg))
+    if exact:
+        return pkg
+    v = latest_remotion(kit_pkg["dependencies"]["remotion"])
+    for sec in ("dependencies", "devDependencies"):
+        for k, tested in (pkg.get(sec) or {}).items():
+            pkg[sec][k] = v if is_remotion(k) else f"^{tested.lstrip('^~')}"
+    return pkg
+
+
+def npm_install() -> bool:
+    return subprocess.run(node_cmd("npm", "install", "--no-audit", "--no-fund"), cwd=PROJ).returncode == 0
+
+
+def new_majors() -> None:
+    """Says which kit dependencies have a new major out: those wait for the kit to be adapted."""
+    p = subprocess.run(node_cmd("npm", "outdated", "--json"), cwd=PROJ, capture_output=True, text=True)
+    try:
+        out = json.loads(p.stdout or "{}")
+    except ValueError:
+        return
+    major = lambda v: v.split(".")[:2] if v.startswith("0.") else v.split(".")[:1]
+    new = [f"{k} {o['latest']}" for k, o in out.items() if not is_remotion(k)
+           and o.get("latest") and o.get("current") and major(o["latest"]) != major(o["current"])]
+    if new:
+        print(f"note: new major versions out, not installed until the kit is adapted to them: {', '.join(new)}")
+
+
 def cmd_init(args) -> None:
     PROJ.mkdir(parents=True, exist_ok=True)
+    kit_pkg = load(KIT / "package.json")
+    stamp = PROJ / "node_modules" / ".vibetake-package.json"     # the package.json node_modules holds
+    base = PROJ / ".vibetake-kit-package.json"                    # the kit's, when this project was made
+    pj = PROJ / "package.json"
+    if not base.exists() and stamp.exists():                     # a project from before the baseline
+        base.write_text(stamp.read_text(encoding="utf-8"), encoding="utf-8")
+    # A project keeps the dependencies (and the kit code written for them) it was made with, and
+    # its package-lock: it doesn't move to a newer kit or Remotion on its own, only with --upgrade.
+    upgrade = getattr(args, "upgrade", False) or not pj.exists()
+    frozen = not upgrade and base.exists() and kit_deps(load(base)) != kit_deps(kit_pkg)
+    if frozen:
+        print("note: the kit moved to newer dependencies since this project was made; the project keeps "
+              "its own (kit code, package.json, package-lock). graphics.py init --upgrade moves it to "
+              "the current kit and the latest Remotion")
     for f in KIT.rglob("*"):
         rel = f.relative_to(KIT)
-        if f.is_dir() or rel.parts[0] == "node_modules":
+        if f.is_dir() or rel.parts[0] == "node_modules" or rel.as_posix() == "package.json":
             continue
         dst = PROJ / rel
         # The video's own components and data are never touched by the kit once they exist:
         # a folder that already has files is the video's, whole.
         own = rel.parts[:2] in (("src", "custom"), ("src", "data"), ("src", "covers"))
+        if frozen and not own and dst.exists():
+            continue
         if own and (dst.exists() or any((PROJ / rel.parts[0] / rel.parts[1]).glob("*"))):
             continue
         # Studio saves the caption props into Root.tsx: kept only when it was edited there
@@ -177,16 +258,31 @@ def cmd_init(args) -> None:
             (PROJ / ".vibetake-root.tsx").write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
-    stamp = PROJ / "node_modules" / ".vibetake-package.json"
-    pkg = (PROJ / "package.json").read_text(encoding="utf-8")
+    if upgrade:
+        if pj.exists():
+            print("upgrading the Remotion project to the current kit and the latest compatible versions…")
+        (PROJ / "package-lock.json").unlink(missing_ok=True)
+        pj.write_text(json.dumps(project_package(kit_pkg), indent=2) + "\n", encoding="utf-8")
+        base.write_text((KIT / "package.json").read_text(encoding="utf-8"), encoding="utf-8")
+    pkg = pj.read_text(encoding="utf-8")
     if not stamp.exists() or stamp.read_text(encoding="utf-8") != pkg:
-        # First time, or the kit's dependencies changed since this project was installed.
+        # First time, an upgrade, or package.json edited by hand. npm install keeps what
+        # package-lock.json pins and changes only what package.json asks for.
         print("installing the Remotion project (first time per project: npm + a headless browser, a few minutes)…",
               flush=True)
-        p = subprocess.run(node_cmd("npm", "install", "--no-audit", "--no-fund"), cwd=PROJ)
-        if p.returncode:
-            die("npm install failed (see above)")
+        if not npm_install():
+            if not upgrade:
+                die("npm install failed (see above)")
+            # No set of newest versions fits together: the kit's tested one (no --force).
+            print("note: the newest versions don't fit together; installing the kit's tested versions")
+            (PROJ / "package-lock.json").unlink(missing_ok=True)
+            pj.write_text(json.dumps(project_package(kit_pkg, exact=True), indent=2) + "\n", encoding="utf-8")
+            pkg = pj.read_text(encoding="utf-8")
+            if not npm_install():
+                die("npm install failed (see above)")
         stamp.write_text(pkg, encoding="utf-8")
+        if upgrade:
+            new_majors()
     print(f"Remotion project → {PROJ} (kit pieces in src/kit, your components in src/custom)")
 
 
@@ -485,6 +581,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("cues", "init", "sync", "still", "render"))
     ap.add_argument("times", nargs="*", type=float, help="still: seconds on the edit's timeline")
+    ap.add_argument("--upgrade", action="store_true",
+                    help="init: move an existing project to the current kit and the latest stable Remotion")
     ap.add_argument("--edl")
     ap.add_argument("--ingest", default="01-ingest")
     ap.add_argument("--out", help="the cue sheet (default: 02-work/cues.json; a variant: cues_<variant>.json)")

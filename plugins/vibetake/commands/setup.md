@@ -25,7 +25,11 @@ The scripts live in `${CLAUDE_PLUGIN_ROOT}/skills/edit/scripts/`.
    prints the plan), show the user the list, and after their OK run
    `setup.py install --yes`. On Windows, winget may open permission prompts the
    user has to accept. Optional tools (Node for Remotion, Real-ESRGAN, yt-dlp) only
-   if the user wants them — say what each is for. **Never install without the
+   if the user wants them — say what each is for. `remotion-skills` are Remotion's
+   own skills (what Vibetake loads to write graphics), installed for the user in
+   `~/.claude/skills` and updated there in place when older than the kit's Remotion;
+   they need Node. If they can't be installed, say so in one line and go on: Vibetake
+   works without them. **Never install without the
    user's OK**, here or mid-edit. If there's no package manager or no
    permission to install (a locked-down work machine), say what's missing and what
    still works without it (SKILL.md, section 0).

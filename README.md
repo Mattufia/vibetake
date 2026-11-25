@@ -23,7 +23,10 @@ away with `/reload-plugins`. To update by hand: `/plugin` â†’ **Marketplaces** â
 
 Run `/vibetake:setup` once per machine: it checks tools, GPU and models, installs
 what's missing (winget / Homebrew / apt, after your OK) and downloads the heavy models
-up front, with a real transcription test on the GPU. The machine profile goes to
+up front, with a real transcription test on the GPU. It also installs or updates
+Remotion's own skills (`remotion-*`, from `remotion-dev/skills`) for your user, in
+`~/.claude/skills`, at the version of the kit's Remotion; without Node or internet,
+Vibetake works without them. The machine profile goes to
 `~/.vibetake/machine.json`, never into the plugin.
 
 ## Use: editing a video, step by step

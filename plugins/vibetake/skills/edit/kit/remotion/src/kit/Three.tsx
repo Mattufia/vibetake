@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { SVGLoader } from "three/examples/jsm/loaders/SVGLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import opentype from "opentype.js";
+import * as opentype from "opentype.js";
 import { applyCase, color, design, Role } from "./design";
 import { useSpring } from "./motion";
 import { ICONS } from "../data/icons";
@@ -45,9 +45,33 @@ const fonts: Record<string, Promise<opentype.Font>> = {};
 export const loadFont = (file: string): Promise<opentype.Font> =>
   (fonts[file] ??= fetch(staticFile(file)).then((r) => r.arrayBuffer()).then((b) => opentype.parse(b)));
 
+// opentype.js 2 always applies ccmp and throws on GSUB lookups it can't apply yet (chained
+// contexts by class, common in Google Fonts): that font's text is then laid out glyph by glyph,
+// kerning kept, without ligatures.
+const plain = (font: opentype.Font, s: string, size: number, x = 0) => {
+  const k = size / font.unitsPerEm, path = new opentype.Path();
+  let cx = x, prev: opentype.Glyph | null = null;
+  for (const ch of Array.from(s)) {
+    const g = font.charToGlyph(ch);
+    if (prev) cx += font.getKerningValue(prev, g) * k;
+    path.extend(g.getPath(cx, 0, size));
+    cx += (g.advanceWidth ?? 0) * k;
+    prev = g;
+  }
+  return { path, width: cx - x };
+};
+
+/** How wide a string is in a font at `size` px. */
+export const advance = (font: opentype.Font, s: string, size: number): number => {
+  try { return font.getAdvanceWidth(s, size); } catch { return plain(font, s, size).width; }
+};
+
 /** A string as an SVG path in a font, `size` px tall (baseline at y=0). */
-export const textSvg = (font: opentype.Font, s: string, size = 100, x = 0): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg"><path d="${font.getPath(s, x, 0, size).toPathData(2)}"/></svg>`;
+export const textSvg = (font: opentype.Font, s: string, size = 100, x = 0): string => {
+  let p: opentype.Path;
+  try { p = font.getPath(s, x, 0, size); } catch { p = plain(font, s, size, x).path; }
+  return `<svg xmlns="http://www.w3.org/2000/svg"><path d="${p.toPathData(2)}"/></svg>`;
+};
 
 const svgOf = async (p: ThreeProps): Promise<string> => {
   if (p.model === "icon") return ICONS[p.name ?? ""] ?? "";

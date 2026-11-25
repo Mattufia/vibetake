@@ -7,24 +7,24 @@
     "render": "remotion render Graphics ../graphics.mov --codec=prores --prores-profile=4444 --pixel-format=yuva444p10le --image-format=png"
   },
   "dependencies": {
-    "@remotion/cli": "4.0.531",
-    "@remotion/fonts": "4.0.531",
-    "@remotion/layout-utils": "4.0.531",
-    "@remotion/paths": "4.0.531",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "remotion": "4.0.531",
-    "@remotion/zod-types": "4.0.531",
-    "zod": "4.5.4",
-    "@remotion/three": "4.0.531",
-    "@react-three/fiber": "8.17.14",
-    "three": "0.170.0",
-    "opentype.js": "1.3.4"
+    "@remotion/cli": "4.0.547",
+    "@remotion/fonts": "4.0.547",
+    "@remotion/layout-utils": "4.0.547",
+    "@remotion/paths": "4.0.547",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.547",
+    "@remotion/zod-types": "4.0.547",
+    "zod": "4.6.7",
+    "@remotion/three": "4.0.547",
+    "@react-three/fiber": "9.8.2",
+    "three": "0.187.0",
+    "opentype.js": "2.0.0"
   },
   "devDependencies": {
-    "@types/react": "18.3.12",
-    "typescript": "5.6.3",
-    "@types/three": "0.170.0",
-    "@types/opentype.js": "1.3.8"
+    "@types/react": "19.3.1",
+    "typescript": "7.0.2",
+    "@types/three": "0.187.0",
+    "@types/opentype.js": "1.3.10"
   }
 }
