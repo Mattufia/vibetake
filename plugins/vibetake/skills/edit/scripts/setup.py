@@ -5,21 +5,24 @@
 """Machine setup: what's here, what's missing, install it, download the heavy models.
 
     uv run setup.py check                     # table + ~/.vibetake/machine.json (default)
-    uv run setup.py install [--only ffmpeg,exiftool,node,realesrgan] [--yes]
+    uv run setup.py install [--only ffmpeg,exiftool,node,remotion-skills,realesrgan] [--yes]
     uv run setup.py prefetch [--only whisper,faces,rembg]   # heavy downloads now + a real GPU test
 
 check looks at the OS, CPU, RAM, free disk, the GPU (any vendor) and its VRAM,
 ffmpeg (version, x264, the filters the scripts use, which hardware encoder really
 works here), uv, exiftool, Node (for Remotion), rembg, Real-ESRGAN and the cached
-models. It writes the machine profile to ~/.vibetake/machine.json — outside the
+models, and the Remotion skills (remotion-*: their version against the kit's Remotion).
+It writes the machine profile to ~/.vibetake/machine.json — outside the
 plugin, one per machine — with the absolute path of every tool, so the scripts find
 a tool installed a minute ago even before the terminal's PATH refreshes.
 
 install uses the system's package manager (winget on Windows, Homebrew on macOS,
 apt/dnf on Linux) for system tools, `uv tool install` for Python tools (yt-dlp),
-and downloads Real-ESRGAN's official release to ~/.vibetake/tools/realesrgan.
+downloads Real-ESRGAN's official release to ~/.vibetake/tools/realesrgan, and
+installs or updates the Remotion skills for the user (~/.claude/skills, in place, one
+copy) with the official `skills` CLI.
 Without --yes it only prints the plan: show it to the user and ask first.
-Nothing already installed is reinstalled.
+Nothing already installed is reinstalled (the Remotion skills: only when older than the kit's Remotion).
 
 prefetch downloads, now instead of mid-edit: the Whisper model (~3 GB) plus, with
 an NVIDIA GPU, the CUDA libraries (~1 GB) — and transcribes a test clip to prove the
@@ -64,9 +67,49 @@ NEED = {  # tool: (level, what it's for)
     "uv": ("required", "runs the scripts and their Python dependencies"),
     "exiftool": ("recommended", "camera and log-profile detection"),
     "node": ("recommended", "the animated graphics layer (Remotion, Node 18+)"),
+    "remotion-skills": ("recommended", "Remotion's own skills, loaded to write graphics (needs Node)"),
     "realesrgan": ("optional", "AI upscaling of stretched vertical crops"),
     "yt-dlp": ("optional", "download material from a link (YouTube, etc.)"),
 }
+
+
+# The Remotion skills: for the user (every project sees them), from Remotion's official repo,
+# with the official CLI. Vibetake loads these; the rest of the repo's skills come along.
+SKILLS_DIR = Path.home() / ".claude" / "skills"
+SKILLS_USED = ("remotion-best-practices", "remotion-docs", "remotion-maps", "remotion-markup")
+KIT_PACKAGE = Path(__file__).resolve().parent.parent / "kit" / "remotion" / "package.json"
+# -g: the user's skills, not the project's · -a claude-code: only ~/.claude/skills · --copy: the files
+# right there (no second copy in ~/.agents/skills to link from) · -s '*' -y: all of them, no questions.
+SKILLS_ADD = ["skills", "add", "remotion-dev/skills", "-g", "-a", "claude-code", "-s", "*", "-y", "--copy"]
+
+
+def vkey(v: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+
+
+def kit_remotion() -> str:
+    return json.loads(KIT_PACKAGE.read_text(encoding="utf-8"))["dependencies"]["remotion"].lstrip("^~")
+
+
+def remotion_skills() -> dict:
+    """Which remotion-* skills are installed for the user and the oldest version among them
+    (the `version:` in each SKILL.md); missing = one vibetake loads isn't there."""
+    found = {}
+    for d in sorted(SKILLS_DIR.glob("remotion-*")):
+        f = d / "SKILL.md"
+        if f.exists():
+            m = re.search(r"^version:\s*([\d.]+)", f.read_text(encoding="utf-8", errors="replace"), re.M)
+            found[d.name] = m.group(1) if m else "?"
+    # The version that counts is that of the skills vibetake loads: the repo doesn't bump every
+    # skill on each release (remotion-license can sit one behind), and those aren't fixable here.
+    versions = [v for n, v in found.items() if v != "?" and n in SKILLS_USED]
+    return {"path": str(SKILLS_DIR) if found else None, "skills": sorted(found),
+            "version": min(versions, key=vkey) if versions else None,
+            "missing": [n for n in SKILLS_USED if n not in found], "kit": kit_remotion()}
+
+
+def skills_outdated(t: dict) -> bool:
+    return bool(t.get("missing")) or not t.get("version") or vkey(t["version"]) < vkey(t["kit"])
 
 
 def sh(cmd: list[str], timeout: float = 60) -> str:
@@ -249,6 +292,12 @@ def cmd_check(args) -> dict:
                             "home": round(shutil.disk_usage(Path.home()).free / 1e9)}
     rows = []
     for name, (level, why) in NEED.items():
+        if name == "remotion-skills":
+            t = prof["tools"][name] = remotion_skills()
+            status = ("MISSING" if not t["path"] else f"{t['version']} (kit {t['kit']}: update)"
+                      if skills_outdated(t) else f"{t['version']} ({len(t['skills'])} skills)")
+            rows.append((name, level, status, why))
+            continue
         path = find(name)
         prof["tools"][name] = {"path": path, "version": version(name, path) if path else None}
         rows.append((name, level, f"{prof['tools'][name]['version']}" if path else "MISSING", why))
@@ -268,10 +317,16 @@ def cmd_check(args) -> dict:
         print(f"GPU: {g['vendor']} {g['name']}" + (f" · {g['vram_gb']} GB" if g.get("vram_gb") else "")
               + (f" ({g['note']})" if g.get("note") else ""))
     print()
-    print(f"{'tool':<11} {'need':<12} {'status':<34} for")
+    print(f"{'tool':<15} {'need':<12} {'status':<34} for")
     for name, level, status, why in rows:
-        print(f"{name:<11} {level:<12} {status[:34]:<34} {why}")
+        print(f"{name:<15} {level:<12} {status[:34]:<34} {why}")
     problems = []
+    rs = prof["tools"]["remotion-skills"]
+    if skills_outdated(rs):
+        problems.append(
+            f"Remotion skills {'missing' if not rs['path'] else 'at ' + str(rs['version'])}"
+            + (f" (without {', '.join(rs['missing'])})" if rs["path"] and rs["missing"] else "")
+            + f", the kit uses Remotion {rs['kit']}: setup.py install --only remotion-skills")
     ff = prof.get("ffmpeg")
     if ff:
         missing = [f for f in ("subtitles", "drawtext", "lut3d", "afftdn", "sidechaincompress") if not ff["filters"][f]]
@@ -335,6 +390,7 @@ def cmd_install(args) -> None:
     prof = cmd_check(args) if not PROFILE.exists() else json.loads(PROFILE.read_text(encoding="utf-8"))
     want = [x for x in (args.only.split(",") if args.only else NEED) if x in NEED]
     todo = [t for t in want if not prof["tools"].get(t, {}).get("path") or
+            (t == "remotion-skills" and skills_outdated(prof["tools"][t])) or
             (t == "ffmpeg" and any(not v for k, v in prof.get("ffmpeg", {}).get("filters", {}).items()
                                    if k in ("subtitles", "drawtext", "lut3d", "afftdn")))]
     if not todo:
@@ -348,6 +404,11 @@ def cmd_install(args) -> None:
         elif t == "yt-dlp":
             # A Python tool: isolated but available system-wide, the same on every OS.
             plan.append((t, ["uv", "tool", "install", "yt-dlp"], "uv tool install yt-dlp"))
+        elif t == "remotion-skills":
+            npx = shutil.which("npx")
+            c = ([*(["cmd", "/c"] if OS == "Windows" else []), npx, "-y", *SKILLS_ADD] if npx else None)
+            plan.append((t, c, f"npx -y {' '.join(SKILLS_ADD)}" if c else
+                         "needs Node first (setup.py install --only node); vibetake works without them"))
         elif t == "uv" and OS == "Linux":
             plan.append((t, ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"], "uv official installer"))
         else:
@@ -365,7 +426,10 @@ def cmd_install(args) -> None:
             if t == "realesrgan":
                 install_realesrgan()
             elif c:
-                subprocess.run(c, check=False)
+                r = subprocess.run(c, check=False)
+                if r.returncode and t == "remotion-skills":
+                    print("WARNING: the Remotion skills couldn't be installed (no internet or blocked?): "
+                          "vibetake works without them, graphics are written without their guidance")
         except Exception as e:  # noqa: BLE001
             print(f"WARNING: {t} failed: {e}")
     print()
